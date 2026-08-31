@@ -13,8 +13,8 @@ logger = logging.getLogger("ppnormal")
 SITE_URL = "https://switchupcb.com"
 PAYPAL_GQL = "https://www.paypal.com/graphql"
 
-SITE_TIMEOUT = 25
-PAYPAL_TIMEOUT = 20
+SITE_TIMEOUT = 15
+PAYPAL_TIMEOUT = 15
 
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
@@ -383,7 +383,10 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
                         issue = details[0].get("issue", "")
                         if issue:
                             return f"Declined - {issue} | {cc[:6]} [{elapsed}s]"
-                    retryable_words = ["internal", "timeout", "unavailable", "server", "integrity"]
+                    retryable_words = ["internal", "timeout", "unavailable", "server"]
+                    is_integrity = "integrity" in msg.lower()
+                    if is_integrity:
+                        return f"Declined - PayPal Integrity Check (use proxy or try again) | {cc[:6]} [{elapsed}s]"
                     if any(w in msg.lower() for w in retryable_words) and attempt < 1:
                         await asyncio.sleep(random.uniform(0.5, 1.5))
                         continue
