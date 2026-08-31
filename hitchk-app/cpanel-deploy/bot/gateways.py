@@ -25,7 +25,7 @@ GATEWAY_REGISTRY = {
             "rz": {"name": "Razorpay Charge", "func": "razorpay.razorpay_check", "type": "charge"},
             "charge": {"name": "Stripe Charge SK", "func": "stripe_charge.stripe_charge_check", "type": "charge"},
             "pp": {"name": "PayPal Charge $0.01", "func": "paypal_gate.paypal_check", "type": "charge"},
-            "shp": {"name": "Shopify Native", "func": "shopify_native.shopify_native_check", "type": "charge"},
+            "shp": {"name": "Shopify", "func": "shopify_native.shopify_native_check", "type": "charge"},
             "skl1": {"name": "Stripe Charge $1", "func": "skool_charge2.skool_charge2_check", "type": "charge"},
             "skl2": {"name": "Stripe Charge $7", "func": "skool_charge.skool_charge_check", "type": "charge"},
             "b3c": {"name": "Braintree Charge", "func": "b3_charge.b3_charge_check", "type": "charge"},

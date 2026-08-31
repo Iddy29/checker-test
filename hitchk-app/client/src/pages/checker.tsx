@@ -38,6 +38,13 @@ interface CheckResult {
   gateway?: string;
   card?: string;
   timestamp?: number;
+  site?: string;
+  amount?: string | number | null;
+  confidence?: number | null;
+  explanation?: string;
+  card_type?: string;
+  card_bin?: string;
+  card_last4?: string;
 }
 
 interface LogEntry {
@@ -121,7 +128,7 @@ interface JobDetail {
   gateway: string;
   totalCards: number;
   processedCards: number;
-  results: { id: string; card: string; status: string; response: string; timestamp: number }[];
+  results: { id: string; card: string; status: string; response: string; timestamp: number; gateway?: string; site?: string; amount?: string | number | null; confidence?: number | null; explanation?: string; card_type?: string; card_bin?: string; card_last4?: string }[];
   allResultsCount: number;
   createdAt: number;
   completedAt?: number;
@@ -216,8 +223,15 @@ export default function CheckerPage() {
             status: r.status,
             response: r.response,
             card: r.card,
-            gateway: gateName,
+            gateway: r.gateway || gateName,
             timestamp: r.timestamp,
+            site: r.site,
+            amount: r.amount,
+            confidence: r.confidence,
+            explanation: r.explanation,
+            card_type: r.card_type,
+            card_bin: r.card_bin,
+            card_last4: r.card_last4,
           }));
 
           seenCountRef.current = data.allResultsCount;
@@ -825,6 +839,11 @@ export default function CheckerPage() {
                                 <Badge variant="outline" className="text-[9px] lg:text-xs font-medium">
                                   🌐 {gatewayName}
                                 </Badge>
+                                {r.site && (
+                                  <Badge variant="outline" className="text-[9px] lg:text-xs font-medium truncate max-w-[160px]">
+                                    🏪 {r.site}
+                                  </Badge>
+                                )}
                                 {r.status === "charged" && (
                                   <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[9px] lg:text-xs">
                                     ⚡ HIT
@@ -835,6 +854,25 @@ export default function CheckerPage() {
                                 <p className="text-[11px] lg:text-sm text-muted-foreground mt-1.5 break-all" data-testid={`text-response-${i}`}>
                                   📋 {r.response}
                                 </p>
+                              )}
+                              {(r.amount || r.card_type || r.confidence != null || r.explanation || r.card_bin) && (
+                                <div className="mt-1.5 flex flex-col gap-0.5 text-[10px] lg:text-xs text-muted-foreground/80">
+                                  {r.amount && (
+                                    <span>💰 Amount: <span className="font-medium text-foreground/70">{r.amount}</span></span>
+                                  )}
+                                  {r.card_type && (
+                                    <span>💳 Card Type: <span className="font-medium text-foreground/70">{r.card_type}</span></span>
+                                  )}
+                                  {r.card_bin && r.card_last4 && (
+                                    <span>🏦 BIN: <span className="font-medium text-foreground/70">{r.card_bin}</span> | Last4: <span className="font-medium text-foreground/70">{r.card_last4}</span></span>
+                                  )}
+                                  {r.confidence != null && (
+                                    <span>🎯 Confidence: <span className="font-medium text-foreground/70">{r.confidence}%</span></span>
+                                  )}
+                                  {r.explanation && (
+                                    <span>💬 Reason: <span className="font-medium text-foreground/70">{r.explanation}</span></span>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>

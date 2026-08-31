@@ -77,7 +77,8 @@ class BotManager {
       this.manualStop = false;
       this.addLog("Starting bot process...", "system");
 
-      this.process = spawn("python3", ["-u", this.botScript], {
+      const pythonBin = process.platform === "win32" ? "python" : "python3";
+      this.process = spawn(pythonBin, ["-u", this.botScript], {
         cwd: this.botDir,
         env: this.getBotProcessEnv(),
         stdio: ["ignore", "pipe", "pipe"],
@@ -275,7 +276,7 @@ class BotManager {
         rz: { name: "Razorpay Charge", type: "charge" },
         charge: { name: "Stripe Charge SK", type: "charge" },
         pp: { name: "PayPal Charge $0.01", type: "charge" },
-        shp: { name: "Shopify Native", type: "charge" },
+        shp: { name: "Shopify", type: "charge" },
         skl1: { name: "Stripe Charge $1", type: "charge" },
         skl2: { name: "Stripe Charge $7", type: "charge" },
         b3c: { name: "Braintree Charge", type: "charge" },

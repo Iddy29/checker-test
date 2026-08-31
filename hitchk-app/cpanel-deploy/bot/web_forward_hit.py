@@ -15,7 +15,7 @@ GATEWAY_NAMES = {
     "rz": "Razorpay Charge",
     "charge": "Stripe Charge SK",
     "pp": "PayPal Charge $0.01",
-    "shp": "Shopify Native",
+    "shp": "Shopify",
     "skl1": "Stripe Charge $1",
     "skl2": "Stripe Charge $7",
     "b3c": "Braintree Charge",

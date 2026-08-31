@@ -20,6 +20,14 @@ interface JobResult {
   status: string;
   response: string;
   timestamp: number;
+  gateway?: string;
+  site?: string;
+  amount?: string | number | null;
+  confidence?: number | null;
+  explanation?: string;
+  card_type?: string;
+  card_bin?: string;
+  card_last4?: string;
 }
 
 interface JobSummary {
@@ -405,7 +413,7 @@ export default function AutoShopifyPage() {
                   <Plus className="w-4 h-4 lg:w-5 lg:h-5 mr-1" />
                   Add Sites
                 </Button>
-                <p className="text-[10px] lg:text-xs text-muted-foreground">Add one site per line. Sites are used by the Shopify Native gateway to check cards.</p>
+                <p className="text-[10px] lg:text-xs text-muted-foreground">Add one site per line. Sites are used by the Shopify gateway to check cards.</p>
               </CardContent>
             </Card>
           )}
@@ -601,6 +609,28 @@ export default function AutoShopifyPage() {
                                 <p className="text-xs lg:text-sm text-muted-foreground mt-0.5 break-all" data-testid={`text-response-${i}`}>
                                   - {r.response}
                                 </p>
+                              )}
+                              {(r.amount || r.card_type || r.confidence != null || r.explanation || r.card_bin || r.site) && (
+                                <div className="mt-1 flex flex-col gap-0.5 text-[10px] lg:text-xs text-muted-foreground/80">
+                                  {r.site && (
+                                    <span>🏪 {r.site}</span>
+                                  )}
+                                  {r.amount && (
+                                    <span>💰 Amount: <span className="font-medium text-foreground/70">{r.amount}</span></span>
+                                  )}
+                                  {r.card_type && (
+                                    <span>💳 Card Type: <span className="font-medium text-foreground/70">{r.card_type}</span></span>
+                                  )}
+                                  {r.card_bin && r.card_last4 && (
+                                    <span>🏦 BIN: <span className="font-medium text-foreground/70">{r.card_bin}</span> | Last4: <span className="font-medium text-foreground/70">{r.card_last4}</span></span>
+                                  )}
+                                  {r.confidence != null && (
+                                    <span>🎯 Confidence: <span className="font-medium text-foreground/70">{r.confidence}%</span></span>
+                                  )}
+                                  {r.explanation && (
+                                    <span>💬 Reason: <span className="font-medium text-foreground/70">{r.explanation}</span></span>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
