@@ -6321,6 +6321,18 @@ async def process_mtxt_cards(event, cards, sites):
         tried_sites = set()
         current_site = initial_site
 
+        # Resolve user proxy once for this card
+        _mtxt_proxy = None
+        try:
+            from gateways import get_user_proxy_list, _raw_to_formatted
+            _pl = get_user_proxy_list(str(user_id))
+            if _pl:
+                import random as _rng
+                _rng.shuffle(_pl)
+                _mtxt_proxy = _raw_to_formatted(_pl[0])
+        except Exception:
+            _mtxt_proxy = get_user_proxy(str(user_id))
+
         for attempt in range(MAX_RETRIES + 1):
             if not current_site:
                 checked += 1
@@ -6344,7 +6356,7 @@ async def process_mtxt_cards(event, cards, sites):
             try:
                 async with GLOBAL_MASS_SEM:
                     result = await asyncio.wait_for(
-                        call_shopify_api(cc, mm, yy, cvv, site=current_site, proxy=None, timeout=90),
+                        call_shopify_api(cc, mm, yy, cvv, site=current_site, proxy=_mtxt_proxy, timeout=90),
                         timeout=95
                     )
             except asyncio.TimeoutError:
