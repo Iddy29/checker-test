@@ -6,7 +6,7 @@ import string
 import json
 import os
 
-DEFAULT_PK = "pk_live_514ypdsDGECUvy6xjjWF60hEXlCPf16a32J7E7PMKAUPa5hf0luKAZNduDOhkZkqbPYLSvjLl01D8tuUpJT64owYY00HBz5YoyW"
+DEFAULT_PK = "pk_live_51049Hm4QFaGycgRKOIbupRw7rf65FJESmPqWZk9Jtpf2YCvxnjMAFX7dOPAgoxv9M2wwhi5OwFBx1EzuoTxNzLJD00ViBbMvkQ"
 
 ADN_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "adn_config.json")
 
@@ -29,7 +29,7 @@ def set_adn_pk(pk):
     except:
         pass
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 LIVE_DECLINE_CODES = {
     "insufficient_funds", "do_not_honor", "generic_decline",
