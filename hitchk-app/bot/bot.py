@@ -5367,7 +5367,9 @@ async def process_sh_card(event, access_type):
                 try: await loading_msg.delete()
                 except: pass
                 await event.reply(NO_SKOOL_ACCOUNT_MSG)
-                return
+            return
+        else:
+            response = await run_gateway(alias, cc, mm, yy, cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID)
             elapsed = round(time.time() - start_time, 2)
             status = classify_response(response)
             brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
