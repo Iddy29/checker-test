@@ -639,9 +639,9 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
             "method": "card",
             "card[number]": cc,
             "card[expiry_month]": mm.zfill(2),
-            "card[expiry_year]": yy.zfill(2),
+            "card[expiry_year]": f"20{yy}" if len(yy) == 2 else yy,
             "card[cvv]": cvv,
-            "card[name]": "",
+            "card[name]": f"{first} {last}" if 'first' in dir() else "John Smith",
             "payment_link_id": payment_link_id,
             "recurring": "0",
             "recurring_token[max_amount]": "0",
@@ -730,12 +730,13 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
                     err_detail = err_desc or err_reason or err_code
                     if err_field:
                         err_detail = f"{err_field}: {err_detail}"
-                    # Check metadata for more details
                     metadata = err.get("metadata", {})
                     if isinstance(metadata, dict) and metadata:
                         meta_str = ", ".join(f"{k}={v}" for k, v in metadata.items() if k != "order_id")
                         if meta_str:
                             err_detail = f"{err_detail} ({meta_str})"
+                    if err_reason == "business":
+                        return f"Declined - Card not accepted by this merchant (use /addrzsite with a link that supports international cards) | {info_str} [{elapsed}s]"
                     return f"Declined - {err_detail[:80]} | {info_str} [{elapsed}s]"
 
                 err_detail = err_desc or err_reason or err_code or str(err)
