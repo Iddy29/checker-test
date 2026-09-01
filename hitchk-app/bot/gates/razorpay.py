@@ -727,11 +727,16 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
                     return f"Error - Site rejected payment (try /addrzsite with a different razorpay.me link) | {info_str} [{elapsed}s]"
 
                 if err_code == "BAD_REQUEST_ERROR":
-                    # Include reason if description is empty
                     err_detail = err_desc or err_reason or err_code
                     if err_field:
                         err_detail = f"{err_field}: {err_detail}"
-                    return f"Error - {err_detail[:60]} | {info_str} [{elapsed}s]"
+                    # Check metadata for more details
+                    metadata = err.get("metadata", {})
+                    if isinstance(metadata, dict) and metadata:
+                        meta_str = ", ".join(f"{k}={v}" for k, v in metadata.items() if k != "order_id")
+                        if meta_str:
+                            err_detail = f"{err_detail} ({meta_str})"
+                    return f"Declined - {err_detail[:80]} | {info_str} [{elapsed}s]"
 
                 err_detail = err_desc or err_reason or err_code or str(err)
                 return f"Declined - {err_detail[:60]} | {info_str} [{elapsed}s]"
