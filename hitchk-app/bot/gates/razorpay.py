@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
 SEC_HEADERS = {
-    "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+    "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
     "sec-ch-ua-mobile": "?1",
     "sec-ch-ua-platform": '"Android"',
 }
@@ -727,9 +727,14 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
                     return f"Error - Site rejected payment (try /addrzsite with a different razorpay.me link) | {info_str} [{elapsed}s]"
 
                 if err_code == "BAD_REQUEST_ERROR":
-                    return f"Error - {err_desc[:60]} | {info_str} [{elapsed}s]"
+                    # Include reason if description is empty
+                    err_detail = err_desc or err_reason or err_code
+                    if err_field:
+                        err_detail = f"{err_field}: {err_detail}"
+                    return f"Error - {err_detail[:60]} | {info_str} [{elapsed}s]"
 
-                return f"Declined - {err_desc[:60]} | {info_str} [{elapsed}s]"
+                err_detail = err_desc or err_reason or err_code or str(err)
+                return f"Declined - {err_detail[:60]} | {info_str} [{elapsed}s]"
             else:
                 return f"Declined - {str(err)[:60]} | {info_str} [{elapsed}s]"
 
