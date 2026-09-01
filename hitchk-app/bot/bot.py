@@ -3949,7 +3949,6 @@ async def gateway_cmd(event):
 **Decline Reason:** {r_explanation or 'N/A'}
 
 **Gateway:** {r_gateway}
-**Site:** {r_site or 'N/A'}
 **Amount:** ${r_amount or 'N/A'}
 **Card Type:** {r_card_type or 'N/A'}
 **BIN:** {r_card_bin or 'N/A'} | **Last4:** {r_card_last4 or 'N/A'}
@@ -5327,7 +5326,6 @@ async def process_sh_card(event, access_type):
 **Decline Reason:** {r_explanation or 'N/A'}
 
 **Gateway:** {r_gateway}
-**Site:** {r_site or 'N/A'}
 **Amount:** ${r_amount or 'N/A'}
 **Card Type:** {r_card_type or 'N/A'}
 **BIN:** {r_card_bin or 'N/A'} | **Last4:** {r_card_last4 or 'N/A'}
@@ -6502,7 +6500,6 @@ async def process_mtxt_cards(event, cards, sites):
                     f"\U0001f4ac **Bank Response:** {r_resp}\n"
                     f"\U0001f4ac **Decline Reason:** {r_explanation or 'N/A'}\n"
                     f"\U0001f310 **Gateway:** {r_gateway}\n"
-                    f"\U0001f3ea **Site:** {r_site}\n"
                     f"\U0001f4b0 **Amount:** ${r_amount or 'N/A'}\n"
                     f"\U0001f4b3 **Card Type:** {r_card_type or 'N/A'}\n"
                     f"\U0001f4af **Confidence:** {r_confidence if r_confidence is not None else 'N/A'}%\n\n"
@@ -6600,14 +6597,14 @@ async def process_mtxt_cards(event, cards, sites):
                         for ac in approved_cards:
                             emoji = "\U0001f4b0" if ac["status"] == "CHARGED" else "\u2705"
                             rf.write(f"{emoji} [{ac['status']}] {ac['card']}\n")
-                            rf.write(f"   Site: {ac['site']} | Price: {ac['price']}\n")
+                            rf.write(f"   Price: {ac['price']}\n")
                             rf.write(f"   Response: {ac['response']}\n\n")
 
                     site_num = 0
                     for site_name, site_data in site_results.items():
                         site_num += 1
                         rf.write("\n")
-                        rf.write(f"\U0001f3ea Site {site_num} - [{site_data['price']}] - [{site_data['gateway']}]\n")
+                        rf.write(f"\U0001f3ea Store {site_num} - [{site_data['price']}] - [{site_data['gateway']}]\n")
                         rf.write("\u25ac" * 30 + "\n")
                         for cr in site_data["cards"]:
                             if cr["status"] == "CHARGED":
