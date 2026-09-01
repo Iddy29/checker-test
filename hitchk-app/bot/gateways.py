@@ -405,7 +405,7 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                         kwargs["user_id"] = user_id
                     if "is_admin" in params:
                         kwargs["is_admin"] = is_admin
-                    result = await asyncio.wait_for(fn(cc, mm, yy, cvv, **kwargs), timeout=90)
+                    result = await asyncio.wait_for(fn(cc, mm, yy, cvv, **kwargs), timeout=40)
             else:
                 loop = asyncio.get_event_loop()
                 if gate_info["func_path"] == "b3_CCN_charge.B3_CCN":
@@ -416,11 +416,11 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                 else:
                     result = await asyncio.wait_for(
                         loop.run_in_executor(None, functools.partial(fn, cc, mm, yy, cvv)),
-                        timeout=90
+                        timeout=40
                     )
             return str(result) if result else "No response from gateway"
         except asyncio.TimeoutError:
-            return "Gateway Timeout (90s)"
+            return "Gateway Timeout (40s)"
         except Exception as e:
             err = str(e)[:200]
             error_patterns = [

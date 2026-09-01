@@ -83,7 +83,7 @@ async def stripe_auth_check(cc, mm, yy, cvv, proxy=None):
     muid = f"{''.join(random.choices(string.hexdigits[:16], k=8))}-{''.join(random.choices(string.hexdigits[:16], k=4))}-{''.join(random.choices(string.hexdigits[:16], k=4))}-{''.join(random.choices(string.hexdigits[:16], k=4))}-{''.join(random.choices(string.hexdigits[:16], k=12))}"
     sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=32))
 
-    client_kwargs = {"timeout": httpx.Timeout(30), "follow_redirects": True}
+    client_kwargs = {"timeout": httpx.Timeout(15), "follow_redirects": True}
     if proxy:
         client_kwargs["proxy"] = proxy
 
@@ -119,7 +119,7 @@ async def stripe_auth_check(cc, mm, yy, cvv, proxy=None):
                     "content-type": "application/x-www-form-urlencoded",
                     "origin": "https://js.stripe.com",
                     "referer": "https://js.stripe.com/",
-                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
                 },
                 content=pm_data,
             )
