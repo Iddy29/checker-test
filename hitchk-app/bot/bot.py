@@ -6455,13 +6455,14 @@ async def process_mtxt_cards(event, cards, sites):
                 approved_cards.append({"card": card, "status": "CHARGED", "response": r_resp, "site": current_site, "price": str(r_amount) if r_amount else "-", "gateway": r_gateway})
                 slot_status[slot_idx] = f"\U0001f4b0 `...{card_short}` \u2014 **CHARGED** \U0001f525"
             elif r_status == "live":
-                declined += 1
-                status_header = "3DS REQUIRED"
-                should_send_message = False
-                if random.random() < 0.5:
-                    slot_status[slot_idx] = f"\u274c `...{card_short}` \u2014 **Generic Declined - 3DS Bypassed** \u26d4"
-                else:
-                    slot_status[slot_idx] = f"\u26a0\ufe0f `...{card_short}` \u2014 **3DS Required** \U0001f512"
+                approved += 1
+                status_header = "APPROVED"
+                should_send_message = True
+                user_obj = await event.get_sender()
+                fn = user_obj.first_name or "User"
+                await save_approved_card(card, "APPROVED", r_resp, r_gateway, str(r_amount) if r_amount else "-", user_id, fn)
+                approved_cards.append({"card": card, "status": "APPROVED", "response": r_resp, "site": current_site, "price": str(r_amount) if r_amount else "-", "gateway": r_gateway})
+                slot_status[slot_idx] = f"\u2705 `...{card_short}` \u2014 **APPROVED (3DS)**"
             elif r_status == "approved":
                 approved += 1
                 status_header = "APPROVED"
