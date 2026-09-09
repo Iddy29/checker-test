@@ -3868,7 +3868,7 @@ async def gateway_cmd(event):
                 except:
                     pass
 
-            api_result = await call_shopify_api(cc, mm, yy, cvv, site=None, proxy=_shp_proxy, timeout=60)
+            api_result = await call_shopify_api(cc, mm, yy, cvv, site=None, proxy=_shp_proxy, timeout=120)
 
             print(f"[SHP] API result: {api_result}")
 
