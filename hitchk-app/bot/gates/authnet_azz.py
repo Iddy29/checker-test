@@ -9,7 +9,7 @@ import re
 
 logger = logging.getLogger("authnet_azz")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 AUTHNET_API_URL = "https://api.authorize.net/xml/v1/request.api"
 API_LOGIN_ID = "8S7K8N7UGhqV"
@@ -224,7 +224,7 @@ async def _submit_payment(opaque_data):
                     captured.append({'status': response.status, 'body': body})
 
             page.on('response', on_resp)
-            await page.goto(SITE_URL, wait_until='networkidle', timeout=30000)
+            await page.goto(SITE_URL, wait_until='domcontentloaded', timeout=45000)
 
             token_data = {
                 'descriptor': opaque_data['dataDescriptor'],
@@ -266,7 +266,7 @@ async def authnet_azz_check(cc, mm, yy, cvv, proxy=None):
 
         captured = await asyncio.wait_for(
             _submit_payment(opaque),
-            timeout=45
+            timeout=75
         )
 
         elapsed = round(time.time() - start, 2)

@@ -3579,7 +3579,7 @@ async def gateway_cmd(event):
                                 declined[0] += 1
                             else:
                                 try:
-                                    gate_timeout = 55 if alias in ("ppn", "pp", "ch", "shp", "bnc", "ppk") else 40
+                                    gate_timeout = 90
                                     resp = await asyncio.wait_for(
                                         run_gateway(alias, m_cc, m_mm, m_yy, m_cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID),
                                         timeout=gate_timeout
@@ -3728,7 +3728,7 @@ async def gateway_cmd(event):
                         line = f"\u274c `{cc_str}`\n**Response:** Banned BIN"
                     else:
                         try:
-                            gate_timeout = 55 if alias in ("ppn", "pp", "ch", "shp", "bnc", "ppk") else 40
+                            gate_timeout = 90
                             resp = await asyncio.wait_for(
                                 run_gateway(alias, m_cc, m_mm, m_yy, m_cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID),
                                 timeout=gate_timeout
