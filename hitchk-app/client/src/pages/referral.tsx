@@ -64,7 +64,7 @@ export default function ReferralPage() {
     onError: (err: any) => {
       const data = err?.data;
       if (data?.requiresMembership) {
-        toast({ title: err.message, description: "Join the channel and group below first, then try again.", variant: "destructive" });
+        toast({ title: err.message, description: "Join the group below first, then try again.", variant: "destructive" });
         refetchMembership();
       } else {
         toast({ title: err.message, variant: "destructive" });
@@ -162,8 +162,8 @@ export default function ReferralPage() {
                 </p>
                 <p className="text-xs text-muted-foreground mb-3">
                   {isMember
-                    ? "You are a member of the channel and group. Your referrals will be credited."
-                    : "You must join both our Telegram channel and group before your referrals count."}
+                    ? "You are a member of the group. Your referrals will be credited."
+                    : "You must join both our Telegram group before your referrals count."}
                 </p>
                 {!isMember && (groupLink || channelLink) && (
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -442,9 +442,9 @@ export default function ReferralPage() {
           <CardContent className="px-4 pb-4">
             <div className="flex flex-col gap-3">
               {[
-                { step: "1", text: "Join our Telegram Channel and Group (required)" },
+                { step: "1", text: "Join our Telegram group (required)" },
                 { step: "2", text: "Copy your referral link and share it with friends" },
-                { step: "3", text: "Friend joins the channel & group, then applies your code" },
+                { step: "3", text: "Friend joins the group, then applies your code" },
                 { step: "4", text: "You instantly earn $0.30 per new user" },
                 { step: "5", text: "Collect $5 → Silver or $7 → Gold (7 days each)" },
               ].map(({ step, text }) => (
