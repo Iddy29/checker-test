@@ -34,7 +34,7 @@ export function AdminSidebar() {
           </div>
           <div>
             <h2 className="text-sm font-semibold text-sidebar-foreground">Admin Panel</h2>
-            <p className="text-xs text-muted-foreground">OGM Checker</p>
+            <p className="text-xs text-muted-foreground">mrcyber-tz Checker</p>
           </div>
         </div>
       </SidebarHeader>

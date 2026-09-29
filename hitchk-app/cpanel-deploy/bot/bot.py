@@ -136,7 +136,7 @@ NO_SKOOL_ACCOUNT_MSG = (
 
 DEFAULT_PROXY = "pl-tor.pvdata.host:8080:g2rTXpNfPdcw2fzGtWKp62yH:nizar1elad2"
 TIMEOUT = 30
-ADMIN_USERNAME = "@OGM010"
+ADMIN_USERNAME = "@mrcyber_tz"
 BOT_USERNAME = None
 USERS_FILE = "users.json"
 
@@ -980,7 +980,7 @@ async def start(event):
     sep = "\u2500" * 24
 
     text = (
-        f"\u2b29 **OGM CHECKER BOT** \u2b29\n"
+        f"\u2b29 **mrcyber-tz CHECKER BOT** \u2b29\n"
         f"{sep}\n\n"
         f"\u2728 Welcome, **{first_name}**!\n\n"
         f"\U0001f194 Your User ID: `{event.sender_id}`\n\n"
@@ -5117,7 +5117,7 @@ async def process_mtxt_cards(event, cards, sites):
             try:
                 with open(result_file, "w", encoding="utf-8") as rf:
                     rf.write("=" * 40 + "\n")
-                    rf.write("  OGM CHECKER - MASS CHECK RESULTS\n")
+                    rf.write("  mrcyber-tz CHECKER - MASS CHECK RESULTS\n")
                     rf.write("=" * 40 + "\n\n")
                     rf.write(f"\U0001f4b0 Charged: {charged}\n")
                     rf.write(f"\u2705 Approved: {approved}\n")
@@ -6255,7 +6255,7 @@ async def info(event):
     rank = await get_user_rank(user_id)
     sites = await load_json(SITE_FILE)
     user_sites = sites.get(str(user_id), [])
-    info_text = f"""**OGM CHECKER - User Information**
+    info_text = f"""**mrcyber-tz CHECKER - User Information**
 
 **Name:** {full_name}
 **Username:** {username}
@@ -6277,7 +6277,7 @@ async def stats(event):
         free_users = await load_json(FREE_FILE)
         user_sites = await load_json(SITE_FILE)
         keys_data = await load_json(KEYS_FILE)
-        stats_content = "OGM CHECKER - STATISTICS REPORT\n"
+        stats_content = "mrcyber-tz CHECKER - STATISTICS REPORT\n"
         stats_content += "=" * 50 + "\n\n"
         current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         stats_content += f"Generated on: {current_time}\n\n"
@@ -6805,7 +6805,7 @@ async def filter_back_cb(event):
 
 async def main():
     await initialize_files()
-    print("OGM CHECKER BOT RUNNING")
+    print("mrcyber-tz CHECKER BOT RUNNING")
     for fname in os.listdir():
         if fname.startswith("temp_sites_") and fname.endswith(".json"):
             try:
@@ -6828,7 +6828,7 @@ async def main():
         print(f"Bot started successfully as {BOT_USERNAME}")
         for admin_id in ADMIN_ID:
             try:
-                await client.send_message(admin_id, "OGM CHECKER Bot started successfully!")
+                await client.send_message(admin_id, "mrcyber-tz CHECKER Bot started successfully!")
             except:
                 pass
         print("Bot is now running...")

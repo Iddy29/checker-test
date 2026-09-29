@@ -112,7 +112,7 @@ async def tool_gen(text, user_id, first_name, rank):
         with open(file_path, "w") as f:
             f.write('\n'.join(generated_cards))
 
-        text = f"""**OGM CC Generator**
+        text = f"""**mrcyber-tz CC Generator**
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 **BIN:** `{bin_code[:6]}` | **Exp:** `{mes}|{ano}` | **CVV:** `{cvv}`
 **Amount:** `{amount}` (sent as file)
@@ -127,7 +127,7 @@ async def tool_gen(text, user_id, first_name, rank):
         return {"text": text, "file": file_path}
 
     card_list = '\n'.join([f'`{card}`' for card in generated_cards])
-    return f"""**OGM CC Generator**
+    return f"""**mrcyber-tz CC Generator**
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 **BIN:** `{bin_code[:6]}` | **Exp:** `{mes}|{ano}` | **CVV:** `{cvv}`
 **Amount:** `{amount}`
@@ -163,7 +163,7 @@ async def tool_bin(text, user_id, first_name, rank):
         country = req.get('country', '------')
         country_flag = req.get('flag', '')
 
-        return f"""**OGM BIN Lookup**
+        return f"""**mrcyber-tz BIN Lookup**
 ━━━━━━━━━━━━━━━━━
 **BIN:** `{BIN}`
 **Info:** {brand} - {typea} - {level}
@@ -202,7 +202,7 @@ async def tool_sk(text, user_id, first_name, rank):
             crn = bal_dt['available'][0]['currency']
         except (KeyError, IndexError):
             toc = time.perf_counter()
-            return f"""**OGM Stripe Key Lookup**
+            return f"""**mrcyber-tz Stripe Key Lookup**
 ━━━━━━━━━━━━
 **SK:** `{sk}`
 **Response:** SK Key Revoked / Dead
@@ -235,7 +235,7 @@ async def tool_sk(text, user_id, first_name, rank):
             r_text = 'Dead'
 
         toc = time.perf_counter()
-        return f"""**OGM Stripe Key Lookup**
+        return f"""**mrcyber-tz Stripe Key Lookup**
 ━━━━━━━━━━━━
 **SK:** `{sk}`
 **Response:** `{r_text}`
@@ -260,7 +260,7 @@ async def tool_id(user_id, first_name, username, chat_id, rank, expiry=None, is_
     expire_str = str(expiry) if expiry else 'No expiry'
     title = "Replied User Information" if is_reply else "User Information"
 
-    return f"""**OGM {title}**
+    return f"""**mrcyber-tz {title}**
 ━━━━━━━━━━━━━━━━
 **Name:** {first_name}
 **Username:** @{username or 'N/A'}
@@ -304,7 +304,7 @@ async def tool_rand(text, user_id, first_name, rank):
 
         t1 = time.perf_counter()
 
-        return f"""**OGM Fake Address Generator**
+        return f"""**mrcyber-tz Fake Address Generator**
 ━━━━━━━━━━━━
 **Name:** `{nombre} {last}`
 **Street:** `{loca} {nm}`
@@ -345,7 +345,7 @@ async def tool_translate(text, user_id, first_name, rank):
         translation = translator.translate(source_text, dest=rd3_lang)
         translated_text = translation.text
 
-        return f"""**OGM Translator**
+        return f"""**mrcyber-tz Translator**
 ━━━━━━━━━━━━━━
 **Language:** `{rd3_lang.upper()}`
 **Translated Text:**

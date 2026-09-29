@@ -1,5 +1,5 @@
 /**
- * OGM Checker — Data Export Script
+ * mrcyber-tz Checker — Data Export Script
  * Run this on your CURRENT Replit to export all bot data.
  *
  * Usage:
@@ -43,11 +43,11 @@ const ALL_FILES = [
 ];
 
 async function main() {
-  console.log("=== OGM Checker Data Export ===\n");
+  console.log("=== mrcyber-tz Checker Data Export ===\n");
 
   const snapshot = {
     exported_at: new Date().toISOString(),
-    source: "OGM Checker Bot Dashboard",
+    source: "mrcyber-tz Checker Bot Dashboard",
     files: {},
   };
 

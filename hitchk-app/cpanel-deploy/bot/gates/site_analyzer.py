@@ -791,6 +791,6 @@ def format_result(data: Dict[str, Any], username: str = "") -> str:
         f"\u2514\u2500 Headers Score: {sec_score}%\n\n"
         f"\u23f1 **Time:** {elapsed}s\n"
         f"\U0001f464 **Checked by:** {checked_by}\n\n"
-        f"\u2517\u2501\u2501\u2501\u2501\u300e OGM Checker \u300f\u2501\u2501\u2501\u2501"
+        f"\u2517\u2501\u2501\u2501\u2501\u300e mrcyber-tz Checker \u300f\u2501\u2501\u2501\u2501"
     )
     return msg

@@ -77,7 +77,7 @@ function getTierIcon(tier: string) {
   }
 }
 
-const ADMIN_TELEGRAM = "OGM010";
+const ADMIN_TELEGRAM = "mrcyber_tz";
 
 export default function PricingPage() {
   const [, navigate] = useLocation();

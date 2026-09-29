@@ -560,7 +560,7 @@ export async function registerRoutes(
       uid = userId.trim();
 
       if (isUserBanned(uid)) {
-        return res.status(403).json({ message: "You have been banned. Contact @OGM010 to appeal." });
+        return res.status(403).json({ message: "You have been banned. Contact @mrcyber_tz to appeal." });
       }
 
       ip = getClientIp(req);
@@ -663,7 +663,7 @@ export async function registerRoutes(
     const uid = userId.trim();
 
     if (isUserBanned(uid)) {
-      return res.status(403).json({ message: "You have been banned. Contact @OGM010 to appeal." });
+      return res.status(403).json({ message: "You have been banned. Contact @mrcyber_tz to appeal." });
     }
 
     const entry = otpStore.get(uid);
@@ -1314,7 +1314,7 @@ export async function registerRoutes(
       ];
       const snapshot: Record<string, any> = {
         exported_at: new Date().toISOString(),
-        source: "OGM Checker Bot Dashboard",
+        source: "mrcyber-tz Checker Bot Dashboard",
         files: {},
       };
       for (const filename of ALL_FILES) {

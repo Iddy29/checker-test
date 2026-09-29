@@ -170,14 +170,14 @@ export default function LoginPage() {
             <CardContent className="pt-6 space-y-4 text-center">
               <p className="text-sm text-muted-foreground">If you believe this was a mistake, contact the admin to appeal your ban.</p>
               <a
-                href="https://t.me/OGM010"
+                href="https://t.me/mrcyber_tz"
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="link-appeal"
               >
                 <Button variant="outline" className="w-full gap-2">
                   <MessageCircle className="w-4 h-4" />
-                  Contact @OGM010 to Appeal
+                  Contact @mrcyber_tz to Appeal
                   <ExternalLink className="w-3 h-3 opacity-60" />
                 </Button>
               </a>

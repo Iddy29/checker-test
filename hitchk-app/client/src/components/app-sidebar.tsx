@@ -34,7 +34,7 @@ export function AppSidebar() {
             <Bot className="w-4 h-4 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-sidebar-foreground">OGM CHECKER</h2>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">mrcyber-tz CHECKER</h2>
             <p className="text-xs text-muted-foreground">Bot Dashboard</p>
           </div>
         </div>

@@ -746,7 +746,7 @@ def format_finder_result(data: Dict[str, Any], username: str = "") -> str:
             f"Try a different gateway.\n\n"
             f"\u23f1 **Time:** {elapsed}s\n"
             f"\U0001f464 **By:** {checked_by}\n\n"
-            f"\u2517\u2501\u2501\u2501\u2501\u300e OGM Checker \u300f\u2501\u2501\u2501\u2501"
+            f"\u2517\u2501\u2501\u2501\u2501\u300e mrcyber-tz Checker \u300f\u2501\u2501\u2501\u2501"
         )
 
     sites_text = ""
@@ -797,7 +797,7 @@ def format_finder_result(data: Dict[str, Any], username: str = "") -> str:
         f"{keys_section}"
         f"\u23f1 **Time:** {elapsed}s\n"
         f"\U0001f464 **By:** {checked_by}\n\n"
-        f"\u2517\u2501\u2501\u2501\u2501\u300e OGM Checker \u300f\u2501\u2501\u2501\u2501"
+        f"\u2517\u2501\u2501\u2501\u2501\u300e mrcyber-tz Checker \u300f\u2501\u2501\u2501\u2501"
     )
 
 

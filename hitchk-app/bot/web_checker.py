@@ -9,44 +9,82 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from gateways import run_gateway, parse_card_input, classify_response, get_flat_registry, get_user_proxy
 
-RAILWAY_SHOPIFY_API = os.environ.get("RAILWAY_SHOPIFY_API", "https://shoify-api-production.up.railway.app")
+# Use native Shopify checker (no external API)
+from gates.shopify_native import shopify_native_check_rich, _format_response_v2
 
 
 async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=90):
-    payload = {"cc": cc, "mm": mm, "yy": yy, "cvv": cvv}
-    if site:
-        payload["site"] = site
-    if proxy:
-        payload["proxy"] = proxy
+    """Shopify Native Checker - Real bank responses."""
+    from datetime import datetime
+    import random
+    import time as _time
+    start_time = _time.time()
+    
+    # Check card expiry first
     try:
-        async with aiohttp.ClientSession() as _sess:
-            async with _sess.post(
-                f"{RAILWAY_SHOPIFY_API}/check",
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as _resp:
-                api_result = await _resp.json(content_type=None)
+        year_full = f"20{yy}" if len(yy) == 2 else yy
+        exp_date = datetime(int(year_full), int(mm), 1)
+        now = datetime.now()
+        if exp_date.year < now.year or (exp_date.year == now.year and exp_date.month < now.month):
+            return {
+                "status": "declined",
+                "response": "Declined - Card Expired",
+                "gateway": "Shopify Payments",
+                "amount": None,
+                "site": None,
+                "elapsed": 0,
+                "extra": None,
+            }
+    except:
+        pass
+    
+    try:
+        result = await shopify_native_check_rich(cc, mm, yy, cvv, site=site, proxy=proxy)
+        status = result.get("status", "error")
+        response_text = result.get("response", "")
+        
+        # Skip site errors
+        site_error_keywords = [
+            "No products", "Site error", "requires login", "No shipping",
+            "No session token", "Captcha", "Checkpoint", "OUT_OF_STOCK",
+            "MERCHANDISE_OUT_OF_STOCK", "Currency not supported",
+            "GATEWAY_UNAVAILABLE", "DEVELOPMENT_STORE", "INVALID_VARIABLE",
+            "ARTIFACT_DISSATISFACTION", "Gateway Error",
+            "Cart error", "Checkout error", "Vault error", "Payment error",
+            "All sites failed", "Timeout", "Negotiate error",
+            "WAITING_PENDING_TERMS", "TAX_NEW_TAX_MUST_BE_ACCEPTED",
+        ]
+        
+        if any(kw in response_text for kw in site_error_keywords):
+            return {
+                "status": "dead_site",
+                "response": response_text,
+                "gateway": "Shopify Payments",
+                "amount": None,
+                "site": result.get("site"),
+                "elapsed": round(_time.time() - start_time, 2),
+                "extra": None,
+            }
+        
+        return {
+            "status": status,
+            "response": _format_response_v2(result),
+            "gateway": result.get("gateway", "Shopify Payments"),
+            "amount": result.get("amount"),
+            "site": result.get("site"),
+            "elapsed": round(_time.time() - start_time, 2),
+            "extra": result.get("extra"),
+        }
     except Exception as e:
-        api_result = {
+        return {
             "status": "error",
-            "response": f"API error: {str(e)[:100]}",
+            "response": f"Error: {str(e)[:100]}",
             "gateway": "Shopify Payments",
             "amount": None,
             "site": site,
             "elapsed": 0,
             "extra": None,
         }
-    api_result.setdefault("status", "error")
-    api_result.setdefault("response", "Unknown")
-    api_result.setdefault("gateway", "Shopify Payments")
-    api_result.setdefault("amount", None)
-    api_result.setdefault("site", site)
-    api_result.setdefault("elapsed", 0)
-    api_result.setdefault("extra", None)
-    if api_result["status"] == "error" and isinstance(api_result["response"], str):
-        if "all sites failed" in api_result["response"].lower():
-            api_result["status"] = "dead_site"
-    return api_result
 
 def clean_response(raw):
     text = str(raw)
@@ -74,7 +112,7 @@ async def check_card(alias, card_str, user_id=None, is_admin=False):
     # ── Shopify: use hosted API ────────────────────────────────────────────
     if alias == "shp" and user_id:
         try:
-            _shp_proxy = get_user_proxy(str(user_id)) if user_id else None
+            _shp_proxy = None  # No proxy for Shopify - proxy blocks checkout
 
             # Load user sites + admin sites
             sites_file = os.path.join(os.path.dirname(__file__), "user_sites.json")

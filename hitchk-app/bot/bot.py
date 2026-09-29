@@ -312,7 +312,7 @@ NO_SKOOL_ACCOUNT_MSG = (
 
 DEFAULT_PROXY = "pl-tor.pvdata.host:8080:g2rTXpNfPdcw2fzGtWKp62yH:nizar1elad2"
 TIMEOUT = 30
-ADMIN_USERNAME = "@OGM010"
+ADMIN_USERNAME = "@mrcyber_tz"
 BOT_USERNAME = None
 USERS_FILE = "users.json"
 

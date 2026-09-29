@@ -193,6 +193,7 @@ async def tool_sk(text, user_id, first_name, rank):
         from requests.auth import HTTPBasicAuth
         auth = HTTPBasicAuth(sk, '')
 
+        # Step 1: Check balance (uses SK auth)
         bal_res = requests.get("https://api.stripe.com/v1/balance", auth=auth, timeout=10)
         bal_dt = bal_res.json()
 
@@ -202,14 +203,24 @@ async def tool_sk(text, user_id, first_name, rank):
             crn = bal_dt['available'][0]['currency']
         except (KeyError, IndexError):
             toc = time.perf_counter()
+            # Check if it's expired or invalid
+            err = bal_dt.get('error', {})
+            err_code = err.get('code', '')
+            if err_code == 'api_key_expired':
+                status = 'API Key Expired'
+            elif 'Invalid API Key' in err.get('message', ''):
+                status = 'Invalid API Key'
+            else:
+                status = 'SK Key Revoked / Dead'
             return f"""**mrcyber-tz Stripe Key Lookup**
 ━━━━━━━━━━━━
-**SK:** `{sk}`
-**Response:** SK Key Revoked / Dead
+**SK:** `{sk[:20]}...{sk[-8:]}`
+**Response:** `{status}`
 ━━━━━━━━━━━━━━━━━
 **Req By:** [{first_name}](tg://user?id={user_id}) **[{rank}]**
 **Bot:** {BOT_TAG}"""
 
+        # Step 2: Get account info (uses SK auth)
         acc_res = requests.get("https://api.stripe.com/v1/account", auth=auth, timeout=10)
         acc_data = acc_res.json()
         acc_id = acc_data.get('id', 'N/A')
@@ -217,13 +228,20 @@ async def tool_sk(text, user_id, first_name, rank):
         payments = acc_data.get('charges_enabled', False)
         url = acc_data.get('business_profile', {}).get('url', 'N/A')
 
-        chk_data = 'card[number]=5581585612888772&card[exp_month]=12&card[exp_year]=2029&card[cvc]=354'
-        rep = requests.post("https://api.stripe.com/v1/tokens", data=chk_data, auth=auth, timeout=10)
+        # Step 3: Check if key can create charges (uses SK auth for payment_methods)
+        chk_data = {
+            'type': 'card',
+            'card[number]': '5581585612888772',
+            'card[exp_month]': '12',
+            'card[exp_year]': '2029',
+            'card[cvc]': '354',
+        }
+        rep = requests.post("https://api.stripe.com/v1/payment_methods", data=chk_data, auth=auth, timeout=10)
         repp = rep.text
 
         if 'rate_limit' in repp:
             r_text = 'Rate Limit (Live)'
-        elif 'tok_' in repp:
+        elif '"id"' in repp and 'pm_' in repp:
             r_text = 'Live Key'
         elif 'Invalid API Key' in repp:
             r_text = 'Invalid API Key'
@@ -231,13 +249,24 @@ async def tool_sk(text, user_id, first_name, rank):
             r_text = 'Test Mode Only'
         elif 'api_key_expired' in repp:
             r_text = 'API Key Expired'
+        elif 'payment_method_types' in repp or 'resource_missing' in repp:
+            r_text = 'Live Key (PM check skipped)'
         else:
-            r_text = 'Dead'
+            # Try to parse the error
+            try:
+                err = rep.json().get('error', {})
+                err_code = err.get('code', '')
+                if err_code:
+                    r_text = f'Live Key ({err_code})'
+                else:
+                    r_text = 'Live Key'
+            except:
+                r_text = 'Dead'
 
         toc = time.perf_counter()
         return f"""**mrcyber-tz Stripe Key Lookup**
 ━━━━━━━━━━━━
-**SK:** `{sk}`
+**SK:** `{sk[:20]}...{sk[-8:]}`
 **Response:** `{r_text}`
 ━━━━━━━━━━━━━━━━━
 **Account ID:** `{acc_id}`

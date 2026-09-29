@@ -201,6 +201,15 @@ async def auto_delete_message(msg, delay=30):
 async def get_dynamic_concurrency(base_concurrency):
     return base_concurrency
 
+# Flood control tracking
+_flood_tracker = {}
+_flood_warned = {}
+_flood_muted = {}
+_FLOOD_WINDOW_SEC = 10
+_FLOOD_WARN_THRESH = 5
+_FLOOD_BAN_THRESH = 10
+_FLOOD_MUTE_SEC = 30
+
 async def check_flood(user_id: int) -> str:
     """
     Track message rate for user_id.
@@ -283,7 +292,7 @@ NO_SKOOL_ACCOUNT_MSG = (
 
 DEFAULT_PROXY = "pl-tor.pvdata.host:8080:g2rTXpNfPdcw2fzGtWKp62yH:nizar1elad2"
 TIMEOUT = 30
-ADMIN_USERNAME = "@OGM010"
+ADMIN_USERNAME = "@mrcyber_tz"
 BOT_USERNAME = None
 USERS_FILE = "users.json"
 
