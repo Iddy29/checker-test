@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { log } from "./index";
 import { saveAllJsonFiles } from "./json-persistence";
+import { ACCOUNT_CHECKERS } from "@shared/account-checkers";
 
 interface BotLog {
   timestamp: string;
@@ -291,7 +292,7 @@ class BotManager {
     },
   };
 
-  private static TOOL_REGISTRY: Record<string, { name: string; category: string }> = {
+  private static BASE_TOOL_REGISTRY: Record<string, { name: string; category: string }> = {
     gen: { name: "CC Generator", category: "tools" },
     bin: { name: "BIN Lookup", category: "tools" },
     sk: { name: "SK Key Checker", category: "tools" },
@@ -302,13 +303,31 @@ class BotManager {
     co: { name: "Shopify Checker", category: "tools" },
     chk: { name: "Card Checker", category: "tools" },
     fl: { name: "Card Filter", category: "tools" },
-    acc_crunchyroll: { name: "Crunchyroll Checker", category: "account_checkers" },
-    acc_xbox: { name: "Xbox Checker", category: "account_checkers" },
-    acc_cyberghost: { name: "CyberGhost Checker", category: "account_checkers" },
-    acc_duolingo: { name: "Duolingo Checker", category: "account_checkers" },
-    acc_hoichoi: { name: "Hoichoi Checker", category: "account_checkers" },
     sk_scraper_checker: { name: "SK Scraper Checker", category: "tools" },
   };
+
+  /**
+   * The account checker tools are derived from the shared registry so a new
+   * checker only has to be added in one place.
+   */
+  private static TOOL_REGISTRY: Record<string, { name: string; category: string }> = {
+    ...BotManager.BASE_TOOL_REGISTRY,
+    ...Object.fromEntries(
+      ACCOUNT_CHECKERS.map((c) => [
+        c.toolKey,
+        { name: `${c.label} Checker`, category: "account_checkers" },
+      ]),
+    ),
+  };
+
+  /** The account checker tools, derived from the shared registry. */
+  static get ACCOUNT_CHECKER_TOOLS(): Record<string, { name: string; category: string }> {
+    const out: Record<string, { name: string; category: string }> = {};
+    for (const c of ACCOUNT_CHECKERS) {
+      out[c.toolKey] = { name: `${c.label} Checker`, category: "account_checkers" };
+    }
+    return out;
+  }
 
   getGateways() {
     const settings = this.getBotSettings();

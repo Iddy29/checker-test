@@ -206,7 +206,7 @@ async def binnaclehouse_check(cc, mm, yy, cvv, proxy=None):
     site_headers = {
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "accept-language": "en-US,en;q=0.9",
-        "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+        "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
         "sec-ch-ua-mobile": "?1",
         "sec-ch-ua-platform": '"Android"',
         "sec-fetch-dest": "document",
@@ -260,7 +260,7 @@ async def binnaclehouse_check(cc, mm, yy, cvv, proxy=None):
                 "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
                 "origin": SITE_URL,
                 "referer": SITE_URL + DONATE_PATH,
-                "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+                "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
                 "sec-ch-ua-mobile": "?1",
                 "sec-ch-ua-platform": '"Android"',
                 "sec-fetch-dest": "empty",
@@ -311,7 +311,7 @@ async def binnaclehouse_check(cc, mm, yy, cvv, proxy=None):
             "content-type": "application/json",
             "origin": "https://www.paypal.com",
             "referer": "https://www.paypal.com/",
-            "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+            "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
             "sec-ch-ua-mobile": "?1",
             "sec-ch-ua-platform": '"Android"',
             "sec-fetch-dest": "empty",
@@ -362,7 +362,7 @@ async def binnaclehouse_check(cc, mm, yy, cvv, proxy=None):
                 "content-type": "application/json",
                 "origin": "https://www.paypal.com",
                 "referer": "https://www.paypal.com/",
-                "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+                "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
                 "sec-ch-ua-mobile": "?1",
                 "sec-ch-ua-platform": '"Android"',
                 "user-agent": UA,
@@ -482,4 +482,4 @@ async def binnaclehouse_check(cc, mm, yy, cvv, proxy=None):
     except Exception as e:
         elapsed = round(time.time() - start, 2)
         logger.warning(f"binnaclehouse error: {e}")
-        return f"Error - {str(e)[:80]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

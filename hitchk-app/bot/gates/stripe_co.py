@@ -269,10 +269,10 @@ async def _fetch_checkout_info(client, checkout_url):
                 # Continue processing below
             except Exception as e2:
                 logger.error(f"Retry also failed: {e2}")
-                return None, f"Failed to load checkout: {str(e2)[:60]}"
+                return None, f"Failed to load checkout: {type(e2).__name__}: {str(e2)[:60]}"
         else:
             logger.error(f"Failed to load checkout: {e}")
-            return None, f"Failed to load checkout: {str(e)[:60]}"
+            return None, f"Failed to load checkout: {type(e).__name__}: {str(e)[:60]}"
 
     all_candidates = set()
 
@@ -516,7 +516,7 @@ async def _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version=
     except Exception as e:
         logger.error(f"PM creation error: {e}")
         print(f"[CO_DEBUG] PM exception: {e}")
-        return None, f"PM request failed: {str(e)[:50]}", None
+        return None, f"PM request failed: {type(e).__name__}: {str(e)[:50]}", None
 
     if "error" in data:
         err = data["error"]
@@ -625,9 +625,12 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
     else:
         return "error", "No card data or payment method ID provided"
 
-    # expected_amount: required when amount > 0, rejected when amount = 0
-    if isinstance(amount, (int, float)) and amount is not True and amount > 0:
+    # expected_amount: ALWAYS required, even for $0 checkouts
+    if isinstance(amount, (int, float)) and amount is not True:
         confirm_data["expected_amount"] = str(int(amount))
+    else:
+        # Default to 0 for $0 checkouts
+        confirm_data["expected_amount"] = "0"
 
     async def _do_confirm(cd):
         try:
@@ -696,6 +699,14 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
             ("terms_of_service_accepted", "true"),
             ("accepted_merchant_terms_of_service", "true"),
             ("payment_method_data[allow_terms_of_service_acceptance]", "true"),
+            ("consent[terms_of_service][accepted]", "true"),
+            ("merchant_terms_of_service_accepted", "true"),
+            ("tos_accepted", "true"),
+            ("accept_terms", "true"),
+            ("agree_to_terms", "true"),
+            ("terms_accepted", "true"),
+            ("payment_method_data[terms_of_service]", "accepted"),
+            ("payment_method_data[consent][terms_of_service]", "accepted"),
         ]
         for field, val in tos_candidates:
             logger.info(f"  TOS retry: {field}={val}")
@@ -713,7 +724,19 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 logger.info(f"  TOS field accepted: {field}={val}")
                 break
         else:
-            logger.warning("All TOS candidates failed")
+            logger.warning("All TOS candidates failed, trying with terms_of_service=true in confirm_data...")
+            # Last resort: add all possible TOS fields at once
+            tos_data = dict(confirm_data)
+            tos_data["consent[terms_of_service]"] = "accepted"
+            tos_data["terms_of_service"] = "accepted"
+            tos_data["accepted_terms_of_service"] = "true"
+            data = await _do_confirm(tos_data)
+            if data is None:
+                return "error", "Confirm request failed"
+            if not _is_tos_error(data):
+                logger.info("TOS accepted with combined fields!")
+            else:
+                logger.warning("TOS still rejected after all attempts")
 
     if "error" in data:
         err = data["error"]
@@ -1255,14 +1278,14 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                 try:
                     stripe_js_data = _json.loads(stripe_js_data)
                 except Exception:
-                    logger.info(f"stripe_js is a string ({len(stripe_js_raw)} chars): {str(stripe_js_raw)[:300]}")
+                    logger.info(f"stripe_js is a string ({len(stripe_js_raw)} chars): {type(stripe_js_raw).__name__}: {str(stripe_js_raw)[:300]}")
                     stripe_js_data = {}
             if not isinstance(stripe_js_data, dict):
-                logger.info(f"stripe_js not dict, type={type(stripe_js_data)}, val={str(stripe_js_data)[:200]}")
+                logger.info(f"stripe_js not dict, type={type(stripe_js_data)}, val={type(stripe_js_data).__name__}: {str(stripe_js_data)[:200]}")
                 stripe_js_data = {}
             logger.info(f"stripe_js keys: {sorted(stripe_js_data.keys())}")
             for _k, _v in stripe_js_data.items():
-                logger.info(f"  stripe_js.{_k} = {str(_v)[:200]}")
+                logger.info(f"  stripe_js.{_k} = {type(_v).__name__}: {str(_v)[:200]}")
             site_key = stripe_js_data.get("site_key", "")
             verification_url = stripe_js_data.get("verification_url", "")
             rqdata = stripe_js_data.get("rqdata", "")
@@ -2248,7 +2271,7 @@ async def _check_intent_status(client, pk, client_secret, pm_id, intent_type):
         )
         data = resp.json()
     except Exception as e:
-        return "error", f"Intent check failed: {str(e)[:40]}"
+        return "error", f"Intent check failed: {type(e).__name__}: {str(e)[:40]}"
 
     status = data.get("status", "")
 

@@ -1,8 +1,8 @@
 {
-  "TELEGRAM_BOT_TOKEN": "8078906789:AAEXcowgmhIJMBa9JHBHbGzJJAY0DRFtss8",
+  "TELEGRAM_BOT_TOKEN": "8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo",
   "TELEGRAM_API_ID": "12340097",
   "TELEGRAM_API_HASH": "76ad4197b5db92f328e02d9000675a10",
-  "TELEGRAM_ADMIN_ID": "1517013110,8726037072,1834450801,8268547077",
+  "TELEGRAM_ADMIN_ID": "1517013110,8726037072,1834450801,8268547077,1214399247",
   "TELEGRAM_GROUP_ID": "-1003474408861",
   "TELEGRAM_GROUP_LINK": "https://t.me/+rBq3QyI5Z7MzOGY9",
   "charge_sk": "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",
@@ -12,5 +12,7 @@
   "hitter_site_visible": true,
   "maintenance_mode": false,
   "nopecha_api_key": "sub_1T9TwwCRwBwvt6pt34KpcnVZ",
+  "custom_captcha_token": "",
+  "custom_captcha_url": "https://gold-newt-367030.hostingersite.com/api.php",
   "logs_group_id": "-1003816358079"
 }

@@ -28,18 +28,64 @@ def _save_config(data):
         logger.error(f"Failed to save config: {e}")
 
 
+# The charge key lives in the shared key file as well as in config.json.
+# There are two copies of the bot on the server (the one the Telegram
+# bot runs and the one the web panel runs) and a key written into the
+# config.json of one of them never reached the other.
+KEY_CONFIG_FILE = os.environ.get("STRIPE_KEY_CONFIG") or os.path.join(
+    os.path.dirname(__file__), "..", "pk_config.json")
+
+
+def _load_key_config():
+    try:
+        with open(KEY_CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_key_config(data):
+    try:
+        with open(KEY_CONFIG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
 def set_charge_sk(sk, amount_cents=50):
+    """Store the charge key and the amount.
+
+    It goes into config.json (as before) and into the shared key file,
+    so the panel and the bot use the same key.
+    """
     config = _load_config()
     config["charge_sk"] = sk
     config["charge_amount"] = int(amount_cents)
     _save_config(config)
+    shared = _load_key_config()
+    shared["charge_sk"] = sk
+    shared["charge_amount"] = int(amount_cents)
+    _save_key_config(shared)
 
 
 def get_charge_sk():
+    """The charge key: the shared key file first, then config.json.
+
+    A key set with /addpk is used as well when no charge key was set
+    with /addsk, so one key can drive every Stripe gate.
+    """
+    sk = ""
+    amount = None
+    shared = _load_key_config()
+    sk = shared.get("charge_sk", "") or ""
+    if shared.get("charge_amount") is not None:
+        amount = int(shared["charge_amount"])
     config = _load_config()
-    sk = config.get("charge_sk", "")
-    amount = config.get("charge_amount", 50)
-    return sk, int(amount)
+    if not sk:
+        sk = shared.get("sk", "") or config.get("charge_sk", "") or ""
+    if amount is None:
+        amount = int(config.get("charge_amount", 50) or 50)
+    return sk, amount
 
 
 async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
@@ -68,7 +114,7 @@ async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
             acc_data = acc_resp.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - Account request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - Account request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if "error" in acc_data:
             err = acc_data["error"]
@@ -98,7 +144,7 @@ async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
             tok_result = tok_resp.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - Token request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - Token request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if "error" in tok_result:
             err = tok_result["error"]
@@ -137,7 +183,7 @@ async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
             pm_result = pm_resp.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - PM request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - PM request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if "error" in pm_result:
             err = pm_result["error"]
@@ -185,7 +231,7 @@ async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
             pi_result = pi_resp.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - PI request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - PI request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         elapsed = round(time.time() - start, 2)
         status = pi_result.get("status", "")

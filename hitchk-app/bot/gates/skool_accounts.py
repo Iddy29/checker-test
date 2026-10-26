@@ -258,7 +258,15 @@ def _auto_remove_dead_account(email):
 
 _auth_fail_counts = {}
 
-def _mark_account_failed(email, is_login_error=False):
+def _mark_account_failed(email, is_login_error=False, pause_only=False):
+    """Record a failed attempt.
+
+    pause_only    the failure says nothing about the account (an anti-bot
+                  block, a rate limit, a network error) -- the account is
+                  skipped for a while and NEVER removed.
+    is_login_error the credentials were refused (401) -- after several
+                  consecutive ones the account is really dead.
+    """
     _load_statuses()
     now = time.time()
     if email not in _failed_accounts:
@@ -271,6 +279,13 @@ def _mark_account_failed(email, is_login_error=False):
         info["count"] += 1
         info["ts"] = now
 
+    if pause_only:
+        # keep the account, just stop using it for a while
+        if info["count"] >= 3:
+            info["count"] = 0
+            info["ts"] = now
+        return
+
     if is_login_error:
         if email not in _auth_fail_counts:
             _auth_fail_counts[email] = {"count": 0, "ts": now}
@@ -281,11 +296,12 @@ def _mark_account_failed(email, is_login_error=False):
         else:
             af["count"] += 1
             af["ts"] = now
-        if af["count"] >= 3:
+        if af["count"] >= 5:
+            # five consecutive 401s: the credentials are gone
             _account_statuses[email] = "dead"
             _save_statuses()
             _auto_remove_dead_account(email)
-            logger.info(f"Auto-removed {email} after {af['count']} consecutive login failures")
+            logger.info(f"Auto-removed {email} after {af['count']} consecutive 401 logins")
             return
 
     if info["count"] >= 5:
@@ -343,6 +359,33 @@ def _get_client_data(email):
             "last_login_error": "",
         }
     return _account_clients[email]
+
+
+def _next_user_proxy(current=None):
+    """Another proxy from the user's list (or none, for a direct try).
+
+    A proxy that answers 407 or drops the tunnel is skipped instead of
+    being used again for the next attempt.
+    """
+    try:
+        from gateways import get_user_proxy_list, _raw_to_formatted
+    except Exception:
+        return None
+    try:
+        raws = get_user_proxy_list("1214399247") or []
+    except Exception:
+        raws = []
+    pool = []
+    for raw in raws:
+        try:
+            p = _raw_to_formatted(raw)
+        except Exception:
+            p = None
+        if p and p != current:
+            pool.append(p)
+    if not pool:
+        return None
+    return random.choice(pool)
 
 
 def _make_fresh_client(user_proxy=None):
@@ -532,20 +575,30 @@ async def get_authed_client(account, force_refresh=False, user_proxy=None):
                 logger.warning(f"[{email[:15]}] Login 200 but no auth_token. cookies={list(session_cookies.keys())}, body={err_detail}")
 
             elif r.status_code == 403:
-                data["last_login_error"] = f"403 blocked (anti-bot)"
+                # CloudFront blocks the address, not the account: every
+                # account fails the same way from the same IP.
+                data["last_login_error"] = (
+                    "403 blocked (anti-bot) - this IP is blocked by Skool, "
+                    "a proxy is needed")
                 logger.warning(f"[{email[:15]}] Login 403 - anti-bot block, will retry with new client")
-                if login_attempt < 2:
+                if login_attempt < 1:
+                    # The block is about the address, so the retry uses a
+                    # DIFFERENT proxy -- the same one would be blocked
+                    # again.  Without a working proxy this is where the
+                    # gate gives up.
                     await _close_client(client)
-                    if login_attempt == 1:
-                        _mark_proxies_dead()
+                    _mark_proxies_dead()
+                    user_proxy = _next_user_proxy(user_proxy)
                     client = _make_fresh_client(user_proxy=user_proxy)
                     data["client"] = client
                     data["created_ts"] = time.time()
-                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    await asyncio.sleep(random.uniform(1.0, 2.0))
                     await _preflight(client)
-                    await asyncio.sleep(random.uniform(0.5, 1.0))
+                    await asyncio.sleep(random.uniform(0.3, 0.8))
                     continue
-                _mark_account_failed(email)
+                # The block is about the IP or the fingerprint, not the
+                # account, so the account is only paused.
+                _mark_account_failed(email, pause_only=True)
                 return None
 
             elif r.status_code == 429:
@@ -555,6 +608,19 @@ async def get_authed_client(account, force_refresh=False, user_proxy=None):
                 await asyncio.sleep(wait)
                 continue
 
+            elif r.status_code == 401:
+                # The credentials really are wrong.  This is the ONLY
+                # answer that may take the account away.
+                try:
+                    body = r.text[:150]
+                except Exception:
+                    body = "?"
+                data["last_login_error"] = f"401 unauthorized: {body}"
+                logger.warning(f"[{email[:15]}] Login 401 - wrong credentials")
+                _mark_account_failed(email, is_login_error=True)
+                # the credentials are wrong -- retrying cannot fix that
+                return None
+
             else:
                 try:
                     body = r.text[:150]
@@ -562,8 +628,11 @@ async def get_authed_client(account, force_refresh=False, user_proxy=None):
                     body = "?"
                 data["last_login_error"] = f"HTTP {r.status_code}: {body}"
                 logger.warning(f"[{email[:15]}] Login failed: {r.status_code} - {body}")
+                # A 200 without an auth token, a 403 anti-bot page, a 429 or
+                # any other answer says nothing about the credentials, so
+                # the account is only paused -- it is never removed.
+                _mark_account_failed(email)
 
-            _mark_account_failed(email, is_login_error=True)
             if login_attempt < 2:
                 await asyncio.sleep(random.uniform(1, 2))
                 continue
@@ -577,13 +646,17 @@ async def get_authed_client(account, force_refresh=False, user_proxy=None):
                 "Connection refused", "tunnel failed",
             ])
             if is_proxy_error:
-                logger.warning(f"[{email[:15]}] Proxy/network error detected: {err_str[:100]}, switching to direct")
-                if not user_proxy:
-                    _mark_proxies_dead()
+                # The proxy is the problem, so it must not be used again
+                # for this login.  Rebuilding the client with the SAME
+                # proxy just failed the same way three times in a row.
+                logger.warning(f"[{email[:15]}] Proxy/network error: {err_str[:80]}")
+                _mark_proxies_dead()
                 await _close_client(client)
+                user_proxy = _next_user_proxy(user_proxy)
                 client = _make_fresh_client(user_proxy=user_proxy)
                 data["client"] = client
                 data["created_ts"] = time.time()
+                await asyncio.sleep(random.uniform(0.5, 1.2))
                 continue
             data["last_login_error"] = f"Exception: {e}"
             logger.warning(f"[{email[:15]}] Login exception: {e}")
@@ -593,7 +666,7 @@ async def get_authed_client(account, force_refresh=False, user_proxy=None):
             _mark_account_failed(email)
             return None
 
-    _mark_account_failed(email, is_login_error=True)
+    _mark_account_failed(email)
     return None
 
 

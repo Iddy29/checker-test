@@ -84,10 +84,11 @@ overrides:
   "esbuild>@esbuild/netbsd-x64": "-"
   "esbuild>@esbuild/openbsd-arm64": "-"
   "esbuild>@esbuild/openbsd-x64": "-"
+  "esbuild>@esbuild/solaris-x64": "-"
   "esbuild>@esbuild/sunos-x64": "-"
   "esbuild>@esbuild/win32-arm64": "-"
   "esbuild>@esbuild/win32-ia32": "-"
-  "esbuild>@esbuild/win32-x64": "-"
+  # win32-x64 is NOT excluded - the dev/build machine runs Windows and needs it.
   "esbuild>@esbuild/aix-ppc64": '-'
   "esbuild>@esbuild/android-arm": '-'
   "esbuild>@esbuild/android-arm64": '-'
@@ -150,3 +151,7 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+
+allowBuilds:
+  bufferutil: true
+  esbuild: true

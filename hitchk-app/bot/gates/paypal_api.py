@@ -29,4 +29,4 @@ async def paypal_api_check(cc, mm, yy, cvv):
     except asyncio.TimeoutError:
         return "Error - Timeout"
     except Exception as e:
-        return f"Error - {str(e)[:100]}"
+        return f"Error - {type(e).__name__}: {str(e)[:100]}"

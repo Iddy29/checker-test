@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -130,7 +131,7 @@ app.use((req, res, next) => {
     session({
       store: sessionStore,
       secret: process.env.SESSION_SECRET || (() => {
-        const fallback = require("crypto").randomBytes(32).toString("hex");
+        const fallback = randomBytes(32).toString("hex");
         console.warn("WARNING: No SESSION_SECRET set. Using random secret (sessions won't persist across restarts).");
         return fallback;
       })(),

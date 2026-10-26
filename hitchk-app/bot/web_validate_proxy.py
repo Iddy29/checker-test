@@ -60,9 +60,9 @@ def live_test_requests(proxy_url: str, timeout: int = 10) -> dict:
                 # Non-200 from test URL — proxy responded but URL issue; try next
                 continue
             except ProxyError as e:
-                return {"ok": False, "error": f"Proxy refused: {str(e)[:100]}"}
+                return {"ok": False, "error": f"Proxy refused: {type(e).__name__}: {str(e)[:100]}"}
             except (ConnectTimeout, ReqConnectionError) as e:
-                return {"ok": False, "error": f"Could not connect to proxy: {str(e)[:100]}"}
+                return {"ok": False, "error": f"Could not connect to proxy: {type(e).__name__}: {str(e)[:100]}"}
             except ReadTimeout:
                 return {"ok": False, "error": "Proxy connected but response timed out"}
             except Exception as e:

@@ -420,7 +420,7 @@ async def inspire_check(cc, mm, yy, cvv, proxy=None):
         return f"Error - Timeout | {info} [{elapsed}s]"
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:80]} | {info} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} | {info} [{elapsed}s]"
 
     first, last = _random_name()
     email = _random_email()
@@ -678,4 +678,4 @@ async def inspire_check(cc, mm, yy, cvv, proxy=None):
     except Exception as e:
         logger.warning(f"Unexpected error: {e}")
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:80]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

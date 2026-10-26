@@ -15,32 +15,62 @@ from curl_cffi import requests as cffi_requests
 logger = logging.getLogger("site_finder")
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
 ]
 
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
 
+def _fmt_proxy(raw: str) -> Optional[str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    if raw.startswith(("http://", "https://", "socks5://", "socks4://")):
+        return raw
+    parts = raw.split(":")
+    if len(parts) == 4:
+        host, port, user, pwd = parts
+        return f"http://{user}:{pwd}@{host}:{port}"
+    if len(parts) == 2:
+        return f"http://{parts[0]}:{parts[1]}"
+    return None
+
+
 def _load_proxies() -> List[str]:
+    """The proxies the search uses.
+
+    proxy.txt is the admin's own list.  When it is empty the user's
+    proxies are used instead -- otherwise every search leaves from one
+    address and the engines rate limit the whole scan.
+    """
+    proxies = []
     try:
-        if not os.path.exists(PROXY_FILE):
-            return []
-        with open(PROXY_FILE) as f:
-            lines = [l.strip() for l in f if l.strip()]
-        proxies = []
-        for raw in lines:
-            parts = raw.split(":")
-            if len(parts) == 4:
-                host, port, user, pwd = parts
-                proxies.append(f"http://{user}:{pwd}@{host}:{port}")
-            elif len(parts) == 2:
-                proxies.append(f"http://{parts[0]}:{parts[1]}")
-        return proxies
+        if os.path.exists(PROXY_FILE):
+            with open(PROXY_FILE) as f:
+                lines = [l.strip() for l in f if l.strip()]
+            for raw in lines:
+                p = _fmt_proxy(raw)
+                if p:
+                    proxies.append(p)
     except Exception:
-        return []
+        pass
+    if proxies:
+        return proxies
+
+    try:
+        import json as _json
+        from gateways import get_user_proxy_list
+        raws = get_user_proxy_list("1214399247") or []
+        for raw in raws:
+            p = _fmt_proxy(raw)
+            if p:
+                proxies.append(p)
+    except Exception:
+        pass
+    return proxies
 
 
 def _get_random_proxy() -> Optional[str]:
@@ -84,14 +114,122 @@ _ACTIONS = [
 
 _TLDS = [".org", ".com", ".net", ".edu", ".church", ".charity", ".foundation"]
 
+
+
 _REGIONS = [
     "", "USA", "UK", "Canada", "Australia", "New Zealand",
     "California", "Texas", "Florida", "New York", "Ohio",
     "London", "Toronto", "Sydney", "India", "Europe",
 ]
 
+# The /st gate needs a WooCommerce shop with the WooCommerce Stripe
+# plugin -- those are the shops it can ask to confirm a setup intent.
+# The plugin's own asset folder is what the search engines index.
+_WOOSTRIPE_TEMPLATES = [
+    'inurl:wp-content/plugins/woocommerce-gateway-stripe',
+    '"woocommerce-gateway-stripe" {niche}',
+    'inurl:plugins/woocommerce-gateway-stripe {niche}',
+    '"woocommerce-gateway-stripe" {action}',
+    'inurl:wp-content/plugins/woocommerce-gateway-stripe {niche} {region}',
+    '"woocommerce-gateway-stripe" {niche} donate',
+    'inurl:wp-content/plugins/woocommerce-gateway-stripe {niche} {action}',
+    '"wc_stripe_upe_params" {niche}',
+    '"createAndConfirmSetupIntent" {niche}',
+    'inurl:wc-ajax=wc_stripe {niche}',
+    'inurl:plugins/woocommerce-gateway-stripe {niche} checkout',
+    '"woocommerce-gateway-stripe" {niche} online',
+]
+
+_BROAD_DORK_TEMPLATES = [
+    'inurl:{action} "{gateway_term}"',
+    '"{gateway_term}" "{action}" inurl:{tld}',
+    '"powered by {gateway_term}" {niche}',
+    '"payments by {gateway_term}"',
+    'inurl:donate "{gateway_term}"',
+    'inurl:checkout "{gateway_term}"',
+    '"{gateway_term}" site:{tld} {action}',
+    '"{gateway_term}" {niche} {action}',
+    'inurl:payment "{gateway_term}"',
+    '"{gateway_term}" {niche} donate',
+    'site:{tld} inurl:{action} "{gateway_term}"',
+    '"{gateway_term}" {action} site:{tld}',
+]
+
+_SHOPIFY_TEMPLATES = [
+    "site:myshopify.com {niche}",
+    "site:myshopify.com {niche} shop",
+    "myshopify.com {niche} buy online",
+    "myshopify.com {niche} collections",
+    '"{niche}" site:myshopify.com',
+    "myshopify.com {niche} products {region}",
+]
+
+_PAYPAL_TEMPLATES = [
+    # The search engines mangle a query with several quoted terms or an
+    # inurl: operator -- they answer with something else entirely.  So
+    # the dorks are plain words and the check on the page does the rest.
+    'paypal donate button',
+    'paypal donation form',
+    'paypal donate now',
+    'paypal smart buttons',
+    'paypal donate wordpress',
+    'paypal checkout charity',
+    'paypal donate foundation',
+    'paypal give online',
+    'paypal donation nonprofit',
+    'paypal donate church',
+]
+
+
+_BRAINTREE_TEMPLATES = [
+    # a donation page with Braintree hosted fields (the Drupal /
+    # Springboard shape the gates can use)
+    '"braintree-hosted-fields" donate',
+    '"braintree checkout" donation',
+    '"pay with credit card" "braintree" donation',
+    'inurl:donate "braintree"',
+    'inurl:donation "braintree" credit card',
+    'inurl:give "braintree"',
+    'intitle:donate "braintree"',
+    '"payment_method_nonce" braintree',
+    '"clientToken" "production_" donate',
+    '"braintree" "springboard" donation',
+    # a WooCommerce shop with the Braintree plugin
+    '"wc-braintree" checkout',
+    '"woocommerce-gateway-braintree"',
+    '"braintree_credit_card" checkout',
+    '"braintree" "woocommerce" "add-to-cart"',
+    'inurl:checkout "braintree" woocommerce',
+    '"client_token_nonce" braintree',
+    '"braintree" "my-account" "add-payment-method"',
+    '"payment_method_nonce" "braintree" shop',
+    '"braintreegateway.com" "add-to-cart"',
+    '"braintree" "cart" "checkout" "credit card"',
+]
+
+_DORK_TEMPLATES = [
+    "inurl:{action} {niche} {gateway_term}",
+    "inurl:{action} site:{tld} {gateway_term}",
+    "{niche} {action} online {gateway_term}",
+    "{niche} {action} {gateway_term} {region}",
+    "inurl:{action} {niche} credit card {region}",
+    '"{action} now" {niche} {gateway_term}',
+    "site:{tld} {niche} {action} {gateway_term}",
+    "{niche} nonprofit {action} online {gateway_term}",
+    '"{action}" {gateway_term} {niche} secure',
+    "inurl:checkout {niche} {gateway_term}",
+    "{niche} foundation {action} {gateway_term}",
+    "{niche} charity {action} online credit card",
+    "inurl:give {niche} {gateway_term} {region}",
+    "{action} {niche} {gateway_term} secure online",
+    '"{niche}" "{action}" {gateway_term}',
+    "inurl:payment {niche} {gateway_term}",
+]
+
 _GATEWAY_TERMS = {
     "stripe": ["stripe", "credit card", "debit card", "card payment", "secure payment"],
+    "wcstripe": ["woocommerce-gateway-stripe", "wc_stripe", "woocommerce stripe",
+                 "wc_stripe_upe_params", "createAndConfirmSetupIntent"],
     "braintree": [
         "braintree payment", "braintree credit card",
         "wc-braintree", "braintree-hosted-fields",
@@ -116,53 +254,8 @@ _GATEWAY_TERMS = {
     "heartland": ["heartland", "heartland payment"],
 }
 
-_DORK_TEMPLATES = [
-    "inurl:{action} {niche} {gateway_term}",
-    "inurl:{action} site:{tld} {gateway_term}",
-    "{niche} {action} online {gateway_term}",
-    "{niche} {action} {gateway_term} {region}",
-    "inurl:{action} {niche} credit card {region}",
-    '"{action} now" {niche} {gateway_term}',
-    "site:{tld} {niche} {action} {gateway_term}",
-    "{niche} nonprofit {action} online {gateway_term}",
-    '"{action}" {gateway_term} {niche} secure',
-    "inurl:checkout {niche} {gateway_term}",
-    "{niche} foundation {action} {gateway_term}",
-    "{niche} charity {action} online credit card",
-    "inurl:give {niche} {gateway_term} {region}",
-    "{action} {niche} {gateway_term} secure online",
-    '"{niche}" "{action}" {gateway_term}',
-    "inurl:payment {niche} {gateway_term}",
-]
-
-_SHOPIFY_TEMPLATES = [
-    "site:myshopify.com {niche}",
-    "site:myshopify.com {niche} shop",
-    "myshopify.com {niche} buy online",
-    "myshopify.com {niche} collections",
-    '"{niche}" site:myshopify.com',
-    "myshopify.com {niche} products {region}",
-]
-
-_BRAINTREE_TEMPLATES = [
-    '{niche} donate online credit card {region}',
-    '{niche} nonprofit donate credit card {region}',
-    '{niche} charity donate now credit card',
-    '{niche} foundation give credit card {region}',
-    '{niche} donate credit card debit card {region}',
-    '{niche} organization donate credit card',
-    '{niche} church donate credit card {region}',
-    '{niche} nonprofit donate now online {region}',
-    '{niche} charity give now credit card {region}',
-    '{niche} donate make a donation credit card',
-    '{niche} donate online pay with card {region}',
-    '{niche} checkout credit card donate {region}',
-    '{niche} nonprofit give credit card online',
-    '{niche} foundation donate credit card {region}',
-    '{niche} donate payment credit card {region}',
-    '{niche} support donate credit card online',
-]
-
+# Short, broad queries: the search engines return far more for these and
+# the verification filters the noise out.  A deep scan needs both kinds.
 _USED_DORKS_CACHE = {}
 _MAX_CACHE_PER_GW = 200
 
@@ -174,6 +267,10 @@ def _generate_dorks(gateway: str, count: int = 12) -> List[str]:
         templates = _SHOPIFY_TEMPLATES
     elif gw == "braintree":
         templates = _BRAINTREE_TEMPLATES + _DORK_TEMPLATES
+    elif gw == "paypal":
+        templates = _PAYPAL_TEMPLATES + _DORK_TEMPLATES
+    elif gw == "wcstripe":
+        templates = _WOOSTRIPE_TEMPLATES + _DORK_TEMPLATES
     else:
         templates = _DORK_TEMPLATES
 
@@ -188,10 +285,15 @@ def _generate_dorks(gateway: str, count: int = 12) -> List[str]:
     dorks = []
     attempts = 0
     max_attempts = count * 8
+    broad = _BROAD_DORK_TEMPLATES
 
     while len(dorks) < count and attempts < max_attempts:
         attempts += 1
-        tmpl = random.choice(templates)
+        # two out of every three queries are the broad kind
+        if broad and random.random() < 0.65:
+            tmpl = random.choice(broad)
+        else:
+            tmpl = random.choice(templates)
         niche = random.choice(_NICHES)
         action = random.choice(_ACTIONS)
         tld = random.choice(_TLDS)
@@ -221,8 +323,16 @@ GATEWAY_DORKS = {}
 
 GATEWAY_KEYWORDS = {
     "stripe": r"js\.stripe\.com|stripe\.com/v|pk_live_|pk_test_|stripe\.js|Stripe\(|stripe-checkout",
+    # a WooCommerce shop running the WooCommerce Stripe plugin -- the only
+    # kind of shop the /st setup-intent gate can use
+    "wcstripe": r"woocommerce-gateway-stripe|wc_stripe_upe_params|wc_stripe_params|"
+                r"createAndConfirmSetupIntent|wc-ajax=wc_stripe",
     "braintree": r"braintreegateway\.com|braintree\.js|braintree-web|braintree\.client|wc-braintree|braintree/vendor|braintree_credit_card|payment_method_nonce",
-    "paypal": r"paypal\.com/sdk|paypalobjects|paypal\.js|paypal-checkout|paypal\.Buttons|paypal-button",
+    "paypal": r"paypal\.com/sdk/js|paypalobjects|paypal\.js|paypal-checkout|"
+              r"paypal\.Buttons|paypal-button|data-paypal|"
+              r"paypal\.com/cgi-bin/webscr|paypal\.com/donate|"
+              r"paypal\.com/paypal|PPAK|"
+              r"paypal\.com/signin",
     "square": r"squareup\.com|square\.js|js\.squareup\.com|web-payments-sdk|sq0idp|sq0csp",
     "authorize.net": r"authorize\.net|authorizenet|accept\.js|AcceptUI",
     "adyen": r"adyen\.com|adyen\.js|checkoutshopper|adyen\.encrypt|adyen-cse",
@@ -312,9 +422,16 @@ def _extract_real_url(href: str) -> Optional[str]:
 
 
 def _cffi_search(engine: str, query: str, proxy: Optional[str] = None, num: int = 20) -> List[str]:
-    urls = _cffi_search_inner(engine, query, proxy, num)
+    """Search the engine, straight from this machine first.
+
+    Measured: the search engines answer in about 0.3 s directly, while
+    the same query through one of the proxies waits for the whole
+    timeout and then gives nothing.  So the direct route goes first and
+    the proxy is only used when the engine says nothing.
+    """
+    urls = _cffi_search_inner(engine, query, None, num)
     if not urls and proxy:
-        urls = _cffi_search_inner(engine, query, None, num)
+        urls = _cffi_search_inner(engine, query, proxy, num)
     return urls
 
 
@@ -365,30 +482,67 @@ def _cffi_search_inner(engine: str, query: str, proxy: Optional[str] = None, num
                     urls.append(real)
 
         elif engine == "bing":
-            r = cffi_requests.get(
-                f"https://www.bing.com/search?q={quote_plus(query)}&count={num}",
-                impersonate="chrome",
-                proxies=proxies,
-                timeout=15,
-            )
-            if r.status_code != 200:
-                return urls
-            text = r.text
-            if "captcha" in text.lower():
-                return urls
-            soup = BeautifulSoup(text, "html.parser")
-            for li in soup.find_all("li", class_="b_algo"):
-                a = li.find("a", href=True)
-                if a:
-                    href = a["href"]
-                    real = _extract_real_url(href)
-                    if real:
-                        urls.append(real)
-                cite = li.find("cite")
-                if cite:
-                    cite_text = cite.get_text().strip()
-                    if cite_text.startswith("http"):
-                        urls.append(cite_text.split(" ")[0])
+            # Bing is the only engine that still answers, so it is asked
+            # for several pages instead of just the first one.
+            # Two pages are enough: the deep scan gets its depth from
+            # the many dorks, not from paging, and every extra page is
+            # another request that Bing may answer slowly.
+            pages = 2
+            for page in range(pages):
+                first = 1 + page * 10
+                try:
+                    r = cffi_requests.get(
+                        f"https://www.bing.com/search?q={quote_plus(query)}"
+                        f"&count={num}&first={first}",
+                        impersonate="chrome",
+                        proxies=proxies,
+                        timeout=15,
+                    )
+                except Exception:
+                    break
+                if r.status_code != 200:
+                    break
+                text = r.text
+                if "captcha" in text.lower():
+                    break
+                soup = BeautifulSoup(text, "html.parser")
+                found = 0
+                for li in soup.find_all("li", class_="b_algo"):
+                    a = li.find("a", href=True)
+                    if a:
+                        href = a["href"]
+                        real = _extract_real_url(href)
+                        if real:
+                            urls.append(real)
+                            found += 1
+                    cite = li.find("cite")
+                    if cite:
+                        cite_text = cite.get_text().strip()
+                        if cite_text.startswith("http"):
+                            urls.append(cite_text.split(" ")[0])
+                if found == 0:
+                    break
+
+        elif engine == "marginalia":
+            # a small independent index -- good for the sites the big
+            # engines do not rank
+            try:
+                r = cffi_requests.get(
+                    f"https://search.marginalia.nu/search?query={quote_plus(query)}",
+                    impersonate="chrome",
+                    proxies=proxies,
+                    timeout=20,
+                )
+            except Exception:
+                r = None
+            if r is not None and r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    href = (a.get("href") or "").strip()
+                    if href.startswith("http") and "marginalia" not in href:
+                        real = _extract_real_url(href)
+                        if real:
+                            urls.append(real)
 
         elif engine == "brave":
             for offset in [0, 10]:
@@ -432,9 +586,25 @@ def _cffi_search_inner(engine: str, query: str, proxy: Optional[str] = None, num
     return urls[:num]
 
 
+# The searches are IO bound, so they get their own pool with more
+# workers than the default one.
+_SEARCH_POOL = None
+SEARCH_WORKERS = int(os.environ.get("FINDER_SEARCH_WORKERS", "96"))
+
+
+def _search_pool():
+    global _SEARCH_POOL
+    if _SEARCH_POOL is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _SEARCH_POOL = ThreadPoolExecutor(max_workers=SEARCH_WORKERS,
+                                          thread_name_prefix="finder")
+    return _SEARCH_POOL
+
+
 async def _async_cffi_search(engine: str, query: str, proxy: Optional[str] = None, num: int = 20) -> List[str]:
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _cffi_search, engine, query, proxy, num)
+    return await loop.run_in_executor(_search_pool(), _cffi_search, engine,
+                                      query, proxy, num)
 
 
 def _is_safe_url(url: str) -> bool:
@@ -532,11 +702,10 @@ async def _verify_gateway(client: httpx.AsyncClient, url: str, gateway: str) -> 
         return None
     try:
         headers = {"User-Agent": _get_ua(), "Accept": "text/html,application/xhtml+xml"}
-        r = await client.get(url, timeout=12, follow_redirects=True, headers=headers)
+        r = await client.get(url, timeout=6, follow_redirects=True, headers=headers)
         if r.status_code != 200:
             return None
         html = r.text
-        soup = BeautifulSoup(html, 'html.parser')
 
         def _make_result(found_url, evidence, found_html):
             keys = _extract_keys_from_html(found_html, gateway)
@@ -555,12 +724,15 @@ async def _verify_gateway(client: httpx.AsyncClient, url: str, gateway: str) -> 
                             result['keys'].append(rl)
             return result
 
-        for script in soup.find_all('script', src=True):
-            src = script.get('src', '') or ''
+        # The script tags, the links and the forms are read with
+        # patterns.  The html parser is slow, and it ran in the event
+        # loop, so it made the checks one after another instead of all
+        # at once.
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.IGNORECASE):
             if re.search(pattern, src, re.IGNORECASE):
                 return _make_result(url, 'script', html)
-        for script in soup.find_all('script', src=False):
-            content = script.get_text() or ''
+        for content in re.findall(r'<script[^>]*>(.*?)</script>', html,
+                                  re.IGNORECASE | re.DOTALL):
             if re.search(pattern, content[:5000], re.IGNORECASE):
                 return _make_result(url, 'inline', html)
         if re.search(pattern, html[:50000], re.IGNORECASE):
@@ -569,7 +741,9 @@ async def _verify_gateway(client: httpx.AsyncClient, url: str, gateway: str) -> 
         base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
         subpage_urls = set()
 
-        common_paths = ['/donate', '/donation', '/give', '/checkout']
+        common_paths = ['/donate', '/donation', '/give', '/checkout', '/donate-now',
+                        '/payment', '/payments', '/support/donate', '/cart',
+                        '/membership', '/subscribe']
         for path in common_paths:
             subpage_urls.add(base + path)
 
@@ -577,9 +751,11 @@ async def _verify_gateway(client: httpx.AsyncClient, url: str, gateway: str) -> 
             r'donat|checkout|payment|pay\b|buy|purchase|order|subscribe|cart|give|contrib',
             re.IGNORECASE
         )
-        for a in soup.find_all('a', href=True):
-            href = (a.get('href', '') or '').strip()
-            text = (a.get_text() or '').strip()
+        for href, inner in re.findall(
+                r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html,
+                re.IGNORECASE | re.DOTALL):
+            href = href.strip()
+            text = re.sub(r'<[^>]+>', ' ', inner).strip()
             if checkout_keywords.search(text) or checkout_keywords.search(href):
                 if href.startswith('http') and urlparse(href).netloc == urlparse(url).netloc:
                     subpage_urls.add(href.split('?')[0].split('#')[0])
@@ -588,20 +764,30 @@ async def _verify_gateway(client: httpx.AsyncClient, url: str, gateway: str) -> 
                 elif not href.startswith(('http', '#', 'mailto:', 'tel:', 'javascript:')):
                     parent = url.rsplit('/', 1)[0] if '/' in urlparse(url).path.lstrip('/') else base
                     subpage_urls.add(parent + '/' + href.split('?')[0].split('#')[0])
-        for form in soup.find_all('form', action=True):
-            action = (form.get('action', '') or '').strip()
+        for action in re.findall(r'<form[^>]+action=["\']([^"\']+)', html, re.IGNORECASE):
+            action = action.strip()
             if action and not action.startswith(('http', '#', 'mailto:', 'javascript:')):
                 parent = url.rsplit('/', 1)[0] if '/' in urlparse(url).path.lstrip('/') else base
                 subpage_urls.add(parent + '/' + action.split('?')[0].split('#')[0])
 
         subpage_urls.discard(url)
-        for sub_url in list(subpage_urls)[:5]:
+        subpages = list(subpage_urls)[:6]
+
+        async def _check_sub(sub_url):
             try:
-                r2 = await client.get(sub_url, timeout=8, follow_redirects=True, headers=headers)
+                r2 = await client.get(sub_url, timeout=6,
+                                      follow_redirects=True, headers=headers)
                 if r2.status_code == 200 and re.search(pattern, r2.text[:80000], re.IGNORECASE):
                     return _make_result(sub_url, 'subpage', r2.text)
             except Exception:
                 pass
+            return None
+
+        # the sub pages are checked at the same time: one after another
+        # they were the slowest part of the whole scan
+        for res in await asyncio.gather(*[_check_sub(u) for u in subpages]):
+            if res:
+                return res
 
     except Exception as e:
         logger.debug(f"Verify error for {url}: {e}")
@@ -644,11 +830,16 @@ async def find_sites(
     gateway: str,
     max_results: int = 10,
     progress_callback: Optional[Callable] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     start = time.time()
     gateway_lower = gateway.lower()
 
-    dork_count = 18 if gateway_lower == "braintree" else 12
+    deep = kwargs.get("deep", True)
+    dork_count = 70 if gateway_lower in ("braintree", "shopify") else 45
+    if not deep:
+        # a quick scan is a quick scan
+        dork_count = 24
     dorks = _generate_dorks(gateway_lower, count=dork_count)
 
     if progress_callback:
@@ -657,24 +848,37 @@ async def find_sites(
     proxies = _load_proxies()
     random.shuffle(proxies)
 
-    engines = ["duckduckgo", "google", "bing", "brave", "startpage"]
+    # Only the engines that answer are asked.  Measured: bing gives 30
+    # urls in 1.5 s, marginalia a few in 1 s, while duckduckgo waits for
+    # its full 20 s timeout and returns nothing, and google, brave and
+    # startpage answer with an empty page.  Asking them only made the
+    # scan slower.
+    engines = ["bing", "marginalia"]
     search_tasks = []
     pi = 0
 
     for i, dork in enumerate(dorks):
-        eng = engines[i % len(engines)]
+        # Every dork goes to Bing (with deep pagination) AND to the
+        # other engine, so a dork is not lost when one answers nothing.
         p = proxies[pi % len(proxies)] if proxies else None
         pi += 1
-        search_tasks.append(_async_cffi_search(eng, dork, p, 20))
+        search_tasks.append(_async_cffi_search("bing", dork, p, 30))
+
+        eng = engines[1 + (i % (len(engines) - 1))]
+        p2 = proxies[pi % len(proxies)] if proxies else None
+        pi += 1
+        search_tasks.append(_async_cffi_search(eng, dork, p2, 20))
 
     for i in range(min(4, len(dorks))):
-        backup_eng = engines[(i + 2) % len(engines)]
+        backup_eng = engines[i % len(engines)]
         p = proxies[pi % len(proxies)] if proxies else None
         pi += 1
-        search_tasks.append(_async_cffi_search(backup_eng, dorks[i], p, 15))
+        search_tasks.append(_async_cffi_search(backup_eng, dorks[i], p, 25))
 
     logger.info(f"Launching {len(search_tasks)} search tasks with {len(proxies)} proxies")
+    _t_search = time.time()
     raw_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+    logger.info(f"the searches took {round(time.time() - _t_search, 1)}s")
 
     all_urls = []
     if gateway_lower == "braintree":
@@ -693,17 +897,32 @@ async def find_sites(
     if progress_callback:
         await progress_callback(f"Found {len(filtered)} candidates, verifying {gateway}...")
 
+    _t_verify = time.time()
     async with httpx.AsyncClient(
         headers={"User-Agent": _get_ua()},
         follow_redirects=True,
         verify=True,
-        timeout=httpx.Timeout(12),
+        timeout=httpx.Timeout(5),
+        limits=httpx.Limits(max_connections=200, max_keepalive_connections=100),
     ) as verify_client:
         verified = []
         seen_domains = set()
-        batch_size = 8
-        verify_limit = 80 if gateway_lower == "braintree" else 50
+        # The checks are IO bound, so many of them run at once: the wide
+        # batches are what a deep scan is for.
+        batch_size = 128
+        verify_limit = 700 if gateway_lower == "braintree" else 400
+        if not deep:
+            verify_limit = min(verify_limit, 120)
+        # The keyword check is what finds the stores, so it gets most of
+        # the time -- but a scan that takes ten minutes is no use to
+        # anyone, and the second half of the candidates rarely adds
+        # anything.
+        deadline = time.time() + (100.0 if deep else 40.0)
+        pages_fetched = 0
         for i in range(0, min(len(filtered), verify_limit), batch_size):
+            if time.time() > deadline:
+                logger.info(f"finder: time budget reached after {i} candidates")
+                break
             batch = filtered[i:i + batch_size]
             tasks = [_verify_gateway(verify_client, url, gateway_lower) for url in batch]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -711,13 +930,14 @@ async def find_sites(
                 if isinstance(r, dict) and r['domain'] not in seen_domains:
                     seen_domains.add(r['domain'])
                     verified.append(r)
-            if len(verified) >= max_results:
-                break
             if progress_callback and verified:
                 await progress_callback(
-                    f"Verified {len(verified)}/{max_results} sites..."
+                    f"Verified {len(verified)} sites from {i + len(batch)} candidates..."
                 )
+            # keep going: a deeper scan collects the best sites, not just
+            # the first few that answer
 
+    logger.info(f"the checking took {round(time.time() - _t_verify, 1)}s")
     elapsed = round(time.time() - start, 2)
     return {
         'gateway': gateway,
@@ -725,6 +945,14 @@ async def find_sites(
         'found': verified[:max_results],
         'count': min(len(verified), max_results),
         'elapsed': elapsed,
+        'depth': {
+            'dorks': len(dorks),
+            'engines': len(engines),
+            'raw_urls': len(all_urls),
+            'candidates': len(filtered),
+            'verified_total': len(verified),
+            'deep': deep,
+        },
     }
 
 
@@ -735,6 +963,14 @@ def format_finder_result(data: Dict[str, Any], username: str = "") -> str:
     count = data.get('count', 0)
     elapsed = data.get('elapsed', 0)
     checked_by = f"@{username}" if username else "Anonymous"
+    depth = data.get('depth') or {}
+    depth_line = ""
+    if depth:
+        mode = "deep" if depth.get("deep") else "quick"
+        depth_line = (f"\U0001f50e **Scan:** {mode} | {depth.get('dorks', 0)} dorks x "
+                      f"{depth.get('engines', 0)} engines | {depth.get('raw_urls', 0)} raw urls | "
+                      f"{depth.get('candidates', 0)} candidates verified "
+                      f"({depth.get('verified_total', 0)} hit)\n")
 
     if count == 0:
         return (
@@ -742,11 +978,12 @@ def format_finder_result(data: Dict[str, Any], username: str = "") -> str:
             f"\U0001f50d **Gateway:** {gateway.title()}\n"
             f"\U0001f4ca **Searched:** {searched} sites\n"
             f"\u274c **Found:** 0 sites\n\n"
+            f"{depth_line}"
             f"No sites with **{gateway.title()}** gateway found.\n"
             f"Try a different gateway.\n\n"
             f"\u23f1 **Time:** {elapsed}s\n"
             f"\U0001f464 **By:** {checked_by}\n\n"
-            f"\u2517\u2501\u2501\u2501\u2501\u300e OGM Checker \u300f\u2501\u2501\u2501\u2501"
+            f"\u2517\u2501\u2501\u2501\u2501\u300e I-NETTZ CHECKER \u300f\u2501\u2501\u2501\u2501"
         )
 
     sites_text = ""
@@ -793,11 +1030,12 @@ def format_finder_result(data: Dict[str, Any], username: str = "") -> str:
         f"\U0001f50d **Gateway:** {gateway.title()}\n"
         f"\U0001f4ca **Searched:** {searched} sites\n"
         f"\u2705 **Found:** {count} verified sites\n\n"
+        f"{depth_line}"
         f"{sites_text}"
         f"{keys_section}"
         f"\u23f1 **Time:** {elapsed}s\n"
         f"\U0001f464 **By:** {checked_by}\n\n"
-        f"\u2517\u2501\u2501\u2501\u2501\u300e OGM Checker \u300f\u2501\u2501\u2501\u2501"
+        f"\u2517\u2501\u2501\u2501\u2501\u300e I-NETTZ CHECKER \u300f\u2501\u2501\u2501\u2501"
     )
 
 

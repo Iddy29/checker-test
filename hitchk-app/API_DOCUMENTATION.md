@@ -94,6 +94,7 @@ Examples:
 - **Braintree** — Tests Braintree gateway
 - **PayPal** — Tests PayPal gateway
 - **Razorpay** — Tests Razorpay gateway
+- **Authorize.net** — Real $0.01 transaction against an Authorize.net merchant (see section 13.5)
 - **Shopify (shp_...)** — Tests against a specific Shopify store
 - **Auto** — Automatically selects the best gateway
 
@@ -299,6 +300,117 @@ Tests cards against Shopify stores using the Shopify payment API. You manage a l
 
 ### What It Does
 Tests cards against Stripe-powered Skool.com payment flows (internal feature, shown as "Stripe" to end users).
+
+---
+
+## 13.5 Authorize.net Gate (API)
+
+**Telegram command:** `/an`
+**Web page:** `/authnet-api-test`
+**Endpoint:** `POST /api/authnet/check`
+
+### What It Does
+Runs a card through a live Authorize.net merchant checkout and returns the **issuer's** verdict. Unlike the other gates, this one performs a real `$0.01` transaction — a penny is actually moved on approved cards.
+
+The card is tokenized against Authorize.net, the merchant's Cloudflare Turnstile gate is solved, and the form is submitted to the merchant. The response is the issuer's reason code, not a local checksum.
+
+> This is **not** a Luhn check. A card that fails Luhn is still sent to the bank, and the bank decides.
+
+### Card Format
+```
+CARDNUMBER|MM|YY|CVV
+```
+`YY` may be 2 or 4 digits.
+
+### Request
+
+```bash
+curl -X POST http://localhost:5000/api/authnet/check \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"card":"4111111111111111|12|29|123"}'
+```
+
+**Body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `card` | string | yes | Card in `CC\|MM\|YY\|CVV` format, 13–19 digits |
+
+### Response
+
+```json
+{
+  "status": "charged",
+  "response": "Charged - Transaction Approved",
+  "gateway": "Authorize.net Auth",
+  "card": "4111111111111111|12|29|123",
+  "amount": "$0.01",
+  "site": "bethlehemdental.dentist"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | string | `charged` \| `approved` \| `declined` \| `error` |
+| `response` | string | Human-readable verdict |
+| `gateway` | string | Always `Authorize.net Auth` |
+| `card` | string | Echo of the card that was checked |
+| `amount` | string | Amount charged on approval |
+| `site` | string | Merchant site used |
+
+### Statuses
+
+| Status | Issuer response | Meaning |
+|---|---|---|
+| `charged` | `Thank you for your submission.` | Payment went through |
+| `approved` | `2: This transaction has been declined.` | Card is live — issuer declined the sale, but it reached the bank |
+| `declined` | `6: The credit card number is invalid.` | Card is dead |
+| `declined` | `8: The credit card has expired.` | Card is dead |
+| `error` | — | Gateway/plumbing failure, not a card verdict |
+
+### Issuer Reason Codes
+The numeric prefix on the error string is the issuer's response code:
+
+| Code | Meaning | Verdict |
+|---|---|---|
+| `2` | Transaction declined | Live card (CCN) |
+| `6` | Card number invalid | Dead |
+| `8` | Card expired | Dead |
+| `14` / `15` | Invalid card number | Dead |
+| any other numeric code | Issuer responded | Live card (CCN) |
+
+### Rate Limits
+- Max **10 checks per minute** per IP
+- Daily check limits apply per tier
+- Response time is **10–40s** (captcha solve dominates; cached tokens are faster)
+
+### Error Codes
+
+| HTTP | When |
+|---|---|
+| `400` | Missing or malformed `card` |
+| `401` | Not logged in |
+| `403` | Daily check limit reached |
+| `429` | Rate limit exceeded (10/min) |
+| `503` | Server busy — retry shortly |
+| `500` | Checker process failed |
+
+### Test Requests
+
+```bash
+# Live card
+curl -X POST http://localhost:5000/api/authnet/check -H "Content-Type: application/json" \
+  -b cookies.txt -d '{"card":"4111111111111111|12|29|123"}'
+
+# Fails Luhn -> issuer says "6: The credit card number is invalid."
+curl -X POST http://localhost:5000/api/authnet/check -H "Content-Type: application/json" \
+  -b cookies.txt -d '{"card":"4111111111111112|12|29|123"}'
+
+# Expired -> issuer says "8: The credit card has expired."
+curl -X POST http://localhost:5000/api/authnet/check -H "Content-Type: application/json" \
+  -b cookies.txt -d '{"card":"5500000000000004|01|20|123"}'
+```
 
 ---
 

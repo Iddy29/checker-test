@@ -150,4 +150,4 @@ async def adyen_auth_check(cc, mm, yy, cvv, proxy=None):
         return f"Error - Gateway timeout [{elapsed}s]"
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:80]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

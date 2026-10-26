@@ -40,7 +40,7 @@ async def scrape_via_bot_api(scrape_type, chat_id, limit, bot_token):
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                     data = await resp.json()
             except Exception as e:
-                return {"error": f"Bot API request failed: {str(e)[:200]}"}
+                return {"error": f"Bot API request failed: {type(e).__name__}: {str(e)[:200]}"}
 
             if not data.get("ok"):
                 break

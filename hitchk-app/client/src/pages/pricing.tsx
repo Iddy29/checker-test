@@ -77,7 +77,7 @@ function getTierIcon(tier: string) {
   }
 }
 
-const ADMIN_TELEGRAM = "OGM010";
+const ADMIN_TELEGRAM = "sudo1010";
 
 export default function PricingPage() {
   const [, navigate] = useLocation();

@@ -16,15 +16,39 @@ SK_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skpk.json")
 
 
 def _get_sk():
+    """The Stripe secret key to check with.
+
+    Every place the bot keeps a key is a candidate and a revoked one is
+    skipped, so a dead key cannot make this gate report a card as
+    declined.
+    """
+    try:
+        from stripe_auth import _working_sk
+        sk = _working_sk()
+        if sk:
+            return sk
+    except Exception:
+        pass
+
     sk = os.environ.get("SK_STRIPE_KEY", "")
     if sk:
         return sk
-    try:
-        with open(SK_FILE) as f:
-            data = json.load(f)
-            return data.get("sk", data.get("key", ""))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return ""
+
+    bot_dir = os.path.dirname(SK_FILE)
+    for path, keys in (
+        (SK_FILE, ("sk", "key")),
+        (os.path.join(bot_dir, "config.json"), ("charge_sk",)),
+        (os.path.join(bot_dir, "pk_config.json"), ("sk",)),
+    ):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            continue
+        for k in keys:
+            if data.get(k):
+                return data[k]
+    return ""
 
 
 def _random_email():
@@ -76,7 +100,7 @@ async def sk_base_check(cc, mm, yy, cvv, proxy=None):
             result1 = resp1.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - PM request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - PM request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if "error" in result1:
             err = result1["error"]
@@ -88,6 +112,13 @@ async def sk_base_check(cc, mm, yy, cvv, proxy=None):
                 return f"Error - Rate Limited [{elapsed}s]"
             if code == "api_key_expired":
                 return f"Error - SK Key Expired [{elapsed}s]"
+            if ("invalid api key" in msg.lower() or code == "invalid_api_key"
+                    or "no such" in msg.lower()):
+                # The key itself is dead.  That says nothing about the card,
+                # so it must not be reported as a decline.
+                return f"Error - Invalid API Key (the configured SK is dead) [{elapsed}s]"
+            if "permission" in msg.lower() or "restricted" in msg.lower():
+                return f"Error - SK lacks permission for this request [{elapsed}s]"
             if "testmode_charges_only" in msg or code == "testmode_charges_only":
                 return f"Error - Test Mode Key [{elapsed}s]"
             if code == "incorrect_number":
@@ -123,7 +154,7 @@ async def sk_base_check(cc, mm, yy, cvv, proxy=None):
             result2 = resp2.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - SI request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - SI request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         elapsed = round(time.time() - start, 2)
         status = result2.get("status", "")
@@ -187,7 +218,7 @@ async def sk_key_check(sk):
             elapsed = round(time.time() - start, 2)
             return {
                 "status": "error",
-                "message": f"Request failed: {str(e)[:50]}",
+                "message": f"Request failed: {type(e).__name__}: {str(e)[:50]}",
                 "elapsed": elapsed,
             }
 

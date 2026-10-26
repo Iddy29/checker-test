@@ -46,6 +46,16 @@ export default function SettingsPage() {
   const [logsGroupId, setLogsGroupId] = useState("");
   const [logsGroupSaved, setLogsGroupSaved] = useState(false);
 
+  // Custom Captcha API (UsagiAutoX)
+  const [customCaptchaToken, setCustomCaptchaToken] = useState("");
+  const [customCaptchaUrl, setCustomCaptchaUrl] = useState("https://gold-newt-367030.hostingersite.com/api.php");
+  const [customCaptchaSaved, setCustomCaptchaSaved] = useState(false);
+  const [showCaptchaToken, setShowCaptchaToken] = useState(false);
+  const [captchaProviderName, setCaptchaProviderName] = useState("");
+  const [captchaProviderKey, setCaptchaProviderKey] = useState("");
+  const [captchaProviderEnabled, setCaptchaProviderEnabled] = useState(true);
+  const [captchaProviders, setCaptchaProviders] = useState<any>(null);
+
   const { data: config, isLoading } = useQuery<BotConfig>({
     queryKey: ["/api/bot/config"],
   });
@@ -147,6 +157,53 @@ export default function SettingsPage() {
 
   const { data: captchaKeys } = useQuery<{ nopechaKey: string; captchaaiKey: string }>({
     queryKey: ["/api/admin/captcha-keys"],
+  });
+
+  const { data: customCaptcha } = useQuery<{ token: string; url: string; enabled: boolean }>({
+    queryKey: ["/api/admin/custom-captcha"],
+  });
+
+  useEffect(() => {
+    if (customCaptcha) {
+      setCustomCaptchaToken(customCaptcha.token || "");
+      setCustomCaptchaUrl(customCaptcha.url || "https://gold-newt-367030.hostingersite.com/api.php");
+    }
+  }, [customCaptcha]);
+
+  const saveCustomCaptcha = useMutation({
+    mutationFn: () => apiRequest("PUT", "/api/admin/custom-captcha", { token: customCaptchaToken, url: customCaptchaUrl }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/custom-captcha"] });
+      setCustomCaptchaSaved(true);
+      setTimeout(() => setCustomCaptchaSaved(false), 2500);
+      toast({ title: "Custom captcha API saved — active immediately" });
+    },
+    onError: (err: any) => toast({ title: err.message || "Failed to save", variant: "destructive" }),
+  });
+
+  const fetchProviders = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/custom-captcha/providers", { action_type: "get" }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setCaptchaProviders(data);
+      toast({ title: "Provider settings loaded" });
+    },
+    onError: (err: any) => toast({ title: err.message || "Failed to fetch providers", variant: "destructive" }),
+  });
+
+  const saveProvider = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/custom-captcha/providers", {
+      action_type: "set",
+      provider: captchaProviderName,
+      api_key: captchaProviderKey,
+      enabled: captchaProviderEnabled,
+    }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      toast({ title: data.message || "Provider updated" });
+      fetchProviders.mutate();
+    },
+    onError: (err: any) => toast({ title: err.message || "Failed to save provider", variant: "destructive" }),
   });
 
   useEffect(() => {
@@ -897,6 +954,154 @@ export default function SettingsPage() {
               }
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Custom Captcha API (UsagiAutoX) ─────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-4">
+          <KeyRound className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-base">Custom Captcha API</CardTitle>
+          {customCaptchaSaved && (
+            <Badge variant="secondary" className="ml-auto text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+              Saved
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Connect your <strong>UsagiAutoX</strong> captcha API. This is used <strong>first</strong> (before NopeCHA/CaptchaAI) for solving hCaptcha, reCaptcha, and Turnstile in the Auto Hitter.
+          </p>
+
+          {/* Token + URL */}
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API Token</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={showCaptchaToken ? "text" : "password"}
+                    value={customCaptchaToken}
+                    onChange={(e) => setCustomCaptchaToken(e.target.value)}
+                    placeholder="Your UsagiAutoX API token..."
+                    className="pr-10 font-mono text-sm"
+                    data-testid="input-custom-captcha-token"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowCaptchaToken(v => !v)}
+                  >
+                    {showCaptchaToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">API URL</label>
+              <Input
+                type="text"
+                value={customCaptchaUrl}
+                onChange={(e) => setCustomCaptchaUrl(e.target.value)}
+                placeholder="https://gold-newt-367030.hostingersite.com/api.php"
+                className="font-mono text-sm"
+                data-testid="input-custom-captcha-url"
+              />
+            </div>
+
+            <Button
+              size="sm"
+              disabled={saveCustomCaptcha.isPending}
+              onClick={() => saveCustomCaptcha.mutate()}
+              data-testid="button-save-custom-captcha"
+            >
+              {saveCustomCaptcha.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Save API Settings
+            </Button>
+
+            <div className={`flex items-center gap-2 p-2 rounded-lg text-xs border ${
+              customCaptchaToken
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+            }`}>
+              {customCaptchaToken
+                ? <><CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> Custom captcha API active — used first for all captcha solving</>
+                : <><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> No token set — set your UsagiAutoX token to enable</>
+              }
+            </div>
+          </div>
+
+          {/* Provider Management */}
+          {customCaptchaToken && (
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Provider Settings</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={fetchProviders.isPending}
+                  onClick={() => fetchProviders.mutate()}
+                  data-testid="button-fetch-providers"
+                >
+                  {fetchProviders.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                  Load
+                </Button>
+              </div>
+
+              {captchaProviders && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                    {JSON.stringify(captchaProviders, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Provider</label>
+                  <Input
+                    value={captchaProviderName}
+                    onChange={(e) => setCaptchaProviderName(e.target.value)}
+                    placeholder="2captcha"
+                    className="h-8 text-sm"
+                    data-testid="input-provider-name"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase tracking-wide text-muted-foreground">API Key</label>
+                  <Input
+                    value={captchaProviderKey}
+                    onChange={(e) => setCaptchaProviderKey(e.target.value)}
+                    placeholder="Provider API key..."
+                    className="h-8 text-sm font-mono"
+                    data-testid="input-provider-key"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={captchaProviderEnabled}
+                  onCheckedChange={setCaptchaProviderEnabled}
+                  data-testid="switch-provider-enabled"
+                />
+                <span className="text-xs text-muted-foreground">Enabled</span>
+              </div>
+
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={saveProvider.isPending || !captchaProviderName}
+                onClick={() => saveProvider.mutate()}
+                data-testid="button-save-provider"
+              >
+                {saveProvider.isPending ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-2" />}
+                Update Provider
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

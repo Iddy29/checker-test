@@ -13,7 +13,7 @@ SUBMIT_URL = "https://www.aclu.org/give/now"
 FORM_ID = "webform_client_form_58508"
 AMOUNT = "35"
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 TOKENIZE_QUERY = """
 mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
@@ -291,4 +291,4 @@ async def braintree_premium_check(cc, mm, yy, cvv, proxy=None):
         return f"Error - Network error [{elapsed}s]"
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:100]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:100]} [{elapsed}s]"

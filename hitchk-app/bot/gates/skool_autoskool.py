@@ -15,10 +15,14 @@ except ImportError:
     HAS_BS4 = False
 
 from gates.skool_accounts import (
-    get_next_account, get_authed_client, invalidate_session,
-    get_account_lock, get_fallback_account,
-    get_next_account_for_user, get_fallback_account_for_user,
-)
+    get_next_account,
+    get_authed_client,
+    invalidate_session,
+    get_account_lock,
+    get_fallback_account,
+    get_next_account_for_user,
+    get_fallback_account_for_user,
+    get_last_login_error)
 
 logger = logging.getLogger("skool_autoskool")
 
@@ -55,7 +59,7 @@ DISCOVERY_DORKS = [
 YAHOO_SEARCH_URL = "https://search.yahoo.com/search"
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
 ]
@@ -76,7 +80,7 @@ def _load_found_gates():
         if os.path.exists(FOUND_GATES_FILE):
             with open(FOUND_GATES_FILE, "r") as f:
                 data = json.load(f)
-            paid = [g for g in data if g.get("is_paid") and g.get("slug")]
+            paid = [g for g in data if g.get("is_paid") and g.get("slug") and (g.get("price") or 0) > 0]
             paid.sort(key=lambda g: g.get("price") or 999)
             return paid
     except Exception:
@@ -195,13 +199,18 @@ async def _validate_group(session, slug):
                     elif any(k in raw for k in ['"price"', '"amount"', '"subscription"', "per month"]):
                         info["is_paid"] = True
 
-                info["status"] = "paid" if info["is_paid"] else "free"
+                # Mark as free if price is 0
+                if info.get("price") is not None and float(info["price"]) == 0:
+                    info["is_paid"] = False
+                    info["status"] = "free"
+                else:
+                    info["status"] = "paid" if info["is_paid"] else "free"
             elif resp.status == 404:
                 info["status"] = "not_found"
             else:
                 info["status"] = f"error_{resp.status}"
     except Exception as e:
-        info["status"] = f"error: {str(e)[:50]}"
+        info["status"] = f"error: {type(e).__name__}: {str(e)[:50]}"
 
     if not info["is_paid"] and info["status"] not in ("not_found",):
         try:
@@ -270,7 +279,7 @@ async def _discover_new_groups(exclude_slugs=None):
         discovered = await _auto_discover_groups()
         new_groups = [
             g for g in discovered
-            if g.get("is_paid") and g.get("slug") and g["slug"] not in exclude_slugs
+            if g.get("is_paid") and g.get("slug") and g["slug"] not in exclude_slugs and (g.get("price") or 0) > 0
         ]
         new_groups.sort(key=lambda g: g.get("price") or 999)
         if new_groups:
@@ -432,7 +441,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, group_slug, price_str, u
     mm = mm.zfill(2)
 
     stripe_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://js.stripe.com",
         "Referer": "https://js.stripe.com/",
@@ -447,12 +456,13 @@ async def _check_with_account(cc, mm, yy, cvv, account, group_slug, price_str, u
             force_refresh = attempt > 0
             client = await get_authed_client(account, force_refresh=force_refresh, user_proxy=user_proxy)
             if not client:
-                if attempt < MAX_RETRIES - 1:
-                    invalidate_session(account)
-                    await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
-                    continue
+                # get_authed_client() already retried the login itself, so
+                # trying the same account again only multiplies the wait and
+                # pushes the gate past the outer timeout.
                 elapsed = round(time.time() - start, 2)
-                return f"Error - Skool Account Login Error [{elapsed}s]"
+                _last_err = get_last_login_error(account)
+                _why = f" ({_last_err})" if _last_err else ""
+                return f"Error - Skool Account Login Error{_why} [{elapsed}s]"
 
             gid = await _resolve_group_id(client, group_slug)
             if not gid:
@@ -468,10 +478,13 @@ async def _check_with_account(cc, mm, yy, cvv, account, group_slug, price_str, u
                 f"{SKOOL_API}/self/setup-payment-method", json={}, timeout=REQUEST_TIMEOUT
             )
             if r_si.status_code != 200:
-                if r_si.status_code in (401, 403) and attempt < MAX_RETRIES - 1:
+                if r_si.status_code in (401, 403):
+                    # The session was refused.  Retrying means a fresh
+                    # login every time, which is what turned this gate
+                    # into a 45 s wait.  Report it instead.
                     invalidate_session(account)
-                    await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
-                    continue
+                    elapsed = round(time.time() - start, 2)
+                    return f"Error - Skool session refused ({r_si.status_code}) [{elapsed}s]"
                 elapsed = round(time.time() - start, 2)
                 return f"Error - SetupIntent failed ({r_si.status_code}) [{elapsed}s]"
 
@@ -699,7 +712,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, group_slug, price_str, u
                     await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
                     continue
             elapsed = round(time.time() - start, 2)
-            return f"Error - {str(e)[:80]} [{elapsed}s]"
+            return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"
 
     elapsed = round(time.time() - start, 2)
     return f"Error - Max retries exceeded [{elapsed}s]"

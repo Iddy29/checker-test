@@ -839,7 +839,7 @@ export default function CheckerPage() {
                                 <Badge variant="outline" className="text-[9px] lg:text-xs font-medium">
                                   🌐 {gatewayName}
                                 </Badge>
-                                {r.site && (
+                                {r.site && !/shopify/i.test(r.gateway || "") && (
                                   <Badge variant="outline" className="text-[9px] lg:text-xs font-medium truncate max-w-[160px]">
                                     🏪 {r.site}
                                   </Badge>

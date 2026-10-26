@@ -31,7 +31,7 @@
       "enabled": false
     },
     "an": {
-      "enabled": false
+      "enabled": true
     }
   },
   "tool_settings": {
@@ -39,18 +39,21 @@
       "premium_only": true
     },
     "acc_xbox": {
-      "enabled": false
+      "enabled": true
     },
     "acc_cyberghost": {
-      "enabled": false
+      "enabled": true
     },
     "acc_duolingo": {
-      "enabled": false
+      "enabled": true
     },
     "acc_hoichoi": {
-      "enabled": false
+      "enabled": true
     },
     "sk_scraper_checker": {
+      "enabled": true
+    },
+    "acc_crunchyroll": {
       "enabled": true
     }
   }

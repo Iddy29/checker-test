@@ -13,14 +13,24 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  ACCOUNT_CHECKERS,
+  ACCOUNT_HIT_STATUSES,
+  isAccountUsable,
+  normalizeAccountStatus,
+  type AccountStatus,
+} from "@shared/account-checkers";
 
-const CHECKERS = [
-  { id: "crunchyroll", label: "Crunchyroll", icon: Tv, color: "text-orange-400" },
-  { id: "xbox", label: "Xbox", icon: Gamepad2, color: "text-green-400" },
-  { id: "cyberghost", label: "CyberGhost VPN", icon: Shield, color: "text-yellow-400" },
-  { id: "duolingo", label: "Duolingo", icon: BookOpen, color: "text-emerald-400" },
-  { id: "hoichoi", label: "Hoichoi", icon: Tv, color: "text-purple-400" },
-];
+const CHECKERS = ACCOUNT_CHECKERS.map((c) => ({
+  id: c.id,
+  label: c.label,
+  icon: c.id === "xbox" ? Gamepad2 : c.id === "cyberghost" ? Shield : c.id === "duolingo" ? BookOpen : Tv,
+  color: c.id === "crunchyroll" ? "text-orange-400"
+    : c.id === "xbox" ? "text-green-400"
+    : c.id === "cyberghost" ? "text-yellow-400"
+    : c.id === "duolingo" ? "text-emerald-400"
+    : "text-purple-400",
+}));
 
 interface CheckResult {
   id: string;
@@ -70,6 +80,8 @@ function extractCombos(text: string): string[] {
 function displayStatus(status: string) {
   if (status === "FAIL") return "INVALID";
   if (status === "checking") return "Checking...";
+  if (status === "error") return "NETWORK ERROR";
+  if (status === "ERROR") return "CHECKER BROKEN";
   return status;
 }
 
@@ -80,6 +92,8 @@ function getStatusColor(status: string) {
     case "CUSTOM": return "text-amber-400";
     case "2FA": return "text-purple-400";
     case "FAIL": return "text-red-400";
+    case "error": return "text-muted-foreground";
+    case "ERROR": return "text-orange-400";
     default: return "text-muted-foreground";
   }
 }
@@ -91,6 +105,8 @@ function getStatusBg(status: string) {
     case "CUSTOM": return "bg-amber-500/10 border-amber-500/20";
     case "2FA": return "bg-purple-500/10 border-purple-500/20";
     case "FAIL": return "bg-red-500/10 border-red-500/20";
+    case "error": return "bg-muted/50 border-border";
+    case "ERROR": return "bg-orange-500/10 border-orange-500/30";
     default: return "bg-muted/50 border-border";
   }
 }
@@ -102,6 +118,10 @@ function getStatusIcon(status: string) {
     case "CUSTOM": return <AlertCircle className="w-4 h-4 lg:w-5 lg:h-5" />;
     case "2FA": return <Shield className="w-4 h-4 lg:w-5 lg:h-5" />;
     case "FAIL": return <Ban className="w-4 h-4 lg:w-5 lg:h-5" />;
+    // A broken checker and a network failure are terminal, not in-flight
+    // -- never spin here.
+    case "error": return <AlertCircle className="w-4 h-4 lg:w-5 lg:h-5" />;
+    case "ERROR": return <AlertCircle className="w-4 h-4 lg:w-5 lg:h-5" />;
     default: return <Loader2 className="w-4 h-4 lg:w-5 lg:h-5 animate-spin" />;
   }
 }
@@ -111,6 +131,9 @@ function statusBadgeClass(status: string) {
     case "HIT": return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
     case "FREE": return "bg-blue-500/20 text-blue-400 border-blue-500/30";
     case "FAIL": return "bg-red-500/20 text-red-400 border-red-500/30";
+    case "2FA": return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+    case "ERROR": return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+    case "error": return "bg-muted text-muted-foreground border-border";
     case "checking": return "bg-muted text-muted-foreground";
     case "skipped": return "bg-muted text-muted-foreground";
     default: return "bg-amber-500/20 text-amber-400 border-amber-500/30";
@@ -174,18 +197,29 @@ export default function AccountCheckerPage() {
         const response = await apiRequest("POST", "/api/tools/account-check", { checker, combo });
         const data = await response.json();
 
-        if (data.status === "error" && data.message?.includes("Rate limit")) {
+        // The server always answers 200 with a status field, but a proxy or
+        // gateway in front of it can still hand back a non-2xx.
+        if (data.status === "error" && /rate limit/i.test(data.message || "")) {
           if (attempt < maxRetries - 1) {
             await delay(3000);
             continue;
           }
         }
 
-        const finalStatus = data.status === "error" ? "error" : data.status;
+        const finalStatus = normalizeAccountStatus(data.status);
+        // A gateway failure or a broken checker carries a reason -- keep it
+        // visible instead of dropping it and showing a bare "error" row.
+        const capture: Record<string, string> = {
+          ...(data.capture && typeof data.capture === "object" ? data.capture : {}),
+        };
+        if ((finalStatus === "error" || finalStatus === "ERROR") && data.message) {
+          capture.note = data.message;
+        }
+
         setResults(prev => prev.map(r => r.id === tempId ? {
           ...r,
           status: finalStatus,
-          capture: data.capture || {},
+          capture,
         } : r));
         return finalStatus;
       } catch (err: any) {
@@ -248,7 +282,7 @@ export default function AccountCheckerPage() {
       setResults(prev => prev.map(x => x.id === r.id ? { ...x, status: "checking" } : x));
 
       const status = await checkSingle(selectedChecker, combos[i], r.id);
-      if (status === "HIT") hits++;
+      if (ACCOUNT_HIT_STATUSES.includes(status as AccountStatus)) hits++;
       doneCount = i + 1;
       setProgress({ done: doneCount, total: combos.length });
     }
@@ -282,7 +316,7 @@ export default function AccountCheckerPage() {
   };
 
   const exportHits = () => {
-    const hits = results.filter(r => r.status === "HIT" || r.status === "CUSTOM" || r.status === "FREE");
+    const hits = results.filter(r => isAccountUsable(r.status));
     if (hits.length === 0) {
       toast({ title: "Nothing to export", variant: "destructive" });
       return;
@@ -414,6 +448,9 @@ export default function AccountCheckerPage() {
                         label === "HIT" ? "text-emerald-400" :
                         label === "FREE" ? "text-blue-400" :
                         label === "INVALID" ? "text-red-400" :
+                        label === "2FA" ? "text-purple-400" :
+                        label === "CHECKER BROKEN" ? "text-orange-400" :
+                        label === "NETWORK ERROR" ? "text-muted-foreground" :
                         "text-amber-400"
                       }`}>
                         {label}: {count}
@@ -463,7 +500,7 @@ export default function AccountCheckerPage() {
                     return (
                       <div
                         key={result.id}
-                        className={`rounded-lg border p-3 lg:p-4 animate-slide-in-right transition-all duration-300 ${getStatusBg(result.status)} ${result.status === "hit" ? "ring-1 ring-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.15)]" : ""}`}
+                        className={`rounded-lg border p-3 lg:p-4 animate-slide-in-right transition-all duration-300 ${getStatusBg(result.status)} ${result.status === "HIT" ? "ring-1 ring-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.15)]" : ""}`}
                         data-testid={`result-${result.id}`}
                       >
                         <div className="flex items-center justify-between mb-1 lg:mb-2">

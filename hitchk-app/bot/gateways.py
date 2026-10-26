@@ -8,7 +8,7 @@ GATEWAY_REGISTRY = {
     "auth": {
         "label": "Auth Gateways",
         "gates": {
-            "st": {"name": "Stripe Auth $0", "func": "stripe_auth.stripe_auth_check", "type": "auth"},
+            "st": {"name": "Stripe Auth $0", "func": "woo_stripe_auth.woocommerce_stripe_check", "type": "auth"},
             "skl": {"name": "Stripe Auth $0.1", "func": "skool_api.skool_api_check", "type": "auth"},
             "b3": {"name": "Braintree Auth", "func": "braintree_idt.check_card_braintree", "type": "auth"},
             "vbv": {"name": "VBV Lookup", "func": "vbv.vbv_check", "type": "auth"},
@@ -25,7 +25,7 @@ GATEWAY_REGISTRY = {
             "rz": {"name": "Razorpay Charge", "func": "razorpay.razorpay_check", "type": "charge"},
             "charge": {"name": "Stripe Charge SK", "func": "stripe_charge.stripe_charge_check", "type": "charge"},
             "pp": {"name": "PayPal Charge $0.01", "func": "paypal_gate.paypal_check", "type": "charge"},
-            "shp": {"name": "Shopify", "func": "shopify_native.shopify_native_check", "type": "charge"},
+            "shp": {"name": "Shopify", "func": "shopify_api.shopify_api_check", "type": "charge"},
             "skl1": {"name": "Stripe Charge $1", "func": "skool_charge2.skool_charge2_check", "type": "charge"},
             "skl2": {"name": "Stripe Charge $7", "func": "skool_charge.skool_charge_check", "type": "charge"},
             "b3c": {"name": "Braintree Charge", "func": "b3_charge.b3_charge_check", "type": "charge"},
@@ -36,6 +36,10 @@ GATEWAY_REGISTRY = {
             "auto": {"name": "Stripe Random Charge", "func": "skool_autoskool.autoskool_check", "type": "charge"},
             "azz": {"name": "Authorize.net Charge $1", "func": "authnet_azz.authnet_azz_check", "type": "charge"},
             "ppk": {"name": "PayPal Keybase $1", "func": "paypal_key.paypal_key_check", "type": "charge"},
+            "sc": {"name": "WooCommerce Stripe $0.50", "func": "woo_stripe.woo_stripe_check_050", "type": "charge"},
+            "sc2": {"name": "WooCommerce Stripe $1", "func": "woo_stripe.woo_stripe_check_100", "type": "charge"},
+            "stc": {"name": "Stripe Charge $0.50", "func": "stripe_auth.stripe_charge_050", "type": "charge"},
+            "stc2": {"name": "Stripe Charge $1", "func": "stripe_auth.stripe_charge_100", "type": "charge"},
         }
     },
 }
@@ -179,6 +183,40 @@ def auto_remove_dead_proxy(user_id, raw_proxy: str) -> bool:
                 return True
             _save_user_proxies(data)
     return False
+
+def auto_remove_dead_proxy_by_formatted(user_id, formatted_proxy: str) -> bool:
+    """Remove the proxy behind a formatted "scheme://user:pass@host:port" URL.
+
+    The gates only see the formatted form, so this is the way a gate can
+    report a dead proxy of its own.
+    """
+    if not formatted_proxy:
+        return False
+    removed = False
+    with _proxy_file_lock:
+        data = _load_user_proxies()
+        uid = str(user_id)
+        proxies = data.get(uid, {}).get("proxies", [])
+        if not proxies:
+            return False
+        keep = []
+        for raw in proxies:
+            try:
+                same = _raw_to_formatted(raw) == formatted_proxy
+            except Exception:
+                same = False
+            if same:
+                removed = True
+            else:
+                keep.append(raw)
+        if not removed:
+            return False
+        if keep:
+            data[uid]["proxies"] = keep
+        else:
+            del data[uid]
+        _save_user_proxies(data)
+    return removed
 
 def get_user_proxy_list(user_id):
     with _proxy_file_lock:
@@ -405,7 +443,36 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                         kwargs["user_id"] = user_id
                     if "is_admin" in params:
                         kwargs["is_admin"] = is_admin
-                    result = await asyncio.wait_for(fn(cc, mm, yy, cvv, **kwargs), timeout=90)
+                    # Gates that declare their own budget need room for it --
+                    # the default 90s would kill a slow-but-working check.
+                    gate_timeout = 90
+                    # The Shopify gate runs a real checkout and the
+                    # validator allows 130 s for it.  With 24 workers
+                    # running a slow store can take a while, and cutting
+                    # the check off throws away a card that was fine.
+                    if "shopify" in gate_info.get("func_path", "").lower():
+                        gate_timeout = max(gate_timeout, 140)
+                    if "budget_sec" in params:
+                        try:
+                            default_budget = int(
+                                sig.parameters["budget_sec"].default or 90
+                            )
+                            gate_timeout = max(gate_timeout, default_budget + 25)
+                        except Exception:
+                            pass
+                    result = await asyncio.wait_for(
+                        fn(cc, mm, yy, cvv, **kwargs), timeout=gate_timeout
+                    )
+                    # A broken proxy must never decide the card.  The
+                    # check is redone directly, and the proxy is dropped
+                    # so the next card does not use it either.
+                    if proxy and _looks_like_proxy_failure(result):
+                        _auto_remove_dead_proxy(user_id, raw_proxy)
+                        kwargs.pop("proxy", None)
+                        kwargs.pop("user_proxy", None)
+                        result = await asyncio.wait_for(
+                            fn(cc, mm, yy, cvv, **kwargs), timeout=gate_timeout
+                        )
             else:
                 loop = asyncio.get_event_loop()
                 if gate_info["func_path"] == "b3_CCN_charge.B3_CCN":
@@ -420,7 +487,7 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                     )
             return str(result) if result else "No response from gateway"
         except asyncio.TimeoutError:
-            return "Gateway Timeout (90s)"
+            return "Error - Gateway Timeout (90s)"
         except Exception as e:
             err = str(e)[:200]
             error_patterns = [
@@ -439,6 +506,7 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
         r_lower = result.lower()
         is_dead = any(k in r_lower for k in (
             "gateway timeout", "paypal timeout", "network error",
+            "proxyerror", "502 bad gateway", "connect tunnel", "tunnel failed",
             "gateway offline", "connect timeout", "read timeout",
             "timed out", "connection refused", "cannot connect",
             "407", "connect tunnel", "proxy auth", "sslcertverificationerror",
@@ -468,8 +536,117 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
     else:
         return _maybe_auto_remove(await _execute())
 
+def _looks_like_proxy_failure(result) -> bool:
+    """True when the answer is the proxy's fault and not the card's."""
+    t = str(result or "").lower()
+    if not t:
+        return False
+    return any(k in t for k in (
+        "proxyerror", "502 bad gateway", "bad gateway",
+        "connect tunnel", "tunnel failed", "407 proxy authentication",
+        "proxy connect", "socks", "curl: (56)", "curl: (28)",
+        "server disconnected", "connection reset by peer",
+    ))
+
+# The /st gate reports two verdicts and nothing else: the issuer
+# verified the card ("approved") or the card was refused
+# ("card_decline").  A refusal with no usable reason is still a refusal,
+# so it is a card_decline and not an approval.  The reason itself stays
+# in gate_results.log, so nothing is lost.
+ST_TOKEN_APPROVED = "approved"
+ST_TOKEN_DECLINED = "card_decline"
+
+
+def st_verdict_token(status):
+    """The /st verdict as the one word the user asked for.
+
+    None for anything that is not a card verdict -- an error or an
+    unknown result must never be turned into a decline.
+    """
+    s = str(status or "").strip().upper()
+    if s == "APPROVED":
+        return ST_TOKEN_APPROVED
+    if s == "DECLINED":
+        return ST_TOKEN_DECLINED
+    return None
+
+
 def classify_response(response_text):
-    resp_lower = response_text.lower()
+    resp_lower = (response_text or "").lower()
+
+    # ── Stripe code checks FIRST ────────────────────────────────────────────
+    # A Stripe decline_code is a precise statement about the card, so it
+    # must win over the generic "starts with" branches below.  A line like
+    # "Approved - generic_decline (live decline)" starts with "Approved"
+    # but the code inside says the card was refused for no usable reason,
+    # which is NOT proof of a live card.
+    #
+    # "fraudulent" is deliberately NOT a live signal: Stripe returns it
+    # from a Radar pre-authorisation block, which happens BEFORE the
+    # issuer is contacted, and it comes back identically for a live card,
+    # an expired card, a wrong-CVC card and a random number.
+    #
+    # "generic_decline" and "card_not_supported" are ambiguous for the
+    # same reason: measured, an EXPIRED card returns "generic_decline"
+    # too, so it proves nothing about the card.
+    stripe_live = (
+        "insufficient_funds", "insufficient funds", "do_not_honor", "do not honor",
+        "lost_card", "stolen_card", "pickup_card", "restricted_card",
+        "security_violation", "incorrect_zip", "incorrect_pin",
+        "card_velocity_exceeded", "withdrawal_count_limit_exceeded",
+        "not_permitted", "transaction_not_allowed",
+        "exceeds_balance", "card verified by the issuer",
+    )
+    stripe_dead = (
+        # the store's card vault refused the card before any payment
+        "card vault rejected", "vault rejected",
+        "incorrect_number", "invalid_number", "invalid_expiry_month",
+        "invalid_expiry_year", "expired_card", "card_expired",
+        "security_code_incorrect", "invalid_cvc", "invalid_cvv",
+        "incorrect_cvc", "incorrect_cvv",
+        "your card number is incorrect", "your card has expired",
+        "your card's expiration month is invalid",
+        "your card's expiration year is invalid",
+        "your card's security code is incorrect",
+        "fails luhn", "unknown bin",
+        # The issuer refused WITHOUT naming a reason.  It does not show
+        # the card works, so it is NOT approval -- the card is refused.
+        "generic_decline",
+    )
+    # Radar blocked the request before the issuer was asked, or the
+    # refusal carried no usable reason.  The card is refused, not proven
+    # good -- same as any other decline.
+    stripe_ambiguous = (
+        "fraudulent", "suspected fraud", "radar block",
+        "card_not_supported", "merchant_blacklist",
+        "approve_with_id", "call_issuer", "no_action_taken", "try_again_later",
+        "risk system", "refused without a usable reason",
+    )
+    stripe_broken = (
+        # a gate that ran out of time says nothing about the card
+        "gateway timeout", "timeout (",
+        "live_mode_test_card", "testmode_charges_only", "secret_key_required",
+        "invalid_client", "unauthorized_client", "api_key_expired",
+        "resource_missing", "payment_intent_unexpected_state",
+        "stripe test card",
+        # the store or the validator could not run the check -- that says
+        # nothing about the card, so it is an error and never a verdict
+        "price_over_max", "no_product", "api_auth_error",
+        "cart_failed", "site_requires_login", "no_session_token",
+        "no_attempt_token", "no_shopify_payments_gateway", "checkpointdenied",
+    )
+
+    if any(k in resp_lower for k in stripe_broken):
+        return "ERROR"
+    if any(k in resp_lower for k in stripe_dead):
+        return "DECLINED"
+    if any(k in resp_lower for k in stripe_ambiguous):
+        # The request was blocked before the issuer answered, or the
+        # refusal carried no usable reason.  The card was refused, so it
+        # is not a live card -- report it as declined.
+        return "DECLINED"
+    if any(k in resp_lower for k in stripe_live):
+        return "APPROVED"
 
     if resp_lower.startswith("charged"):
         return "CHARGED"
@@ -483,13 +660,31 @@ def classify_response(response_text):
     if resp_lower.startswith("declined"):
         return "DECLINED"
 
+    # A gateway failure is NOT a card verdict.  Reporting it as DECLINED
+    # tells the user their card is dead when the real problem is the site
+    # being unreachable, a captcha failing, or a proxy dying.
     if resp_lower.startswith("error"):
+        return "ERROR"
+
+    # The issuer answered and declined.  The card is LIVE.
+    if "(live decline)" in resp_lower:
+        return "APPROVED"
+
+    # A 3DS challenge that was REJECTED means the verification FAILED --
+    # the card is dead, not live.  It used to sit in the list below and
+    # was reported as an approval.
+    vbv_failed = ["3ds rejected", "frictionless failed", "3d failed",
+                  "challenge failed", "authentication failed"]
+    if any(k in resp_lower for k in vbv_failed):
         return "DECLINED"
+
+    # A lookup that could not be completed says nothing about the card.
+    if "3ds lookup error" in resp_lower or "lookup error" in resp_lower:
+        return "ERROR"
 
     vbv_keywords = ["vbv/3ds required", "vbv/3ds recommended", "vbv/3ds optional",
                     "challenge required", "(vbv enrolled)", "3ds required",
-                    "lookup enrolled", "lookup_enrolled", "3ds rejected",
-                    "frictionless failed",
+                    "lookup enrolled", "lookup_enrolled",
                     "3d passed", "not enrolled (no vbv)", "not_supported",
                     "frictionless (no vbv)", "attempt successful (no vbv)",
                     "bypassed (no vbv)", "bypassed", "lookup_not_enrolled",
@@ -508,8 +703,7 @@ def classify_response(response_text):
                          "incorrect_zip", "insufficient funds", "card approved",
                          "transaction approved",
                          "lost_card", "stolen_card", "pickup_card",
-                         "risk", "review", "fraudulent",
-                         "rate_limit", "rate limit", "live key"]
+                         "review", "rate_limit", "rate limit", "live key"]
     declined_keywords = ["declined", "decline", "generic_decline", "card_declined",
                          "expired_card", "not_permitted", "invalid_account",
                          "card not supported", "invalid card", "dead",
@@ -518,10 +712,25 @@ def classify_response(response_text):
                          "existing_account_restricted", "restricted",
                          "timeout", "timed out", "network error",
                          "invalid_billing_address", "billing address"]
+    # Shopify Validator API: EXPIRED_CARD and friends are dead cards.
+    if any(k in resp_lower for k in ("expired_card", "base_expired", "card_expired",
+                                     "invalid_cvc", "invalid_number")):
+        return "DECLINED"
+
+    # ── Stripe: a live decline vs a dead card ──────────────────────────────
+    # Handled at the top of this function: the Stripe decline codes are
+    # precise statements about the card and must be checked before the
+    # generic keyword lists below, otherwise a line like
+    # "Approved - generic_decline (live decline)" would be read as a live
+    # card even though the code says the refusal had no usable reason.
+
     if any(k in resp_lower for k in charged_keywords):
         return "CHARGED"
     if any(k in resp_lower for k in approved_keywords):
         return "APPROVED"
+    if "price_over_max" in resp_lower:
+        return "ERROR"
+
     if any(k in resp_lower for k in declined_keywords):
         return "DECLINED"
     return "UNKNOWN"

@@ -58,4 +58,4 @@ async def sk_api_check(cc, mm, yy, cvv):
         return f"Error - Timeout [{elapsed}s]"
     except Exception as e:
         elapsed = round(time.time() - start_time, 2)
-        return f"Error - {str(e)[:80]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

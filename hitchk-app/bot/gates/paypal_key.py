@@ -19,10 +19,10 @@ CLIENT_IDS = [
 ]
 
 UA_LIST = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
 ]
 
 GQL_MUTATION = """
@@ -288,12 +288,19 @@ async def paypal_key_check(cc, mm, yy, cvv, proxy=None):
         corr_id = ''.join(random.choices(string.hexdigits[:16], k=13))
 
         client_kwargs = dict(
-            timeout=httpx.Timeout(30),
+            timeout=httpx.Timeout(15),
             follow_redirects=True,
             headers={"User-Agent": ua},
         )
         if proxy:
-            client_kwargs["proxy"] = proxy
+            p = proxy.strip()
+            if not p.startswith("http://") and not p.startswith("https://") and not p.startswith("socks5://"):
+                parts = p.split(":")
+                if len(parts) == 4:
+                    p = f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+                elif len(parts) == 2:
+                    p = f"http://{parts[0]}:{parts[1]}"
+            client_kwargs["proxy"] = p
 
         async with httpx.AsyncClient(**client_kwargs) as client:
             buttons_url = (
@@ -479,4 +486,4 @@ async def paypal_key_check(cc, mm, yy, cvv, proxy=None):
         except Exception as e:
             elapsed = round(time.time() - start, 2)
             logger.warning(f"paypal_key error: {e}")
-            return f"Error - {str(e)[:80]} [{elapsed}s]"
+            return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

@@ -105,7 +105,7 @@ async def _resolve_site_to_razorpay(client, site_url, common_headers):
             "Upgrade-Insecure-Requests": "1",
         })
     except Exception as e:
-        return None, None, f"Site unreachable: {str(e)[:50]}"
+        return None, None, f"Site unreachable: {type(e).__name__}: {str(e)[:50]}"
 
     html = r.text
     if not html:
@@ -447,7 +447,7 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
             order_data = r4.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - Order creation failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - Order creation failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if not order_data or "error" in order_data:
             err_msg = "Unknown"
@@ -488,16 +488,16 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
                             pass
                         else:
                             elapsed = round(time.time() - start, 2)
-                            return f"Error - {str(err_msg)[:60]} [{elapsed}s]"
+                            return f"Error - {type(err_msg).__name__}: {str(err_msg)[:60]} [{elapsed}s]"
                     except Exception:
                         elapsed = round(time.time() - start, 2)
-                        return f"Error - {str(err_msg)[:60]} [{elapsed}s]"
+                        return f"Error - {type(err_msg).__name__}: {str(err_msg)[:60]} [{elapsed}s]"
                 else:
                     elapsed = round(time.time() - start, 2)
-                    return f"Error - {str(err_msg)[:60]} [{elapsed}s]"
+                    return f"Error - {type(err_msg).__name__}: {str(err_msg)[:60]} [{elapsed}s]"
             else:
                 elapsed = round(time.time() - start, 2)
-                return f"Error - {str(err_msg)[:60]} [{elapsed}s]"
+                return f"Error - {type(err_msg).__name__}: {str(err_msg)[:60]} [{elapsed}s]"
 
         order_id = None
         order_amount = str(amount)
@@ -544,7 +544,7 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
             iin_data = r5.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - IIN lookup failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - IIN lookup failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if not iin_data or "error" in iin_data:
             err_desc = ""
@@ -606,7 +606,7 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
             forex_data = r6.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - Forex check failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - Forex check failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         currency_id = ""
         if forex_data and isinstance(forex_data, dict):
@@ -683,7 +683,7 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
             logger.info(f"[RZ] Payment response: {json.dumps(pay_data)[:500]}")
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - Payment submit failed: {str(e)[:50]} | {info_str} [{elapsed}s]"
+            return f"Error - Payment submit failed: {type(e).__name__}: {str(e)[:50]} | {info_str} [{elapsed}s]"
 
         elapsed = round(time.time() - start, 2)
 
@@ -742,7 +742,7 @@ async def razorpay_check(cc, mm, yy, cvv, proxy=None):
                 err_detail = err_desc or err_reason or err_code or str(err)
                 return f"Declined - {err_detail[:60]} | {info_str} [{elapsed}s]"
             else:
-                return f"Declined - {str(err)[:60]} | {info_str} [{elapsed}s]"
+                return f"Declined - {type(err).__name__}: {str(err)[:60]} | {info_str} [{elapsed}s]"
 
         razorpay_payment_id = pay_data.get("razorpay_payment_id", "")
         next_action = pay_data.get("next", [])

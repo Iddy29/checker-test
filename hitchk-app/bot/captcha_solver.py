@@ -20,13 +20,14 @@ TWOCAPTCHA_RES = "https://2captcha.com/res.php"
 CAPSOLVER_URL = "https://api.capsolver.com/createTask"
 CAPSOLVER_RES = "https://api.capsolver.com/getTaskResult"
 
-MAX_POLL_ATTEMPTS = 40
-POLL_INTERVAL = 5
+CUSTOM_API_URL = "https://gold-newt-367030.hostingersite.com/api.php"
+
+MAX_POLL_ATTEMPTS = 20
+POLL_INTERVAL = 2
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 def _get_config_key(key: str, env_var: str) -> str:
-    """Read a key from config.json first, fall back to env var. Always fresh read so admin changes take effect instantly."""
     try:
         with open(_CONFIG_PATH, "r") as f:
             cfg = json.load(f)
@@ -38,11 +39,7 @@ def _get_config_key(key: str, env_var: str) -> str:
     return os.environ.get(env_var, "")
 
 def get_nopecha_key() -> str:
-    key = _get_config_key("nopecha_api_key", "NOPECHA_API_KEY")
-    if key and key.startswith("sub_"):
-        logger.warning("nopecha_api_key looks like a Stripe subscription ID, not a NopeCHA key — skipping")
-        return ""
-    return key
+    return _get_config_key("nopecha_api_key", "NOPECHA_API_KEY")
 
 def get_captchaai_key() -> str:
     return _get_config_key("captchaai_api_key", "CAPTCHAAI_API_KEY")
@@ -53,13 +50,108 @@ def get_twocaptcha_key() -> str:
 def get_capsolver_key() -> str:
     return _get_config_key("capsolver_api_key", "CAPSOLVER_API_KEY")
 
+def get_custom_captcha_token() -> str:
+    return _get_config_key("custom_captcha_token", "CUSTOM_CAPTCHA_TOKEN")
+
+def get_custom_captcha_url() -> str:
+    url = _get_config_key("custom_captcha_url", "CUSTOM_CAPTCHA_URL")
+    return url or CUSTOM_API_URL
+
 def has_any_solver_key() -> bool:
-    return bool(get_nopecha_key() or get_captchaai_key() or get_twocaptcha_key() or get_capsolver_key())
+    return bool(get_nopecha_key() or get_captchaai_key() or get_twocaptcha_key() or get_capsolver_key() or get_custom_captcha_token())
 
-NOPECHA_KEY = os.environ.get("NOPECHA_API_KEY", "")
-CAPTCHAAI_KEY = os.environ.get("CAPTCHAAI_API_KEY", "")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+# ── Proxy pool ──────────────────────────────────────────────────────────────
+# Turnstile tokens must be solved through a proxy, so the solver needs one
+# from the same pool the bot uses for its own requests.
+_PROXIES_PATH = os.path.join(os.path.dirname(__file__), "user_proxies.json")
+_proxy_cache = {"mtime": None, "list": []}
+
+
+def _load_proxy_pool():
+    try:
+        mtime = os.path.getmtime(_PROXIES_PATH)
+    except OSError:
+        return []
+    if _proxy_cache["mtime"] == mtime:
+        return _proxy_cache["list"]
+    try:
+        with open(_PROXIES_PATH, "r") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+    pool = []
+    if isinstance(data, dict):
+        for entry in data.values():
+            if isinstance(entry, dict):
+                for p in entry.get("proxies", []) or []:
+                    if p:
+                        pool.append(str(p))
+    elif isinstance(data, list):
+        pool = [str(p) for p in data if p]
+    _proxy_cache["mtime"] = mtime
+    _proxy_cache["list"] = pool
+    return pool
+
+
+def _get_random_proxy():
+    """One proxy from the pool, formatted the way the solvers expect."""
+    import random
+    pool = _load_proxy_pool()
+    if not pool:
+        return None
+    return _format_proxy(random.choice(pool))
+
+
+def _format_proxy(raw):
+    """Turn a pool entry into the shape the solver APIs want.
+
+    The pool stores "host:port" or "host:port:user:pass".  NopeCHA wants an
+    object with scheme/host/port and optional username/password; the other
+    solvers want a URL.
+    """
+    raw = str(raw).strip()
+    if not raw:
+        return None
+
+    scheme = "http"
+    if "://" in raw:
+        scheme, raw = raw.split("://", 1)
+
+    parts = raw.split(":")
+    if len(parts) == 4:
+        host, port, user, pwd = parts
+    elif len(parts) == 3:
+        host, port, user = parts
+        pwd = ""
+    elif len(parts) >= 2:
+        host, port = parts[0], parts[1]
+        user = pwd = ""
+    else:
+        return None
+
+    return {
+        "scheme": scheme,
+        "host": host,
+        "port": int(port) if port.isdigit() else port,
+        "username": user,
+        "password": pwd,
+    }
+
+
+def _proxy_url(proxy):
+    """The same proxy as a URL, for the solvers that take a string."""
+    if not proxy:
+        return None
+    if isinstance(proxy, str):
+        return proxy
+    auth = ""
+    if proxy.get("username"):
+        auth = f"{proxy['username']}:{proxy.get('password', '')}@"
+    return f"{proxy.get('scheme', 'http')}://{auth}{proxy['host']}:{proxy['port']}"
+
+
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 
 async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
@@ -70,37 +162,88 @@ async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
     if own_session:
         session = aiohttp.ClientSession()
     try:
+        # Turnstile tokens MUST be solved through a proxy -- NopeCHA rejects
+        # the job without one ("Missing proxy data").  The proxy arrives as
+        # an object with scheme/host/port/username/password.
+        proxy = (extra or {}).get("proxy")
+        if task_type in ("turnstile", "hcaptcha", "recaptcha") and not proxy:
+            proxy = _get_random_proxy()
+        if isinstance(proxy, str):
+            proxy = _format_proxy(proxy)
+
         payload = {
             "type": task_type,
             "sitekey": sitekey,
             "url": pageurl,
             "key": key,
         }
+        if proxy:
+            payload["proxy"] = proxy
         if extra:
-            payload.update(extra)
-        logger.info(f"NopeCHA submit: type={task_type}, sitekey={sitekey[:20]}..., url={pageurl[:60]}")
-        async with session.post(NOPECHA_SUBMIT, json=payload) as resp:
-            result = await resp.json(content_type=None)
+            if "rqdata" in extra:
+                payload["data"] = {"rqdata": extra["rqdata"]}
+            if extra.get("action"):
+                payload["action"] = extra["action"]
+            if extra.get("data"):
+                payload["data"] = {"cData": extra["data"]}
+
+        logger.info(f"NopeCHA submit: type={task_type}, sitekey={sitekey[:20]}..., url={pageurl[:60]}, proxy={'yes' if proxy else 'no'}")
+
+        task_id = None
+        # A proxy in the pool can be dead.  Try up to 4 of them.
+        for attempt in range(4):
+            async with session.post(NOPECHA_SUBMIT, json=payload) as resp:
+                result = await resp.json(content_type=None)
             if "error" in result:
-                logger.warning(f"NopeCHA submit error {result.get('error')}: {result.get('message', '')}")
+                err = result.get("error")
+                err_msg = result.get("message", "")
+                err_type = result.get("type", "")
+                if "Invalid proxy" in str(err_type) or "Invalid proxy" in str(err_msg):
+                    logger.warning(f"NopeCHA: dead proxy, rotating ({err_type or err_msg})")
+                    proxy = _get_random_proxy()
+                    if proxy:
+                        payload["proxy"] = proxy
+                    await asyncio.sleep(1)
+                    continue
+                if err == 11 or "Rate limit" in str(err_msg):
+                    logger.warning(f"NopeCHA rate limited: {err_msg}")
+                    return None
+                logger.warning(f"NopeCHA submit error {err}: {err_msg}")
                 return None
             task_id = result.get("data")
-            if not task_id:
-                logger.warning(f"NopeCHA: no task_id in response: {result}")
-                return None
-            logger.info(f"NopeCHA task created: {task_id}")
+            if task_id:
+                logger.info(f"NopeCHA task created: {task_id}")
+                break
+            logger.warning(f"NopeCHA: no task_id in response: {result}")
+            return None
 
-        await asyncio.sleep(10)
+        if not task_id:
+            return None
 
-        for attempt in range(MAX_POLL_ATTEMPTS):
+        await asyncio.sleep(1)
+
+        # A Turnstile solve through a slow proxy can take a couple of
+        # minutes, so poll for longer than the default 40 x 1s.
+        for attempt in range(90):
             params = {"id": task_id, "key": key}
             async with session.get(NOPECHA_RESULT, params=params) as resp:
                 result = await resp.json(content_type=None)
                 if "error" in result:
                     err = result["error"]
                     err_msg = result.get("message", "")
+                    err_type = result.get("type", "")
                     if err in (9, 14) or err == "Incomplete" or "Incomplete" in str(err_msg):
+                        # still solving -- keep polling
                         pass
+                    elif "Invalid proxy" in str(err_type) or "Invalid proxy" in str(err_msg):
+                        logger.warning(f"NopeCHA: proxy died mid-job ({err_msg})")
+                        return None
+                    elif "Missing proxy" in str(err_msg):
+                        logger.warning(f"NopeCHA: {err_msg}")
+                        return None
+                    elif err == 11 or "Rate limit" in str(err_msg):
+                        logger.warning(f"NopeCHA rate limited: {err_msg}")
+                        return None
                     else:
                         logger.warning(f"NopeCHA poll error {err}: {err_msg}")
                         return None
@@ -108,9 +251,9 @@ async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
                     data = result.get("data")
                     token = data[0] if isinstance(data, list) and data else data
                     if token and isinstance(token, str) and len(token) > 20:
-                        logger.info(f"NopeCHA solved! Token: {str(token)[:30]}...")
+                        logger.info(f"NopeCHA solved! Token: {type(token).__name__}: {str(token)[:30]}...")
                         return token
-            await asyncio.sleep(POLL_INTERVAL)
+            await asyncio.sleep(2)
 
         logger.warning("NopeCHA timeout - max poll attempts reached")
         return None
@@ -120,6 +263,23 @@ async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
     finally:
         if own_session:
             await session.close()
+
+
+async def _local_hcaptcha_solve(sitekey, pageurl, rqdata=None):
+    if rqdata:
+        logger.info("Local hCaptcha solver skipped - enterprise rqdata not supported")
+        return None
+    try:
+        from local_hcaptcha_solver import solve_hcaptcha_local
+        token = await solve_hcaptcha_local(sitekey, pageurl, rqdata=rqdata)
+        if token:
+            return token
+        logger.info("Local hCaptcha solver failed, trying NopeCHA...")
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.info(f"Local hCaptcha solver error: {e}, trying NopeCHA...")
+    return None
 
 
 async def _captchaai_solve(method, sitekey, pageurl, session=None, extra=None):
@@ -174,7 +334,6 @@ async def _captchaai_solve(method, sitekey, pageurl, session=None, extra=None):
 
 
 async def _twocaptcha_solve(method, sitekey, pageurl, session=None, extra=None):
-    """2captcha / Anti-Captcha compatible solving (same API)."""
     key = get_twocaptcha_key()
     if not key:
         return None
@@ -226,7 +385,6 @@ async def _twocaptcha_solve(method, sitekey, pageurl, session=None, extra=None):
 
 
 async def _capsolver_solve(task_type, sitekey, pageurl, session=None, extra=None):
-    """CapSolver API — great hCaptcha support, no image grid required."""
     key = get_capsolver_key()
     if not key:
         return None
@@ -268,7 +426,7 @@ async def _capsolver_solve(task_type, sitekey, pageurl, session=None, extra=None
                     solution = result.get("solution", {})
                     token = solution.get("gRecaptchaResponse") or solution.get("token") or solution.get("userAgent")
                     if token:
-                        logger.info(f"CapSolver solved! Token: {str(token)[:30]}...")
+                        logger.info(f"CapSolver solved! Token: {type(token).__name__}: {str(token)[:30]}...")
                         return token
                     logger.warning(f"CapSolver ready but no token in solution: {solution}")
                     return None
@@ -287,12 +445,112 @@ async def _capsolver_solve(task_type, sitekey, pageurl, session=None, extra=None
             await session.close()
 
 
+async def _custom_api_solve(task_type, sitekey, pageurl, session=None, extra=None):
+    token = get_custom_captcha_token()
+    if not token:
+        return None
+    api_url = get_custom_captcha_url()
+    own_session = session is None
+    if own_session:
+        session = aiohttp.ClientSession()
+    try:
+        if task_type and "recaptcha" in task_type.lower():
+            captcha_type = "recaptcha"
+        elif task_type and "turnstile" in task_type.lower():
+            captcha_type = "turnstile"
+        else:
+            captcha_type = "hcaptcha"
+
+        submit_params = {
+            "action": "captcha-solve",
+            "token": token,
+            "type": captcha_type,
+            "sitekey": sitekey,
+            "pageurl": pageurl,
+        }
+        if extra:
+            submit_params.update(extra)
+
+        logger.info(f"CustomAPI submit: type={captcha_type}, sitekey={sitekey[:20]}..., url={pageurl[:60]}")
+        async with session.post(api_url, json=submit_params) as resp:
+            result = await resp.json(content_type=None)
+            if not result.get("success") and result.get("error"):
+                logger.warning(f"CustomAPI submit error: {result.get('error')}")
+                return None
+
+            if result.get("success") and result.get("solution"):
+                solved = result["solution"]
+                if isinstance(solved, str) and len(solved) > 20:
+                    logger.info(f"CustomAPI solved instantly! Token: {solved[:30]}...")
+                    return solved
+                if isinstance(solved, dict):
+                    tok = solved.get("token") or solved.get("gRecaptchaResponse") or solved.get("code")
+                    if tok and len(str(tok)) > 20:
+                        logger.info(f"CustomAPI solved instantly! Token: {type(tok).__name__}: {str(tok)[:30]}...")
+                        return str(tok)
+
+            task_id = result.get("task_id") or result.get("id") or result.get("request")
+            if not task_id:
+                if result.get("success"):
+                    logger.warning(f"CustomAPI: success but no solution/task_id: {result}")
+                return None
+
+            logger.info(f"CustomAPI task created: {task_id}")
+
+        await asyncio.sleep(10)
+
+        for attempt in range(MAX_POLL_ATTEMPTS):
+            poll_params = {
+                "action": "captcha-result",
+                "token": token,
+                "task_id": str(task_id),
+            }
+            try:
+                async with session.get(api_url, params=poll_params) as resp:
+                    result = await resp.json(content_type=None)
+                    if result.get("success") and result.get("solution"):
+                        solved = result["solution"]
+                        if isinstance(solved, str) and len(solved) > 20:
+                            logger.info(f"CustomAPI solved! Token: {solved[:30]}...")
+                            return solved
+                        if isinstance(solved, dict):
+                            tok = solved.get("token") or solved.get("gRecaptchaResponse") or solved.get("code")
+                            if tok and len(str(tok)) > 20:
+                                logger.info(f"CustomAPI solved! Token: {type(tok).__name__}: {str(tok)[:30]}...")
+                                return str(tok)
+                    if result.get("status") == "processing" or result.get("error") == "CAPCHA_NOT_READY":
+                        pass
+                    elif result.get("error"):
+                        logger.warning(f"CustomAPI poll error: {result.get('error')}")
+                        return None
+            except Exception:
+                pass
+            await asyncio.sleep(POLL_INTERVAL)
+
+        logger.warning("CustomAPI timeout - max poll attempts reached")
+        return None
+    except Exception as e:
+        logger.error(f"CustomAPI solve error: {e}")
+        return None
+    finally:
+        if own_session:
+            await session.close()
+
+
 async def solve_hcaptcha(sitekey, pageurl, session=None):
+    token = await _local_hcaptcha_solve(sitekey, pageurl)
+    if token:
+        return token
     if get_nopecha_key():
         token = await _nopecha_solve("hcaptcha", sitekey, pageurl, session)
         if token:
             return token
-        logger.info("NopeCHA hCaptcha failed, trying next solver...")
+        logger.info("NopeCHA hCaptcha failed, trying CapSolver...")
+    if get_capsolver_key():
+        token = await _capsolver_solve("HCaptchaTask", sitekey, pageurl, session)
+        if token:
+            return token
+        logger.info("CapSolver hCaptcha failed, trying CaptchaAI...")
     if get_captchaai_key():
         token = await _captchaai_solve("hcaptcha", sitekey, pageurl, session)
         if token:
@@ -302,8 +560,9 @@ async def solve_hcaptcha(sitekey, pageurl, session=None):
         token = await _twocaptcha_solve("hcaptcha", sitekey, pageurl, session)
         if token:
             return token
-        logger.info("2captcha hCaptcha failed, trying CapSolver...")
-    return await _capsolver_solve("HCaptchaTaskProxyless", sitekey, pageurl, session)
+    if get_custom_captcha_token():
+        return await _custom_api_solve("hcaptcha", sitekey, pageurl, session)
+    return None
 
 
 async def solve_hcaptcha_enterprise(sitekey, pageurl, rqdata=None, session=None):
@@ -311,14 +570,24 @@ async def solve_hcaptcha_enterprise(sitekey, pageurl, rqdata=None, session=None)
     if rqdata:
         extra_cs["enterprisePayload"] = {"rqdata": rqdata}
 
+    token = await _local_hcaptcha_solve(sitekey, pageurl, rqdata=rqdata)
+    if token:
+        return token
     if get_nopecha_key():
         nopecha_extra = {}
         if rqdata:
             nopecha_extra["rqdata"] = rqdata
         token = await _nopecha_solve("hcaptcha", sitekey, pageurl, session, extra=nopecha_extra or None)
+        if token and len(token) <= 5000:
+            return token
+        elif token:
+            logger.info(f"NopeCHA enterprise token too long ({len(token)} chars), skipping")
+        logger.info("NopeCHA enterprise failed, trying CapSolver...")
+    if get_capsolver_key():
+        token = await _capsolver_solve("HCaptchaEnterpriseTask", sitekey, pageurl, session, extra=extra_cs or None)
         if token:
             return token
-        logger.info("NopeCHA hCaptcha enterprise failed, trying next solver...")
+        logger.info("CapSolver enterprise failed, trying CaptchaAI...")
     if get_captchaai_key():
         captchaai_extra = {}
         if rqdata:
@@ -334,16 +603,25 @@ async def solve_hcaptcha_enterprise(sitekey, pageurl, rqdata=None, session=None)
         token = await _twocaptcha_solve("hcaptcha", sitekey, pageurl, session, extra=extra_2c)
         if token:
             return token
-        logger.info("2captcha enterprise failed, trying CapSolver...")
-    return await _capsolver_solve("HCaptchaEnterpriseTaskProxyless", sitekey, pageurl, session, extra=extra_cs or None)
+    if get_custom_captcha_token():
+        custom_extra = {}
+        if rqdata:
+            custom_extra["rqdata"] = rqdata
+            custom_extra["enterprise"] = "1"
+        return await _custom_api_solve("hcaptcha", sitekey, pageurl, session, extra=custom_extra or None)
+    return None
 
 
-async def solve_recaptcha_v2(sitekey, pageurl, session=None):
+async def solve_recaptcha_v2(sitekey, pageurl, session=None, proxy=None):
+    token = await _local_hcaptcha_solve(sitekey, pageurl)
+    if token:
+        return token
     if get_nopecha_key():
-        token = await _nopecha_solve("recaptcha2", sitekey, pageurl, session)
+        token = await _nopecha_solve("recaptcha", sitekey, pageurl, session,
+                                     extra={"proxy": proxy} if proxy else None)
         if token:
             return token
-        logger.info("NopeCHA reCaptcha v2 failed, trying next solver...")
+        logger.info("NopeCHA reCaptcha failed, trying CaptchaAI...")
     if get_captchaai_key():
         token = await _captchaai_solve("userrecaptcha", sitekey, pageurl, session)
         if token:
@@ -357,14 +635,20 @@ async def solve_recaptcha_v2(sitekey, pageurl, session=None):
     return await _capsolver_solve("ReCaptchaV2TaskProxyless", sitekey, pageurl, session)
 
 
-async def solve_turnstile(sitekey, pageurl, session=None, action=None, cdata=None):
+async def solve_turnstile(sitekey, pageurl, session=None, action=None, cdata=None,
+                          proxy=None):
+    # NopeCHA first -- it is the only solver that is configured by
+    # default, and the others need a paid key.
     if get_nopecha_key():
         extra = {}
         if action:
             extra["action"] = action
         if cdata:
-            extra["cdata"] = cdata
-        token = await _nopecha_solve("turnstile", sitekey, pageurl, session, extra)
+            extra["data"] = cdata
+        if proxy:
+            extra["proxy"] = proxy
+        token = await _nopecha_solve("turnstile", sitekey, pageurl, session,
+                                     extra=extra or None)
         if token:
             return token
         logger.info("NopeCHA Turnstile failed, trying CaptchaAI...")
@@ -608,10 +892,6 @@ async def submit_captcha_token(session, page_url, token, captcha_type, html):
 
 
 async def solve_checkpoint(checkpoint_url, http_session):
-    if not get_nopecha_key() and not get_captchaai_key():
-        logger.warning("No captcha API key set, cannot solve checkpoint")
-        return None
-
     try:
         headers = {
             'User-Agent': UA,

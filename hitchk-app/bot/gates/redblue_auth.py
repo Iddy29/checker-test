@@ -161,4 +161,4 @@ async def redblue_auth_check(cc, mm, yy, cvv, proxy=None):
 
             return f"Declined - {decline_code or err_message or 'card_declined'} [{elapsed}]"
 
-        return f"Error - Unexpected: {str(result)[:100]} [{elapsed}]"
+        return f"Error - Unexpected: {type(result).__name__}: {str(result)[:100]} [{elapsed}]"

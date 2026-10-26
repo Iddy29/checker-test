@@ -5,10 +5,15 @@ import string
 import os
 import logging
 from gates.skool_accounts import (
-    get_next_account, get_authed_client, invalidate_session,
-    get_account_lock, close_client, get_fallback_account,
-    get_next_account_for_user, get_fallback_account_for_user,
-)
+    get_next_account,
+    get_authed_client,
+    invalidate_session,
+    get_account_lock,
+    close_client,
+    get_fallback_account,
+    get_next_account_for_user,
+    get_fallback_account_for_user,
+    get_last_login_error)
 
 logger = logging.getLogger("skool_charge")
 
@@ -100,7 +105,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
     mm = mm.zfill(2)
 
     stripe_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://js.stripe.com",
         "Referer": "https://js.stripe.com/",
@@ -114,12 +119,13 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
             force_refresh = attempt > 0
             client = await get_authed_client(account, force_refresh=force_refresh, user_proxy=user_proxy)
             if not client:
-                if attempt < MAX_RETRIES - 1:
-                    invalidate_session(account)
-                    await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
-                    continue
+                # get_authed_client() already retried the login itself, so
+                # trying the same account again only multiplies the wait and
+                # pushes the gate past the outer timeout.
                 elapsed = round(time.time() - start, 2)
-                return f"Error - Skool Account Login Error [{elapsed}s]"
+                _last_err = get_last_login_error(account)
+                _why = f" ({_last_err})" if _last_err else ""
+                return f"Error - Skool Account Login Error{_why} [{elapsed}s]"
 
             await _leave_group(client)
 
@@ -127,10 +133,13 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
                 f"{SKOOL_API}/self/setup-payment-method", json={}, timeout=REQUEST_TIMEOUT
             )
             if r_si.status_code != 200:
-                if r_si.status_code in (401, 403) and attempt < MAX_RETRIES - 1:
+                if r_si.status_code in (401, 403):
+                    # The session was refused.  Retrying means a fresh
+                    # login every time, which is what turned this gate
+                    # into a 45 s wait.  Report it instead.
                     invalidate_session(account)
-                    await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
-                    continue
+                    elapsed = round(time.time() - start, 2)
+                    return f"Error - Skool session refused ({r_si.status_code}) [{elapsed}s]"
                 elapsed = round(time.time() - start, 2)
                 return f"Error - SetupIntent failed ({r_si.status_code}) [{elapsed}s]"
 
@@ -358,7 +367,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
                     await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
                     continue
             elapsed = round(time.time() - start, 2)
-            return f"Error - {str(e)[:80]} [{elapsed}s]"
+            return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"
 
     elapsed = round(time.time() - start, 2)
     return f"Error - Max retries exceeded [{elapsed}s]"

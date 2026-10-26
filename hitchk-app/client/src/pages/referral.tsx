@@ -162,25 +162,16 @@ export default function ReferralPage() {
                 </p>
                 <p className="text-xs text-muted-foreground mb-3">
                   {isMember
-                    ? "You are a member of the channel and group. Your referrals will be credited."
-                    : "You must join both our Telegram channel and group before your referrals count."}
+                    ? "You are a member of the channel. Your referrals will be credited."
+                    : "You must join our Telegram channel before your referrals count."}
                 </p>
-                {!isMember && (groupLink || channelLink) && (
+                {!isMember && channelLink && (
                   <div className="flex flex-col sm:flex-row gap-2">
-                    {channelLink && (
-                      <a href={channelLink} target="_blank" rel="noopener noreferrer" data-testid="link-join-channel">
-                        <Button size="sm" variant="outline" className="w-full sm:w-auto gap-1.5 text-xs border-orange-500/40 hover:bg-orange-500/10">
-                          Join Channel <ExternalLink className="w-3 h-3" />
-                        </Button>
-                      </a>
-                    )}
-                    {groupLink && (
-                      <a href={groupLink} target="_blank" rel="noopener noreferrer" data-testid="link-join-group">
-                        <Button size="sm" variant="outline" className="w-full sm:w-auto gap-1.5 text-xs border-orange-500/40 hover:bg-orange-500/10">
-                          Join Group <ExternalLink className="w-3 h-3" />
-                        </Button>
-                      </a>
-                    )}
+                    <a href={channelLink} target="_blank" rel="noopener noreferrer" data-testid="link-join-channel">
+                      <Button size="sm" variant="outline" className="w-full sm:w-auto gap-1.5 text-xs border-orange-500/40 hover:bg-orange-500/10">
+                        Join Channel <ExternalLink className="w-3 h-3" />
+                      </Button>
+                    </a>
                     <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => refetchMembership()} data-testid="button-recheck-membership">
                       Check Again
                     </Button>
@@ -201,7 +192,7 @@ export default function ReferralPage() {
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <p className="text-xs text-muted-foreground mb-3">
-                Got referred by a friend? Enter their code to credit them $0.30. Requires channel + group membership.
+                Got referred by a friend? Enter their code to credit them $0.30. Requires channel membership.
               </p>
               <div className="flex gap-2">
                 <Input
@@ -442,9 +433,9 @@ export default function ReferralPage() {
           <CardContent className="px-4 pb-4">
             <div className="flex flex-col gap-3">
               {[
-                { step: "1", text: "Join our Telegram Channel and Group (required)" },
+                { step: "1", text: "Join our Telegram Channel (required)" },
                 { step: "2", text: "Copy your referral link and share it with friends" },
-                { step: "3", text: "Friend joins the channel & group, then applies your code" },
+                { step: "3", text: "Friend joins the channel, then applies your code" },
                 { step: "4", text: "You instantly earn $0.30 per new user" },
                 { step: "5", text: "Collect $5 → Silver or $7 → Gold (7 days each)" },
               ].map(({ step, text }) => (

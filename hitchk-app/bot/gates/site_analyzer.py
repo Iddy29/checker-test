@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger("site_analyzer")
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 12
 
 PAYMENT_GATEWAY_PATTERNS = {
@@ -681,7 +681,7 @@ async def analyze_site(url: str) -> Dict[str, Any]:
     except httpx.ConnectError:
         return {'error': 'Connection error - unable to reach website'}
     except Exception as e:
-        return {'error': f'Analysis failed: {str(e)[:80]}'}
+        return {'error': f'Analysis failed: {type(e).__name__}: {str(e)[:80]}'}
 
 
 def _esc(text: str) -> str:
@@ -791,6 +791,6 @@ def format_result(data: Dict[str, Any], username: str = "") -> str:
         f"\u2514\u2500 Headers Score: {sec_score}%\n\n"
         f"\u23f1 **Time:** {elapsed}s\n"
         f"\U0001f464 **Checked by:** {checked_by}\n\n"
-        f"\u2517\u2501\u2501\u2501\u2501\u300e OGM Checker \u300f\u2501\u2501\u2501\u2501"
+        f"\u2517\u2501\u2501\u2501\u2501\u300e I-NETTZ CHECKER \u300f\u2501\u2501\u2501\u2501"
     )
     return msg

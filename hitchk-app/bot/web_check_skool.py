@@ -113,8 +113,8 @@ async def check_account(email, password):
                 result = await _try_check(client, email, password)
                 return result
             except Exception as e2:
-                return {"status": "unknown", "detail": f"Error: {str(e2)[:100]}"}
-        return {"status": "unknown", "detail": f"Error: {str(e)[:100]}"}
+                return {"status": "unknown", "detail": f"Error: {type(e2).__name__}: {str(e2)[:100]}"}
+        return {"status": "unknown", "detail": f"Error: {type(e).__name__}: {str(e)[:100]}"}
     finally:
         await _close_client(client)
 

@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 
 STRIPE_API = "https://api.stripe.com/v1"
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 LIVE_DECLINE_CODES = [
     "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
@@ -90,7 +90,7 @@ async def _fetch_billing_info(billing_url, proxy=None):
             page_html = r.text
     except Exception as e:
         logger.error(f"Failed to fetch billing page: {e}")
-        return None, f"Failed to load billing page: {str(e)[:100]}"
+        return None, f"Failed to load billing page: {type(e).__name__}: {str(e)[:100]}"
 
     pk = None
     ek = None
@@ -289,7 +289,7 @@ async def stripe_billing_check(cc, mm, yy, cvv, billing_url, session_cache=None,
             return "error", "Gateway Timeout", None, elapsed, info
         except Exception as e:
             elapsed = round(time.time() - start, 2)
-            return "error", f"Network Error: {str(e)[:80]}", None, elapsed, info
+            return "error", f"Network Error: {type(e).__name__}: {str(e)[:80]}", None, elapsed, info
 
         elapsed = round(time.time() - start, 2)
 

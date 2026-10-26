@@ -29,8 +29,10 @@ const ReferralPage       = lazy(() => import("@/pages/referral"));
 const AdminLayout        = lazy(() => import("@/components/admin-layout"));
 const ActivityPopup      = lazy(() => import("@/components/activity-popup"));
 const MembershipGate     = lazy(() => import("@/components/membership-gate").then(m => ({ default: m.MembershipGate })));
+const AuthnetApiTestPage = lazy(() => import("@/pages/authnet-api-test"));
+const ApiDocsPage        = lazy(() => import("@/pages/api-docs"));
 
-const VALID_PATHS = ["/", "/checker", "/user-settings", "/generator", "/filter", "/finder", "/autohitter", "/shopify", "/skool", "/accounts", "/scraper", "/pricing", "/referral", "/admin"];
+const VALID_PATHS = ["/", "/checker", "/user-settings", "/generator", "/filter", "/finder", "/autohitter", "/shopify", "/skool", "/accounts", "/scraper", "/pricing", "/referral", "/admin", "/authnet-api-test", "/docs"];
 
 function PageLoader() {
   return (
@@ -213,6 +215,8 @@ function AppRoutes() {
         <Route path="/scraper" component={ScraperPage} />
         <Route path="/pricing" component={PricingPage} />
         <Route path="/referral" component={ReferralPage} />
+        <Route path="/authnet-api-test" component={AuthnetApiTestPage} />
+        <Route path="/docs" component={ApiDocsPage} />
         <Route path="/admin/:rest*" component={AdminGuard} />
         <Route path="/admin" component={AdminGuard} />
         <Route><Redirect to="/" /></Route>
