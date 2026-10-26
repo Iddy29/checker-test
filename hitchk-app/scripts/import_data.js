@@ -1,5 +1,5 @@
 /**
- * OGM Checker — Data Import Script
+ * mrcyber-tz Checker — Data Import Script
  * Run this on your NEW Replit BEFORE starting the app.
  *
  * Usage:
@@ -18,7 +18,7 @@ const BOT_DIR = path.resolve(__dirname, "../bot");
 const SNAPSHOT_PATH = path.resolve(__dirname, "../data_snapshot.json");
 
 async function main() {
-  console.log("=== OGM Checker Data Import ===\n");
+  console.log("=== mrcyber-tz Checker Data Import ===\n");
 
   // Check snapshot file exists
   if (!fs.existsSync(SNAPSHOT_PATH)) {
