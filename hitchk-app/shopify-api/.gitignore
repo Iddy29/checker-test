@@ -1,0 +1,7 @@
+# the secrets and the noise stay on the server
+.env
+__pycache__/
+requests.txt
+requests.txt.1
+*.bak.*
+*.pyc

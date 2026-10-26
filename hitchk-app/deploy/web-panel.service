@@ -1,0 +1,19 @@
+[Unit]
+Description=mrcyber-tz Web Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/hitchecker/hitchk-app
+Environment=NODE_ENV=production
+Environment=__set_on_the_server__
+Environment=__set_on_the_server__
+ExecStart=/usr/local/bin/npx tsx server/index.ts
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/web-panel.log
+StandardError=append:/var/log/web-panel.log
+
+[Install]
+WantedBy=multi-user.target

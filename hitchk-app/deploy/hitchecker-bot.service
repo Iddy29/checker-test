@@ -1,0 +1,17 @@
+[Unit]
+Description=I-NETTZ Checker Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/hitchecker/bot
+ExecStart=/usr/bin/python3 -u /root/hitchecker/bot/bot.py
+EnvironmentFile=/root/hitchecker/bot/bot.env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

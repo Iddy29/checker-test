@@ -1,0 +1,16 @@
+# ─── Web framework ─────────────────────────────────────────────
+fastapi>=0.115.0,<0.120.0
+uvicorn[standard]>=0.30.0,<0.40.0
+
+# ─── HTTP client (TLS/JA3 impersonation) ──────────────────────
+curl_cffi>=0.7.0,<0.14.0
+
+# ─── Fast JSON (serialize / parse) ────────────────────────────
+orjson>=3.9.0,<4.0.0
+
+# ─── Non-blocking file writes for requests.txt ────────────────
+aiofiles>=23.2.0,<25.0.0
+
+gunicorn>=21.2.0,<24.0.0
+
+python-dotenv>=1.0.0,<2.0.0

@@ -1,0 +1,15 @@
+[Unit]
+Description=Shopify Validator API
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/shopify-api
+ExecStart=/usr/bin/python3 -u /root/shopify-api/api.py
+EnvironmentFile=/root/shopify-api/.env
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
