@@ -7649,9 +7649,6 @@ async def co_cmd(event):
 
     import logging
     co_logger = logging.getLogger("stripe_co")
-    print(f"[CO DEBUG] raw message text ({len(raw)} chars): {repr(raw[:500])}")
-    print(f"[CO DEBUG] url_parts extracted: {url_parts}")
-    print(f"[CO DEBUG] checkout_url from text ({len(checkout_url)} chars): {checkout_url[:300]}")
 
     entity_urls = []
     if event.message.entities:
@@ -7661,7 +7658,6 @@ async def co_cmd(event):
                 ent_type = type(ent).__name__
                 ent_url = getattr(ent, 'url', None)
                 ent_text = event.message.text[ent.offset:ent.offset + ent.length] if hasattr(ent, 'offset') else ''
-                print(f"[CO DEBUG] entity: type={ent_type}, offset={getattr(ent, 'offset', '?')}, length={getattr(ent, 'length', '?')}, url_attr={ent_url}, text={ent_text[:200]}")
                 entity_urls.append({
                     'type': ent_type,
                     'url': ent_url,
@@ -7678,15 +7674,13 @@ async def co_cmd(event):
                 best_entity_url = candidate
 
     if best_entity_url and len(best_entity_url) > len(checkout_url):
-        print(f"[CO DEBUG] entity URL is longer ({len(best_entity_url)} vs {len(checkout_url)}), using entity URL")
+        pass
         checkout_url = best_entity_url
     elif best_entity_url:
-        print(f"[CO DEBUG] keeping text URL ({len(checkout_url)}) over entity URL ({len(best_entity_url)})")
+        pass
 
     from gates.stripe_co import parse_checkout_url
-    print(f"[CO DEBUG] final checkout_url ({len(checkout_url)} chars): {checkout_url[:400]}")
     session_ref = parse_checkout_url(checkout_url)
-    print(f"[CO DEBUG] session_ref ({len(session_ref) if session_ref else 0} chars): {session_ref[:200] if session_ref else 'None'}")
     if not session_ref:
         return await event.reply("Invalid checkout link. Must be a Stripe checkout URL (checkout.stripe.com/...)")
 
