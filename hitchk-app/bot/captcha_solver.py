@@ -266,19 +266,17 @@ async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
 
 
 async def _local_hcaptcha_solve(sitekey, pageurl, rqdata=None):
-    if rqdata:
-        logger.info("Local hCaptcha solver skipped - enterprise rqdata not supported")
-        return None
+    """The browser solver, with no key and no bill."""
     try:
         from local_hcaptcha_solver import solve_hcaptcha_local
         token = await solve_hcaptcha_local(sitekey, pageurl, rqdata=rqdata)
         if token:
             return token
-        logger.info("Local hCaptcha solver failed, trying NopeCHA...")
+        logger.info("the local hCaptcha solver found no token")
     except ImportError:
-        pass
+        logger.info("the local hCaptcha solver is not on the box")
     except Exception as e:
-        logger.info(f"Local hCaptcha solver error: {e}, trying NopeCHA...")
+        logger.info(f"the local hCaptcha solver failed: {e}")
     return None
 
 

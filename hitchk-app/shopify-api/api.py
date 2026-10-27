@@ -2631,5 +2631,5 @@ if __name__ == "__main__":
     print(f"[API] Shopify Validator running -> http://0.0.0.0:{PORT}")
     print(f"[API] Swagger docs             -> http://0.0.0.0:{PORT}/docs")
     print(f"[API] API key required          -> key=oozaruhshop")
-    print(f"[API] Captcha solver            -> ENABLED (realapi.dev)")
+    print(f"[API] Captcha solver            -> the local browser solver")
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

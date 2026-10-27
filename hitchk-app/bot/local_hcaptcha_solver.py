@@ -66,15 +66,20 @@ RECAPTCHA_HOOK = """
 })();
 """
 
-# the hCaptcha widget, for a page that does not put one up itself
+# the hCaptcha widget, for a page that does not put one up itself.
+# The second argument is the rqdata, which Stripe and other enterprise
+# users hand over: it needs the enterprise script.
 HCAPTCHA_WIDGET = """
-(sitekey) => {
+(args) => {
+    const sitekey = args[0], rqdata = args[1] || '';
     try {
         if (!window.hcaptcha) {
             if (!document.getElementById('__lc_api')) {
                 const s = document.createElement('script');
                 s.id = '__lc_api';
-                s.src = 'https://js.hcaptcha.com/1/api.js?render=explicit';
+                s.src = rqdata
+                    ? 'https://js.hcaptcha.com/1/api.js?render=explicit&enterprise.js'
+                    : 'https://js.hcaptcha.com/1/api.js?render=explicit';
                 s.async = true;
                 s.defer = true;
                 document.head.appendChild(s);
@@ -90,8 +95,14 @@ HCAPTCHA_WIDGET = """
         box.style.top = '10px';
         box.style.zIndex = '2147483647';
         document.body.appendChild(box);
+        const opts = {
+            sitekey: sitekey,
+            callback: (t) => { window.__captchaToken = t; },
+            'error-callback': (e) => { window.__lc_error = String(e); }
+        };
+        if (rqdata) opts.rqdata = rqdata;
         try {
-            window.__lc_widget = window.hcaptcha.render(box, {sitekey: sitekey});
+            window.__lc_widget = window.hcaptcha.render(box, opts);
         } catch (e) {
             window.__lc_widget = null;
         }
@@ -187,7 +198,7 @@ async def _click_the_box(page):
 
 
 async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
-                            widget_js=None, widget_arg=None):
+                            widget_js=None, widget_arg=None, widget_arg2=None):
     """Open the page in a real browser and read the token out of it."""
     from playwright.async_api import async_playwright
 
@@ -225,7 +236,8 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                 # up when there is none
                 if widget_js and not widget_done:
                     try:
-                        widget_done = bool(await page.evaluate(widget_js, widget_arg))
+                        widget_done = bool(await page.evaluate(
+                            widget_js, [widget_arg, widget_arg2]))
                     except Exception as e:
                         logger.debug("the widget did not load: %s", e)
                 # the checkbox the visitor would click
@@ -249,15 +261,10 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
     """An hCaptcha token, straight from a browser."""
     if not pageurl:
         return None
-    if rqdata:
-        # the enterprise challenge signs the request, and a plain browser
-        # cannot reproduce that
-        logger.info("the local hCaptcha solver does not do enterprise rqdata")
-        return None
     try:
         token = await _solve_in_browser(
             pageurl, timeout=timeout, proxy=proxy,
-            widget_js=HCAPTCHA_WIDGET, widget_arg=sitekey)
+            widget_js=HCAPTCHA_WIDGET, widget_arg=sitekey, widget_arg2=rqdata)
         if token:
             logger.info("the local hCaptcha solver got a token")
             return token
