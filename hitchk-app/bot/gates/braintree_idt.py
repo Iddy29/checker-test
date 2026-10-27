@@ -506,6 +506,66 @@ def _fill_donation_form(html, token, amount="4.45", card=None):
     return action, data
 
 
+async def _solve_page_captcha(html, page_url):
+    """Solve the captcha on a page, if it has one.
+
+    The box is solved.  A picture challenge needs a person or a model
+    that can see, so it is left alone.
+    """
+    low = (html or "").lower()
+    if not any(k in low for k in ("hcaptcha", "recaptcha", "turnstile", "cf-challenge")):
+        return None
+    try:
+        from captcha_solver import solve_hcaptcha, solve_recaptcha_v2, solve_turnstile
+    except Exception as e:
+        logger.info(f"BT: the captcha solver is not there: {e}")
+        return None
+
+    key = ""
+    m = re.search(r'data-sitekey=["\']([^"\']+)["\']', html or "")
+    if m:
+        key = m.group(1)
+    if not key:
+        m = re.search(r'sitekey["\']?\s*[:=]\s*["\']([^"\']+)["\']', html or "")
+        if m:
+            key = m.group(1)
+    if not key:
+        logger.info("BT: the page has a captcha but no site key")
+        return None
+
+    try:
+        if "turnstile" in low:
+            tok = await solve_turnstile(key, page_url)
+        elif "hcaptcha" in low:
+            tok = await solve_hcaptcha(key, page_url)
+        else:
+            tok = await solve_recaptcha_v2(key, page_url)
+    except Exception as e:
+        logger.info(f"BT: the captcha solve failed: {e}")
+        return None
+    if tok:
+        logger.info(f"BT: the captcha token is in hand ({len(tok)} chars)")
+    else:
+        logger.info("BT: the captcha was not solved, the picture is left alone")
+    return tok
+
+
+def _add_captcha_to_html(html, token):
+    """Put the captcha token into the page, so the form takes it."""
+    if not token:
+        return html
+    field = ("h-captcha-response" if "hcaptcha" in html.lower()
+             else "g-recaptcha-response" if "recaptcha" in html.lower()
+             else "cf-turnstile-response")
+    if field in html:
+        html = re.sub(r'(name=["\']{0}[^>]*value=["\'])[^"\']*'.format(field),
+                      r"\g<1>" + token, html, count=1)
+    else:
+        html = html.replace("</form>",
+                            f'<input type="hidden" name="{field}" value="{token}"></form>', 1)
+    return html
+
+
 async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
@@ -547,6 +607,13 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
                         if not bt_auth:
                             logger.info(f"BT: no auth from {site_url}, trying next...")
                             continue
+
+                        # The page may want a captcha.  The box is
+                        # solved, the picture is left alone.
+                        captcha_token = await _solve_page_captcha(checkout_html, site_url)
+                        if captcha_token:
+                            logger.info(f"BT: the captcha on {site_url} is solved")
+                            checkout_html = _add_captcha_to_html(checkout_html, captcha_token)
 
                         # Tokenize the card
                         token, card_info, err = await _tokenize_card(client, bt_auth, cc, mm, yy, cvv)

