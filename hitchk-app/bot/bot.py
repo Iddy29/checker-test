@@ -7747,6 +7747,8 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
                 yy = yy[2:]
             mm = mm.zfill(2)
             processed = i + 1
+            # the message names the card that is running now
+            running_card = f"{cc}|{mm}|{yy}|{cvv}"
 
             try:
                 status, msg, card_info, elapsed, cached = await asyncio.wait_for(
@@ -7907,7 +7909,14 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
             if hit_found:
                 progress = f"Stopped at the first card that worked ({processed}/{total})."
             elif processed < total and not stopped:
-                progress = f"Processing **{processed}/{total}**..."
+                progress = (f"Card **{processed}/{total}** is running: "
+                            f"`{running_card}`")
+            elif processed >= total and not hit_found:
+                # Every card was tried and none of them worked.  Stripe
+                # has closed the checkout by now, so the link is dead.
+                progress = (f"All {total} cards were tried and none of them worked.\n"
+                            f"Stripe has closed this checkout, so the link is dead "
+                            f"and needs a new one.")
 
             text = f"{header}\n\n" + "\n\n".join(result_lines)
             if site_line or amount_line:
