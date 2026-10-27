@@ -419,13 +419,25 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                 # up when there is none
                 if widget_js and not widget_done:
                     try:
-                        widget_done = bool(await page.evaluate(
-                            widget_js, [widget_arg, widget_arg2]))
+                        said = await page.evaluate(
+                            widget_js, [widget_arg, widget_arg2])
+                        said = (said or "") if isinstance(said, str) else str(said or "")
+                        # the widget says what it did, so the words are
+                        # read: "loading" is not the same as being up
+                        widget_done = ("the widget is up" in said
+                                       or "widget is up" in said)
+                        if "loading" in said:
+                            widget_done = False
+                        if "failed" in said or "outer" in said:
+                            LAST_REASON = said[:120]
+                            widget_done = True
                     except Exception as e:
                         logger.debug("the widget did not load: %s", e)
-                # the picture challenge is not worth solving
+                # the picture challenge is not worth solving: it needs
+                # a person or a model that can see
                 if await _image_challenge_up(page):
-                    LAST_REASON = "the picture challenge came up, so the box was never solved"
+                    LAST_REASON = ("the box was ticked, and hCaptcha answered with "
+                                   "a picture challenge")
                     logger.info("the hCaptcha picture challenge came up, "
                                 "so the captcha is left alone")
                     return None
@@ -434,7 +446,9 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                     last_click = time.time()
                     try:
                         clicked = await _click_the_box(page)
-                        if not clicked and not LAST_REASON:
+                        if clicked and not LAST_REASON:
+                            LAST_REASON = "the box was ticked, but no token came"
+                        elif not clicked and not LAST_REASON:
                             LAST_REASON = "the box was not there to click"
                     except Exception as e:
                         LAST_REASON = f"the box could not be clicked: {e}"
