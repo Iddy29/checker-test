@@ -166,6 +166,63 @@ RECAPTCHA_WIDGET = """
 """
 
 
+# The browser is kept open between the calls: a hitter runs many
+# cards through one session, and starting a browser every time is slow.
+# The playwright session has to stay open as well, because the browser
+# lives inside it and dies with it.
+_BROWSER = None
+_PW = None
+_PW_LOOP = None
+_BROWSER_AT = 0.0
+_BROWSER_IDLE = 180.0
+
+
+async def _get_browser(launch):
+    """The browser, opened once and kept for a while."""
+    global _BROWSER, _PW, _PW_LOOP, _BROWSER_AT
+    if _BROWSER is not None:
+        _BROWSER_AT = time.time()
+        return _BROWSER
+    if _PW is None:
+        from playwright.async_api import async_playwright
+        _PW = await async_playwright().start()
+        _PW_LOOP = asyncio.get_event_loop()
+    ctx = None
+    try:
+        ctx = await _PW.chromium.launch_persistent_context(
+            _profile_dir(), channel="chrome", bypass_csp=True, **launch)
+    except Exception as e:
+        logger.debug("the saved profile browser did not start: %s", e)
+        browser = await _PW.chromium.launch(**launch)
+        ctx = await browser.new_context(
+            bypass_csp=True,
+            locale="en-US", timezone_id="America/Chicago",
+            viewport={"width": 1366, "height": 900})
+    _BROWSER = ctx
+    _BROWSER_AT = time.time()
+    return ctx
+
+
+async def _close_browser_if_idle():
+    """Close the browser when it has been sitting still for a while."""
+    global _BROWSER, _PW
+    if _BROWSER is None:
+        return
+    if (time.time() - _BROWSER_AT) < _BROWSER_IDLE:
+        return
+    try:
+        await _BROWSER.close()
+    except Exception:
+        pass
+    _BROWSER = None
+    if _PW is not None:
+        try:
+            await _PW.stop()
+        except Exception:
+            pass
+        _PW = None
+
+
 def _profile_dir():
     """A saved browser profile, so the browser looks used before."""
     path = os.path.join("/tmp", "lc_browser_profile")
@@ -283,8 +340,6 @@ async def _click_the_box(page):
 async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                             widget_js=None, widget_arg=None, widget_arg2=None):
     """Open the page in a real browser and read the token out of it."""
-    from playwright.async_api import async_playwright
-
     launch = {
         "headless": not bool(os.environ.get("DISPLAY")),
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
@@ -295,23 +350,13 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
     if pw_proxy:
         launch["proxy"] = pw_proxy
 
-    async with async_playwright() as p:
-        browser = None
-        ctx = None
+    if True:
         try:
+            await _close_browser_if_idle()
+            ctx = await _get_browser(launch)
             # The real chrome is harder to tell apart than the bundled
             # one, and a saved profile looks like a browser that has
             # been used before.
-            try:
-                ctx = await p.chromium.launch_persistent_context(
-                    _profile_dir(), channel="chrome", bypass_csp=True, **launch)
-            except Exception as e:
-                logger.debug("the saved profile browser did not start: %s", e)
-                browser = await p.chromium.launch(**launch)
-                ctx = await browser.new_context(
-                    bypass_csp=True,
-                    locale="en-US", timezone_id="America/Chicago",
-                    viewport={"width": 1366, "height": 900})
             await ctx.add_init_script(STEALTH)
             if extra_js:
                 await ctx.add_init_script(extra_js)
@@ -358,20 +403,25 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                 await page.wait_for_timeout(500)
             return None
         finally:
-            try:
-                if ctx is not None:
-                    await ctx.close()
-                if browser is not None:
-                    await browser.close()
-            except Exception:
-                pass
+            # the browser stays open for the next card
+            pass
+
+
+def _budget(default=60):
+    """How long a captcha may take, from the environment."""
+    try:
+        return int(os.environ.get("CAPTCHA_TIMEOUT", "") or default)
+    except Exception:
+        return default
 
 
 async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
-                               timeout=60):
+                               timeout=0):
     """An hCaptcha token, straight from a browser."""
     if not pageurl:
         return None
+    if not timeout:
+        timeout = _budget(60)
     try:
         token = await _solve_in_browser(
             pageurl, timeout=timeout, proxy=proxy,
@@ -385,10 +435,12 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
     return None
 
 
-async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=60):
+async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=0):
     """A reCAPTCHA v3 token, straight from a browser."""
     if not pageurl:
         return None
+    if not timeout:
+        timeout = _budget(60)
     try:
         token = await _solve_in_browser(
             pageurl, timeout=timeout, proxy=proxy, extra_js=RECAPTCHA_HOOK,
@@ -402,11 +454,13 @@ async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=60):
     return None
 
 
-async def solve_turnstile_local(sitekey, pageurl, proxy=None, timeout=60,
+async def solve_turnstile_local(sitekey, pageurl, proxy=None, timeout=0,
                                 action=None, cdata=None):
     """A Turnstile token, straight from a browser."""
     if not pageurl:
         return None
+    if not timeout:
+        timeout = _budget(60)
     try:
         token = await _solve_in_browser(
             pageurl, timeout=timeout, proxy=proxy)

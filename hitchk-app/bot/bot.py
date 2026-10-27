@@ -7708,6 +7708,15 @@ async def co_cmd(event):
     asyncio.create_task(_process_co_cards(event, cards, checkout_url, user_id, proxy=proxy_arg))
 
 
+# The hitter runs many cards through one session.  A card that runs
+# into a captcha needs the browser as well, so the time per card has
+# to leave room for that.
+try:
+    CO_CARD_TIMEOUT = int(os.environ.get("CO_CARD_TIMEOUT", "") or 150)
+except Exception:
+    CO_CARD_TIMEOUT = 150
+
+
 async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
     from gates.stripe_co import stripe_co_check
 
@@ -7737,7 +7746,7 @@ async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
             try:
                 status, msg, card_info, elapsed, cached = await asyncio.wait_for(
                     stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=session_cache, proxy=proxy),
-                    timeout=60
+                    timeout=CO_CARD_TIMEOUT
                 )
                 if cached and not session_cache:
                     session_cache = cached
