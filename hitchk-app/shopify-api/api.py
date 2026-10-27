@@ -260,6 +260,12 @@ class LoggedSession:
 # ---------------------------------------------------------------------------
 # Captcha Solver
 # ---------------------------------------------------------------------------
+def _external_captcha_allowed() -> bool:
+    """The paid captcha service stays off unless it is asked for."""
+    return os.environ.get("CAPTCHA_EXTERNAL", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 async def captcha_solver(
     page_url: str,
     site_key: str,
@@ -272,7 +278,41 @@ async def captcha_solver(
     debug: bool = False,
     **captcha_kwargs,
 ):
-    """Solve hCaptcha / reCAPTCHA v3 / Turnstile via realapi.dev"""
+    """Solve hCaptcha / reCAPTCHA v3 / Turnstile with a real browser.
+
+    No outside service: the browser reads the token out of the page, so
+    there is no key, no bill and nothing to leak.  The paid service is
+    only used when CAPTCHA_EXTERNAL is turned on.
+    """
+    token = None
+    try:
+        from local_hcaptcha_solver import (solve_hcaptcha_local,
+                                           solve_recaptcha_v3_local,
+                                           solve_turnstile_local)
+    except Exception as e:
+        log.warning("[CAPTCHA] the local solver is missing: %s", e)
+    else:
+        try:
+            if captcha_type == "hcaptcha_motion":
+                token = await solve_hcaptcha_local(site_key, page_url,
+                                                   timeout=max_wait, **captcha_kwargs)
+            elif captcha_type == "recaptchaV3":
+                token = await solve_recaptcha_v3_local(site_key, page_url,
+                                                       timeout=max_wait, **captcha_kwargs)
+            elif captcha_type == "turnstile":
+                token = await solve_turnstile_local(site_key, page_url,
+                                                    timeout=max_wait, **captcha_kwargs)
+        except Exception as e:
+            log.warning("[CAPTCHA] the local solver failed: %s", e)
+        if token:
+            return {"token": token}
+        log.warning("[CAPTCHA] the local solver found no token")
+        if not _external_captcha_allowed():
+            return {"error": "no token from the local solver"}
+
+    if not api_key:
+        return {"error": "no captcha service key and the local solver found nothing"}
+
     headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
     payload = {
         "captcha_type": captcha_type,

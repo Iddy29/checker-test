@@ -537,10 +537,23 @@ async def _custom_api_solve(task_type, sitekey, pageurl, session=None, extra=Non
             await session.close()
 
 
+def _external_allowed() -> bool:
+    """May a paid solving service be used?
+
+    Only when it is asked for.  The local browser solver has no key and
+    no bill, so it is the one that runs by default.
+    """
+    return str(os.environ.get("CAPTCHA_EXTERNAL", "")).strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 async def solve_hcaptcha(sitekey, pageurl, session=None):
     token = await _local_hcaptcha_solve(sitekey, pageurl)
     if token:
         return token
+    if not _external_allowed():
+        logger.info("no hCaptcha token and the outside services are off")
+        return None
     if get_nopecha_key():
         token = await _nopecha_solve("hcaptcha", sitekey, pageurl, session)
         if token:
@@ -573,6 +586,9 @@ async def solve_hcaptcha_enterprise(sitekey, pageurl, rqdata=None, session=None)
     token = await _local_hcaptcha_solve(sitekey, pageurl, rqdata=rqdata)
     if token:
         return token
+    if not _external_allowed():
+        logger.info("no enterprise hCaptcha token and the outside services are off")
+        return None
     if get_nopecha_key():
         nopecha_extra = {}
         if rqdata:
@@ -616,6 +632,9 @@ async def solve_recaptcha_v2(sitekey, pageurl, session=None, proxy=None):
     token = await _local_hcaptcha_solve(sitekey, pageurl)
     if token:
         return token
+    if not _external_allowed():
+        logger.info("no reCaptcha token and the outside services are off")
+        return None
     if get_nopecha_key():
         token = await _nopecha_solve("recaptcha", sitekey, pageurl, session,
                                      extra={"proxy": proxy} if proxy else None)
@@ -637,8 +656,18 @@ async def solve_recaptcha_v2(sitekey, pageurl, session=None, proxy=None):
 
 async def solve_turnstile(sitekey, pageurl, session=None, action=None, cdata=None,
                           proxy=None):
-    # NopeCHA first -- it is the only solver that is configured by
-    # default, and the others need a paid key.
+    # the local browser solver first: no key and no bill
+    try:
+        from local_hcaptcha_solver import solve_turnstile_local
+        token = await solve_turnstile_local(sitekey, pageurl, proxy=proxy)
+        if token:
+            return token
+    except Exception as e:
+        logger.info("the local Turnstile solver failed: %s", e)
+    if not _external_allowed():
+        logger.info("no Turnstile token and the outside services are off")
+        return None
+    # NopeCHA next -- the others need a paid key
     if get_nopecha_key():
         extra = {}
         if action:
