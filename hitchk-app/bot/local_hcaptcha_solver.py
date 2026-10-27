@@ -329,6 +329,29 @@ async def _image_challenge_up(page):
     return False
 
 
+async def _what_it_showed(page):
+    """What the captcha put on the page, in words.
+
+    The frames of the captcha are the only way to tell a picture
+    challenge from a box that was never there, so the words are written
+    down when the run ends.
+    """
+    parts = []
+    for frame in page.frames:
+        if "hcaptcha" not in frame.url and "challenge" not in frame.url:
+            continue
+        try:
+            text = (await frame.locator("body").inner_text(timeout=1200)) or ""
+        except Exception:
+            text = ""
+        text = " ".join(text.split())
+        if not text or text in ("I am human Privacy - Terms", "Verify EN"):
+            continue
+        if text not in parts:
+            parts.append(text[:150])
+    return " / ".join(parts[:3])
+
+
 async def _click_the_box(page):
     """Click the captcha checkbox, the way a visitor would.
 
@@ -404,6 +427,8 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
             deadline = time.time() + timeout
             widget_done = False
             last_click = 0.0
+            picture_seen = False
+            box_ticked = False
             while time.time() < deadline:
                 token = await page.evaluate(TOKEN_JS)
                 if token:
@@ -436,26 +461,34 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                 # the picture challenge is not worth solving: it needs
                 # a person or a model that can see
                 if await _image_challenge_up(page):
-                    LAST_REASON = ("the box was ticked, and hCaptcha answered with "
-                                   "a picture challenge")
+                    picture_seen = True
                     logger.info("the hCaptcha picture challenge came up, "
                                 "so the captcha is left alone")
-                    return None
+                    break
                 # the checkbox the visitor would click
                 if time.time() - last_click > 3:
                     last_click = time.time()
                     try:
-                        clicked = await _click_the_box(page)
-                        if clicked and not LAST_REASON:
-                            LAST_REASON = "the box was ticked, but no token came"
-                        elif not clicked and not LAST_REASON:
-                            LAST_REASON = "the box was not there to click"
+                        if await _click_the_box(page):
+                            box_ticked = True
                     except Exception as e:
-                        LAST_REASON = f"the box could not be clicked: {e}"
                         logger.debug("the checkbox was not clickable: %s", e)
                 await page.wait_for_timeout(500)
-            if not LAST_REASON:
-                LAST_REASON = "the time ran out and no token came"
+
+            # The reason is worked out from what really happened, and
+            # what the captcha showed is written down with it.
+            shown = await _what_it_showed(page)
+            if picture_seen:
+                LAST_REASON = ("the box was ticked, and hCaptcha answered with a "
+                               "picture challenge")
+            elif box_ticked:
+                LAST_REASON = "the box was ticked, but no token came"
+            elif shown:
+                LAST_REASON = f"the captcha showed: {shown}"
+            else:
+                LAST_REASON = "the box was not there to click"
+            logger.info("the captcha run ended: %s | it showed: %s",
+                        LAST_REASON, shown or "nothing")
             return None
         finally:
             # the browser stays open for the next card
