@@ -1318,8 +1318,14 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                 except Exception as e:
                     logger.info(f"the captcha solve failed: {e}")
                 if not captcha_token:
-                    logger.info("the hCaptcha could not be solved, the checkout stays blocked")
-                    return "live", "hCaptcha Challenge Required"
+                    try:
+                        from local_hcaptcha_solver import LAST_REASON
+                        why = LAST_REASON or "the captcha could not be solved"
+                    except Exception:
+                        why = "the captcha could not be solved"
+                    logger.info("the hCaptcha could not be solved (%s), "
+                                "the checkout stays blocked", why)
+                    return "live", f"hCaptcha Challenge Required ({why})"
                 logger.info(f"the captcha token is in hand ({len(captcha_token)} chars)")
 
                 # Hand the token to Stripe and try the confirm again

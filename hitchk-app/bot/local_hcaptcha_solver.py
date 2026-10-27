@@ -85,6 +85,16 @@ RECAPTCHA_HOOK = """
 HCAPTCHA_WIDGET = """
 (args) => {
     const sitekey = args[0], rqdata = args[1] || '';
+    const keep = (t) => {
+        // the enterprise captcha hands over an object with the token
+        // and the ekey
+        if (t && typeof t === 'object') {
+            window.__captchaToken = t.response || '';
+            window.__captchaEkey = t.ekey || '';
+        } else {
+            window.__captchaToken = t || '';
+        }
+    };
     try {
         if (!window.hcaptcha) {
             if (!document.getElementById('__lc_api')) {
@@ -97,9 +107,23 @@ HCAPTCHA_WIDGET = """
                 s.defer = true;
                 document.head.appendChild(s);
             }
-            return false;
+            return 'loading';
         }
-        if (window.__lc_widget) return true;
+        if (window.__lc_widget) {
+            // the widget is up, so let it go
+            if (!window.__lc_started) {
+                window.__lc_started = true;
+                try {
+                    // the async flag is what makes execute hand back a
+                    // promise, and without it the result is lost
+                    const p = window.hcaptcha.execute(window.__lc_widget, {async: true});
+                    if (p && p.then) {
+                        p.then(keep).catch((e) => { window.__lc_error = 'execute: ' + e; });
+                    }
+                } catch (e) { window.__lc_error = 'execute threw: ' + e; }
+            }
+            return 'the widget is up';
+        }
         const box = document.createElement('div');
         box.className = 'h-captcha';
         box.dataset.sitekey = sitekey;
@@ -110,27 +134,32 @@ HCAPTCHA_WIDGET = """
         document.body.appendChild(box);
         const opts = {
             sitekey: sitekey,
-            callback: (t) => {
-                // the enterprise captcha hands over an object with the
-                // token and the ekey
-                if (t && typeof t === 'object') {
-                    window.__captchaToken = t.response || '';
-                    window.__captchaEkey = t.ekey || '';
-                } else {
-                    window.__captchaToken = t || '';
-                }
-            },
+            callback: keep,
             'error-callback': (e) => { window.__lc_error = String(e); }
         };
-        if (rqdata) opts.rqdata = rqdata;
+        if (rqdata) {
+            // the enterprise captcha is the invisible one, the way
+            // stripe does it
+            opts.size = 'invisible';
+            opts.rqdata = rqdata;
+        }
         try {
             window.__lc_widget = window.hcaptcha.render(box, opts);
         } catch (e) {
             window.__lc_widget = null;
+            window.__lc_error = 'the render failed: ' + e;
+            return 'the render failed: ' + e;
         }
-        return !!window.__lc_widget;
+        window.__lc_started = true;
+        try {
+            const p = window.hcaptcha.execute(window.__lc_widget, {async: true});
+            if (p && p.then) {
+                p.then(keep).catch((e) => { window.__lc_error = 'execute: ' + e; });
+            }
+        } catch (e) { window.__lc_error = 'execute threw: ' + e; }
+        return 'the widget is up';
     } catch (e) {
-        return false;
+        return 'outer ' + e;
     }
 }
 """
@@ -337,9 +366,15 @@ async def _click_the_box(page):
     return False
 
 
+# what the last run ran into, so the log says which one it was
+LAST_REASON = ""
+
+
 async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                             widget_js=None, widget_arg=None, widget_arg2=None):
     """Open the page in a real browser and read the token out of it."""
+    global LAST_REASON
+    LAST_REASON = ""
     launch = {
         "headless": not bool(os.environ.get("DISPLAY")),
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
@@ -390,6 +425,7 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                         logger.debug("the widget did not load: %s", e)
                 # the picture challenge is not worth solving
                 if await _image_challenge_up(page):
+                    LAST_REASON = "the picture challenge came up, so the box was never solved"
                     logger.info("the hCaptcha picture challenge came up, "
                                 "so the captcha is left alone")
                     return None
@@ -397,10 +433,15 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                 if time.time() - last_click > 3:
                     last_click = time.time()
                     try:
-                        await _click_the_box(page)
+                        clicked = await _click_the_box(page)
+                        if not clicked and not LAST_REASON:
+                            LAST_REASON = "the box was not there to click"
                     except Exception as e:
+                        LAST_REASON = f"the box could not be clicked: {e}"
                         logger.debug("the checkbox was not clickable: %s", e)
                 await page.wait_for_timeout(500)
+            if not LAST_REASON:
+                LAST_REASON = "the time ran out and no token came"
             return None
         finally:
             # the browser stays open for the next card
@@ -429,7 +470,8 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
         if token:
             logger.info("the local hCaptcha solver got a token")
             return token
-        logger.info("the local hCaptcha solver found no token")
+        logger.info("the local hCaptcha solver found no token: %s",
+                    LAST_REASON or "no reason given")
     except Exception as e:
         logger.info("the local hCaptcha solver failed: %s", e)
     return None
