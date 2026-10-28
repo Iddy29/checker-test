@@ -1440,6 +1440,29 @@ async def check_tool_access(tool_id, user_id):
             return False, f"Tool `/{tool_id}` requires **Premium** access."
     return True, None
 
+def st_reason_from(raw):
+    """The why behind a /st verdict, for the log.
+
+    The gate's answer carries it: what the store said, or what part of
+    the answer made it answer that way.  The user reads the verdict, so
+    this goes in the log where the reason can be read.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    # the trailing time the gate writes
+    if text.endswith("]") and "[" in text:
+        text = text[:text.rfind("[")].strip()
+    # the leading verdict word
+    for word in ("Approved", "Declined", "Error"):
+        if text.lower().startswith(word.lower()):
+            text = text[len(word):].strip()
+            if text.startswith("-"):
+                text = text[1:].strip()
+            break
+    return text[:150]
+
+
 def clean_response(response):
     cleaned = re.sub(r'\s*\|\s*[A-Z]+\s+[A-Z]+\s*\|\s*[A-Z]{2,3}\s*\|\s*[^|]+\|\s*\d{4}\s*\[\d+\.?\d*s\]\s*$', '', response)
     cleaned = re.sub(r'\s*\[\d+\.?\d*s\]\s*$', '', cleaned)
@@ -1847,14 +1870,22 @@ GATE_LOG_MAX_BYTES = 20 * 1024 * 1024
 
 
 async def log_gate_result(alias, card, status, response, elapsed=0, user_id=None,
-                          user_name=None, source=""):
-    """Append one check to the results log."""
+                          user_name=None, source="", reason=""):
+    """Append one check to the results log.
+
+    The reason is what made the answer what it is.  The user reads the
+    verdict, so the reason goes in the log: which part of the store's
+    answer asked for a 3D Secure challenge, or what the issuer said.
+    """
     try:
         from datetime import datetime as _dt
         stamp = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
         line = (f"{stamp} | {str(alias).upper():5} | {card} | {str(status):8} | "
                 f"{str(response).replace(chr(10), ' ')[:100]} | {elapsed}s"
-                f" | uid={user_id or '-'} {user_name or ''} {source}\n")
+                f" | uid={user_id or '-'} {user_name or ''} {source}")
+        if reason:
+            line += f" | why: {str(reason).replace(chr(10), ' ')[:150]}"
+        line += "\n"
         try:
             if (os.path.exists(GATE_LOG_FILE)
                     and os.path.getsize(GATE_LOG_FILE) > GATE_LOG_MAX_BYTES):
@@ -4610,7 +4641,8 @@ async def gateway_cmd(event):
             # the reason goes to the journal, the user gets the verdict
             print(f"GATE_REASON {alias} {cc}|{mm}|{yy}|{cvv} -> {_raw}")
         await log_gate_result(alias, f"{cc}|{mm}|{yy}|{cvv}", status_header,
-                              response, elapsed, event.sender_id, first_name, "single")
+                              response, elapsed, event.sender_id, first_name, "single",
+                              reason=(st_reason_from(_raw) if alias == "st" else ""))
 
         user_proxy = get_user_proxy(event.sender_id)
         if not user_proxy:
@@ -5488,7 +5520,8 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
             await log_gate_result(alias, f"{cc}|{mm}|{yy}|{cvv}", status,
                                   resp_show if alias == "st" else resp_clean,
                                   round(time.time() - card_started, 2),
-                                  user_id, first_name, "mass-file")
+                                  user_id, first_name, "mass-file",
+                                  reason=(st_reason_from(resp_clean) if alias == "st" else ""))
 
             resp_lower = resp_clean.lower() if resp_clean else ""
             is_3ds = "3ds" in resp_lower or "3d secure" in resp_lower or "requires_action" in resp_lower

@@ -845,7 +845,13 @@ async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None
         raise IntegrationError("the store is rate limiting us")
 
     if verdict == "APPROVED":
-        return "Approved", "Card verified by the issuer (live card)", data
+        # The store answered with success and the intent went through, so
+        # the issuer looked at the card and said it was good.
+        status_val = str(data.get("status") or "unknown")
+        return ("Approved",
+                "Card verified by the issuer (live card) - the store answered "
+                f"success, the intent status was {status_val}",
+                data)
 
     if verdict == "LIVE":
         # The security code did not match, so the card is there and
@@ -856,10 +862,39 @@ async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None
 
     if verdict == "3DS":
         # The issuer was asked to verify the card and wants 3DS to
-        # finish -- the card itself passed the check.
-        return "Approved", "3DS required (live card)", data
+        # finish -- the card itself passed the check.  What showed there
+        # was a real challenge is written down, so the log says which
+        # part of the answer asked for it.
+        return ("Approved",
+                "3DS required (live card) - " + _three_ds_evidence(j, msg),
+                data)
 
     return "Declined", (msg or "declined")[:160], err
+
+
+def _three_ds_evidence(res2, msg=""):
+    """What in the answer showed there was a 3D challenge to take.
+
+    This is the part the log carries, so it says which piece of the
+    store's answer asked for the challenge and not only that one was
+    asked for.
+    """
+    data = (res2 or {}).get("data") or {}
+    next_action = data.get("next_action") or {}
+    if next_action.get("type") == "use_stripe_sdk":
+        sdk = next_action.get("use_stripe_sdk") or {}
+        bits = ["the store asked for a 3D Secure challenge (next_action: use_stripe_sdk"]
+        kind = str(sdk.get("type") or "").strip()
+        if kind:
+            bits.append(", type: " + kind)
+        bits.append(")")
+        return "".join(bits)
+    low = (msg or "").lower()
+    for word in ("authenticate", "challenge", "3d secure", "3ds",
+                 "requires_action", "require_action"):
+        if word in low:
+            return "the store said: " + str(msg)[:90]
+    return "the store asked for the challenge"
 
 
 def _asks_for_3ds(res2, msg=""):
