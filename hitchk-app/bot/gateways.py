@@ -557,6 +557,16 @@ ST_TOKEN_APPROVED = "approved"
 ST_TOKEN_DECLINED = "card_decline"
 
 
+def is_approved_status(status):
+    """APPROVED and APPROVED_3DS both mean the card is live.
+
+    APPROVED_3DS is a card that is 3D Secure enrolled: the issuer was
+    asked to verify it and wanted the challenge to finish, so the card
+    passed the checks but the balance was never looked at.
+    """
+    return str(status or "").strip().upper() in ("APPROVED", "APPROVED_3DS")
+
+
 def st_verdict_token(status):
     """The /st verdict as the one word the user asked for.
 
@@ -564,7 +574,7 @@ def st_verdict_token(status):
     unknown result must never be turned into a decline.
     """
     s = str(status or "").strip().upper()
-    if s == "APPROVED":
+    if s in ("APPROVED", "APPROVED_3DS"):
         return ST_TOKEN_APPROVED
     if s == "DECLINED":
         return ST_TOKEN_DECLINED
@@ -651,6 +661,20 @@ def classify_response(response_text):
     if resp_lower.startswith("charged"):
         return "CHARGED"
 
+    # A 3ds challenge that was ASKED FOR but never finished is a
+    # weaker thing than a card the issuer verified.  The issuer asks
+    # for the challenge before it looks at the balance, so a card with
+    # no money looks the same as a card with money.  Those get their
+    # own status so they are not counted as proven good.
+    #
+    # This is checked before the "approved" branch below, because that
+    # branch would swallow every line that starts with Approved.
+    vbv_asked = ["vbv/3ds required", "vbv/3ds recommended", "vbv/3ds optional",
+                 "challenge required", "(vbv enrolled)", "3ds required",
+                 "lookup enrolled", "lookup_enrolled"]
+    if any(k in resp_lower for k in vbv_asked):
+        return "APPROVED_3DS"
+
     if resp_lower.startswith("approved"):
         if any(k in resp_lower for k in ["charged", "payment successful", "payment succeeded",
                                           "thank you", "order placed", "subscription created"]):
@@ -682,10 +706,9 @@ def classify_response(response_text):
     if "3ds lookup error" in resp_lower or "lookup error" in resp_lower:
         return "ERROR"
 
-    vbv_keywords = ["vbv/3ds required", "vbv/3ds recommended", "vbv/3ds optional",
-                    "challenge required", "(vbv enrolled)", "3ds required",
-                    "lookup enrolled", "lookup_enrolled",
-                    "3d passed", "not enrolled (no vbv)", "not_supported",
+    # A 3ds challenge that was finished, or that was not needed, is a
+    # full answer from the issuer.
+    vbv_keywords = ["3d passed", "not enrolled (no vbv)", "not_supported",
                     "frictionless (no vbv)", "attempt successful (no vbv)",
                     "bypassed (no vbv)", "bypassed", "lookup_not_enrolled",
                     "lookup_bypassed", "(no vbv)"]

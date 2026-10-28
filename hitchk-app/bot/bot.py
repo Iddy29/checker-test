@@ -18,7 +18,7 @@ from gateways import (
     is_mass_check_enabled, get_inline_mass_limit, get_file_mass_limit,
     add_user_proxy, remove_user_proxies, remove_single_user_proxy,
     get_user_proxy_list, get_user_proxy, auto_remove_dead_proxy,
-    st_verdict_token
+    st_verdict_token, is_approved_status
 )
 from tools import (
     tool_gen, tool_bin, tool_sk, tool_id, tool_ping,
@@ -1464,7 +1464,7 @@ def format_gateway_result(status_header, cc, mm, yy, cvv, gateway_name, response
         header = "#Charged \U0001f525\U0001f525"
         status_txt = "Charged \U0001f525"
         resp_icon = ""
-    elif status_header == "APPROVED":
+    elif is_approved_status(status_header):
         if gateway_name and gateway_name.lower() == "vbv":
             header = "#Approved Non Vbv \u2705\U0001f389"
             status_txt = "Approved  Non Vbv \u2705\U0001f389"
@@ -1494,7 +1494,7 @@ def format_gateway_result(status_header, cc, mm, yy, cvv, gateway_name, response
     sep = "\u2550" * 19
 
     cc_str = f"{cc}|{mm}|{yy}|{cvv}"
-    if status_header == "APPROVED":
+    if is_approved_status(status_header):
         cc_display = f"{cc_str}\U0001f7e2"
     else:
         cc_display = cc_str
@@ -1559,7 +1559,7 @@ def format_stripe_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
     card = f"{cc}|{mm}|{yy}|{cvv}"
     token = st_verdict_token(status_header)
     reason = token if token else (clean_response(response) or "Error")
-    if status_header == "APPROVED":
+    if is_approved_status(status_header):
         # an approval that still asks for 3d secure is its own thing
         low = (response or "").lower()
         if "3ds" in low or "3d secure" in low or "requires_action" in low:
@@ -1568,7 +1568,7 @@ def format_stripe_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
             reason = "approved"
     bot_tag = BOT_USERNAME or ADMIN_USERNAME
 
-    if status_header == "APPROVED":
+    if is_approved_status(status_header):
         head = "𝘼𝙥𝙥𝙧𝙤𝙫𝙲𝙙 ✅(/st)"
     elif status_header == "DECLINED":
         head = "𝘿𝙚𝙘𝙡𝙞𝙣𝙲𝙙 ❌(/st)"
@@ -1604,7 +1604,7 @@ def format_paypal_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
     if status_header == "CHARGED":
         status_word = "charged"
         head = "𝘾𝙝𝙖𝚛𝙶𝙚𝙙 💰(/pp)"
-    elif status_header == "APPROVED":
+    elif is_approved_status(status_header):
         status_word = "approved"
         head = "𝘼𝙥𝙥𝙧𝙤𝙫𝙲𝙙 ✅(/pp)"
     elif status_header == "DECLINED":
@@ -3435,11 +3435,11 @@ async def chk_combined_cmd(event):
                 icon = "\U0001f525"
                 best_status = "CHARGED"
                 await save_approved_card(cc_str, "CHARGED", resp_clean, name, "-", event.sender_id, first_name)
-            elif status == "APPROVED":
+            elif is_approved_status(status):
                 icon = "\u2705"
                 if best_status != "CHARGED":
                     best_status = "APPROVED"
-                await save_approved_card(cc_str, "APPROVED", resp_clean, name, "-", event.sender_id, first_name)
+                await save_approved_card(cc_str, "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED", resp_clean, name, "-", event.sender_id, first_name)
             elif status == "DECLINED":
                 icon = "\u274c"
             else:
@@ -4126,9 +4126,9 @@ async def all_gateways_cmd(event):
         if status == "CHARGED":
             tag = "CHARGED"
             await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "CHARGED", resp, gate_name, "-", event.sender_id, first_name)
-        elif status == "APPROVED":
-            tag = "APPROVED"
-            await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", resp, gate_name, "-", event.sender_id, first_name)
+        elif is_approved_status(status):
+            tag = "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED"
+            await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED", resp, gate_name, "-", event.sender_id, first_name)
         elif status == "DECLINED":
             tag = "DECLINED"
         else:
@@ -4324,10 +4324,10 @@ async def gateway_cmd(event):
                                         line = f"\U0001f525 `{cc_str}`\n**Response:** {resp_show}"
                                         charged[0] += 1
                                         await save_approved_card(cc_str, "CHARGED", resp_clean, gate_name, "-", event.sender_id, first_name)
-                                    elif status == "APPROVED":
+                                    elif is_approved_status(status):
                                         line = f"\u2705 `{cc_str}`\n**Response:** {resp_show}"
                                         approved[0] += 1
-                                        await save_approved_card(cc_str, "APPROVED", resp_clean, gate_name, "-", event.sender_id, first_name)
+                                        await save_approved_card(cc_str, "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED", resp_clean, gate_name, "-", event.sender_id, first_name)
                                     elif status == "DECLINED":
                                         line = f"\u274c `{cc_str}`\n**Response:** {resp_show}"
                                         declined[0] += 1
@@ -4471,9 +4471,9 @@ async def gateway_cmd(event):
                             if status == "CHARGED":
                                 line = f"\U0001f525 `{cc_str}`\n**Response:** {resp_show}"
                                 await save_approved_card(cc_str, "CHARGED", resp_clean, gate_name, "-", event.sender_id, first_name)
-                            elif status == "APPROVED":
+                            elif is_approved_status(status):
                                 line = f"\u2705 `{cc_str}`\n**Response:** {resp_show}"
-                                await save_approved_card(cc_str, "APPROVED", resp_clean, gate_name, "-", event.sender_id, first_name)
+                                await save_approved_card(cc_str, "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED", resp_clean, gate_name, "-", event.sender_id, first_name)
                             elif status == "DECLINED":
                                 line = f"\u274c `{cc_str}`\n**Response:** {resp_show}"
                             else:
@@ -4590,9 +4590,9 @@ async def gateway_cmd(event):
         if status == "CHARGED":
             status_header = "CHARGED"
             await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "CHARGED", response, gate_name, "-", event.sender_id, first_name)
-        elif status == "APPROVED":
+        elif is_approved_status(status):
             status_header = "APPROVED"
-            await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", response, gate_name, "-", event.sender_id, first_name)
+            await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED", response, gate_name, "-", event.sender_id, first_name)
         elif status == "DECLINED":
             status_header = "DECLINED"
         elif status == "ERROR":
@@ -4733,9 +4733,9 @@ async def mvbv_cmd(event):
             )
             status = classify_response(response)
 
-            if status == "APPROVED":
+            if is_approved_status(status):
                 approved += 1
-                results.append((cc, mm, yy, cvv, "APPROVED", response))
+                results.append((cc, mm, yy, cvv, status, response))
             elif status == "DECLINED":
                 declined += 1
                 results.append((cc, mm, yy, cvv, "DECLINED", response))
@@ -5499,15 +5499,15 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
                     consecutive_errors[0] = 0
                     hits.append((cc, mm, yy, cvv, "CHARGED", resp_clean))
                     all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "CHARGED", resp_clean))
-                elif status == "APPROVED":
+                elif is_approved_status(status):
                     approved_count += 1
                     consecutive_errors[0] = 0
                     if is_3ds:
                         tds_count += 1
                     if is_insf:
                         insf_count += 1
-                    hits.append((cc, mm, yy, cvv, "APPROVED", resp_show))
-                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", resp_show))
+                    hits.append((cc, mm, yy, cvv, status, resp_show))
+                    all_results.append((f"{cc}|{mm}|{yy}|{cvv}", status, resp_show))
                 elif status == "DECLINED":
                     declined_count += 1
                     consecutive_errors[0] = 0
@@ -5576,7 +5576,7 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
                         await event.reply(f"\U0001f525 **CHARGED** `{cc}|{mm}|{yy}|{cvv}`")
                     except Exception:
                         pass
-            elif status == "APPROVED":
+            elif is_approved_status(status):
                 try:
                     brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
                     mass_proxy = get_user_proxy(user_id)
@@ -5597,7 +5597,7 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
                     approved_msg = await event.reply(hit_msg)
                     if event.is_group:
                         asyncio.create_task(auto_delete_message(approved_msg))
-                    await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED", resp, gate_name, "-", user_id, first_name)
+                    await save_approved_card(f"{cc}|{mm}|{yy}|{cvv}", "APPROVED_3DS" if status == "APPROVED_3DS" else "APPROVED", resp, gate_name, "-", user_id, first_name)
                 except Exception:
                     try:
                         await event.reply(f"\u2705 **APPROVED** `{cc}|{mm}|{yy}|{cvv}`")
@@ -7145,7 +7145,7 @@ async def process_mtxt_cards(event, cards, sites):
                         for cr in site_data["cards"]:
                             if cr["status"] == "CHARGED":
                                 prefix = "\U0001f4b0"
-                            elif cr["status"] == "APPROVED":
+                            elif is_approved_status(cr["status"]):
                                 prefix = "\u2705"
                             else:
                                 prefix = "\u274c"
