@@ -1670,7 +1670,10 @@ def format_shopify_result(status_header, cc, mm, yy, cvv, response, brand, bin_t
 
     The store name is deliberately NOT shown.
     """
-    gate = "𝙎𝙝𝙤𝙥𝙞𝙛𝙮 𝘼𝙪𝙩𝙝\U0001f501"
+    # The gate row names the gate the way the gates list names it, and
+    # /shp runs a real checkout -- it charges, so it is not an
+    # authorization and there is no "auth" here.
+    gate = "𝙎𝙝𝙤𝙥𝙞𝙛𝙮\U0001f501"
     card = f"{cc}|{mm}|{yy}|{cvv}"
     last = "Approved" if status_header == "APPROVED" else "declined"
     bot_tag = BOT_USERNAME or ADMIN_USERNAME
