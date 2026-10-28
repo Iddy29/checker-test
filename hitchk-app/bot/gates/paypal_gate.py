@@ -296,6 +296,8 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 logger.info("the order was refused: %s", r2.text[:220])
                 if "payer_cannot_pay" in err_txt:
                     return f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]"
+                if "card_velocity_exceeded" in err_txt:
+                    return f"Declined - Card Velocity Exceeded | {cc[:6]} [{elapsed}s]"
                 if "invalid card number" in err_txt or "invalid_number" in err_txt:
                     return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
                 if "card_expiry_invalid" in err_txt or "invalid expiry" in err_txt:
@@ -394,8 +396,8 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             # capture there is no way to tell a good card from a dead
             # one, so nothing is claimed.
             if '"status":"approved"' in txt:
-                return (f"Error - Order Approved, Not Charged, "
-                        f"Card Not Judged | {cc[:6]} [{elapsed}s]")
+                return (f"Error - PayPal Did Not Judge The Card, "
+                        f"No Money Taken | {cc[:6]} [{elapsed}s]")
             if '"status":"completed"' in txt:
                 return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
             if '"status":"payer_action_required"' in txt:

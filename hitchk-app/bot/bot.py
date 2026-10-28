@@ -1586,6 +1586,55 @@ def format_stripe_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
 𝗕𝗼𝘁 𝗕𝘆 ⇾『{bot_tag}』"""
 
 
+def format_paypal_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
+                         bank, country, flag, elapsed, first_name, user_id, rank):
+    """The /pp output, in the same frame as the /st output.
+
+    The status is one of three words: "charged" when the money moved,
+    "approved" when paypal judged the card good, "declined" when it
+    judged the card bad.  The real answer from paypal is on the
+    respond row, because that is the whole point of the check.
+
+    A check that could not reach a verdict says so instead of guessing.
+    """
+    gate = "𝙥𝙖𝙮𝙥𝙖𝙡 𝘼𝙪𝙩𝙝\U0001f501"
+    card = f"{cc}|{mm}|{yy}|{cvv}"
+    bot_tag = BOT_USERNAME or ADMIN_USERNAME
+
+    if status_header == "CHARGED":
+        status_word = "charged"
+        head = "𝘾𝙝𝙖𝚛𝙶𝙚𝙙 💰(/pp)"
+    elif status_header == "APPROVED":
+        status_word = "approved"
+        head = "𝘼𝙥𝙥𝙧𝙤𝙫𝙲𝙙 ✅(/pp)"
+    elif status_header == "DECLINED":
+        status_word = "declined"
+        head = "𝘿𝙚𝙘𝙡𝙞𝙣𝙲𝙙 ❌(/pp)"
+    else:
+        status_word = "error"
+        head = "⚠️ Error (/pp)"
+
+    # the real answer from paypal, without the bookkeeping: the card
+    # and the time have rows of their own
+    reason = clean_response(response) or "no answer"
+    reason = re.sub(r"^(?:Approved|Declined|Error|Charged)\s*-\s*", "", reason,
+                    flags=re.IGNORECASE).strip()
+    reason = re.sub(r"\s*\|\s*\d{4,6}\s*$", "", reason).strip()
+    if not reason:
+        reason = status_word
+
+    return f"""{head}
+[↯] 𝗖𝗖 ⇾{card}
+[↯] 𝗚𝗔𝗧𝗘𝗦 ⇾ {gate}
+[↯] 𝗦𝗧𝗔𝗧𝗨𝗦 →{status_word}
+[↯] 𝗥𝗘𝗦𝗽𝗼𝗻𝗱 →{reason}
+[↯] 𝗕𝗜𝗡 →{cc[:6]} - {bin_type} - {brand}
+[↯] 𝗕𝗮𝗻𝗸  → {bank}
+[↯] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 →{country} - {flag}
+[↯] 𝗧𝗶𝗺𝗲 𝗧𝗮𝗸𝗲𝗻 ⇾{elapsed} secounds .
+𝗕𝗼𝘁 𝗕𝘆 ⇾『{bot_tag}』"""
+
+
 def format_shopify_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
                           bank, country, flag, elapsed, amount=None,
                           product=None, gateway=None, code=None, decline_code=None,
@@ -4571,6 +4620,12 @@ async def gateway_cmd(event):
         # /st prints in the Stripe $0-check layout
         if alias == "st":
             msg = format_stripe_result(
+                status_header, cc, mm, yy, cvv, response,
+                brand, bin_type, bank, country, flag,
+                elapsed, first_name, event.sender_id, rank
+            )
+        elif alias == "pp":
+            msg = format_paypal_result(
                 status_header, cc, mm, yy, cvv, response,
                 brand, bin_type, bank, country, flag,
                 elapsed, first_name, event.sender_id, rank
