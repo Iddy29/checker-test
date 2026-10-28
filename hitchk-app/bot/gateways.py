@@ -467,7 +467,7 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                     # check is redone directly, and the proxy is dropped
                     # so the next card does not use it either.
                     if proxy and _looks_like_proxy_failure(result):
-                        _auto_remove_dead_proxy(user_id, raw_proxy)
+                        auto_remove_dead_proxy(user_id, raw_proxy)
                         kwargs.pop("proxy", None)
                         kwargs.pop("user_proxy", None)
                         result = await asyncio.wait_for(

@@ -493,6 +493,19 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
     except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
         elapsed = round(time.time() - start, 2)
         return f"Error - PayPal Timeout [{elapsed}s]"
+    except httpx.RemoteProtocolError as e:
+        # The connection was cut in the middle of the answer.  That is
+        # the proxy, not the card, so the check is worth another try
+        # without it.
+        elapsed = round(time.time() - start, 2)
+        logger.info("The paypal connection was cut: %s", e)
+        if proxy:
+            try:
+                again = await paypal_check(cc, mm, yy, cvv, proxy=None)
+                return again
+            except Exception as e2:
+                logger.info("The retry without the proxy failed: %s", e2)
+        return f"Error - Connection Cut [{elapsed}s]"
     except httpx.NetworkError:
         elapsed = round(time.time() - start, 2)
         return f"Error - Network Error [{elapsed}s]"
