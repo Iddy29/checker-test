@@ -887,6 +887,12 @@ def _three_ds_evidence(res2, msg=""):
         kind = str(sdk.get("type") or "").strip()
         if kind:
             bits.append(", type: " + kind)
+        network = str(sdk.get("directory_server_name") or "").strip()
+        if network:
+            bits.append(", network: " + network)
+        source = str(sdk.get("three_d_secure_2_source") or "").strip()
+        if source:
+            bits.append(", source: " + source)
         bits.append(")")
         return "".join(bits)
     low = (msg or "").lower()

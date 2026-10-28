@@ -1460,7 +1460,7 @@ def st_reason_from(raw):
             if text.startswith("-"):
                 text = text[1:].strip()
             break
-    return text[:150]
+    return text[:200]
 
 
 def clean_response(response):
@@ -1884,7 +1884,7 @@ async def log_gate_result(alias, card, status, response, elapsed=0, user_id=None
                 f"{str(response).replace(chr(10), ' ')[:100]} | {elapsed}s"
                 f" | uid={user_id or '-'} {user_name or ''} {source}")
         if reason:
-            line += f" | why: {str(reason).replace(chr(10), ' ')[:150]}"
+            line += f" | why: {str(reason).replace(chr(10), ' ')[:200]}"
         line += "\n"
         try:
             if (os.path.exists(GATE_LOG_FILE)
