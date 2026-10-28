@@ -1620,7 +1620,10 @@ def format_paypal_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
 
     A check that could not reach a verdict says so instead of guessing.
     """
-    gate = "𝙥𝙖𝙮𝙥𝙖𝙡 𝘼𝙪𝙩𝙝🔁 $0.01"
+    # The gate row names the gate the way the gates list names it, and
+    # /pp takes a $0.01 payment, so it is a charge and not an
+    # authorization.
+    gate = "𝙥𝙖𝙮𝙥𝙖𝙡 𝚌𝚑𝚊𝚛𝚐𝚎🔁 $0.01"
     card = f"{cc}|{mm}|{yy}|{cvv}"
     bot_tag = BOT_USERNAME or ADMIN_USERNAME
 
