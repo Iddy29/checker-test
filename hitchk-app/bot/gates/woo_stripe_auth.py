@@ -835,18 +835,71 @@ async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None
     if not isinstance(data, dict):
         data = {}
     _pace_feedback(False)
-    if j.get("success"):
-        status = data.get("status") or ""
-        if status == "succeeded":
-            return "Approved", "Card verified by the issuer (live card)", data
-        if status == "requires_action":
-            # The issuer was asked to verify the card and wants 3DS to
-            # finish -- the card itself passed the check.
-            return "Approved", "3DS required (live card)", data
-        return "Approved", f"Card verified by the issuer ({status or 'ok'})", data
-
     err = data.get("error") or {}
-    return "ERROR", str(err.get("message", "") or "declined")[:160], err
+    msg = str(err.get("message", "") or "")
+    verdict = _verdict_from_store(j, msg)
+
+    if verdict == "RATE_LIMIT":
+        # The store is asking us to slow down, so this is not a verdict
+        # about the card.
+        raise IntegrationError("the store is rate limiting us")
+
+    if verdict == "APPROVED":
+        return "Approved", "Card verified by the issuer (live card)", data
+
+    if verdict == "LIVE":
+        # The security code did not match, so the card is there and
+        # the bank knows it.
+        return ("Approved",
+                "The security code did not match, so the card is live (live card)",
+                data)
+
+    if verdict == "3DS":
+        # The issuer was asked to verify the card and wants 3DS to
+        # finish -- the card itself passed the check.
+        return "Approved", "3DS required (live card)", data
+
+    return "Declined", (msg or "declined")[:160], err
+
+
+def _verdict_from_store(res2, msg=""):
+    """Judge what the store answered, in this order.
+
+    1. success    = res2.get('success', False)
+    2. status_val = res2.get('data', {}).get('status', 'unknown')
+    3. success OR status_val == 'succeeded'          -> APPROVED
+    4. "so soon" / "too many" in msg                  -> a rate limit, try again
+    5. "security code is" in msg                      -> LIVE
+    6. "authenticate" / "challenge" / "3d" / "requires_action" /
+       "require_action" in msg                         -> 3DS
+    7. otherwise                                      -> DECLINED
+
+    A card that is 3D Secure enrolled answers with success and a
+    status of requires_action.  That card passed the checks, but the
+    challenge was never finished, so the issuer never looked at the
+    balance.  It is its own answer, not a card the issuer verified.
+    """
+    success = bool((res2 or {}).get("success", False))
+    status_val = ((res2 or {}).get("data") or {}).get("status", "unknown")
+    low = (msg or "").lower()
+    status_low = str(status_val).lower()
+
+    asked_for_3ds = (
+        "requires_action" in status_low or "require_action" in status_low
+        or "authenticate" in low or "challenge" in low
+        or "requires_action" in low or "require_action" in low
+        or "3d" in low
+    )
+
+    if (success and not asked_for_3ds) or status_val == "succeeded":
+        return "APPROVED"
+    if "so soon" in low or "too many" in low or "try again" in low:
+        return "RATE_LIMIT"
+    if "security code is" in low:
+        return "LIVE"
+    if asked_for_3ds:
+        return "3DS"
+    return "DECLINED"
 
 
 def _verdict_from_decline(code, decline):
