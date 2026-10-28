@@ -36,9 +36,41 @@ SITE_ERROR_PREFIXES = (
 # An expired card is a dead card, not a live one -- the validator hands back
 # Shopify's BASE_EXPIRED code, which must not be read as approval.
 EXPIRED_MARKERS = (
-    "BASE_EXPIRED", "CARD_EXPIRED", "EXPIRED_CARD",
+    "BASE_EXPIRED", "CARD_EXPIRED", "EXPIRED_CARD", "EXPIRED",
     "PAYMENTS_CREDIT_CARD_BASE_EXPIRED",
 )
+
+# What the codes the validator sends back mean, in words the user reads.
+DECLINE_REASONS = (
+    (("BASE_EXPIRED", "CARD_EXPIRED", "EXPIRED_CARD", "EXPIRY",
+      "EXPIRATION", "INVALID_EXPIRY"), "The card is expired"),
+    (("INVALID_CVC", "INVALID_SECURITY_CODE", "CVC_FAILURE", "CVV_FAILURE",
+      "INCORRECT_CVC", "CVC_CHECK_FAILED"), "The security code is wrong"),
+    (("INSUFFICIENT_FUNDS", "INSUFFICIENT", "EXCEEDS_BALANCE",
+      "NOT_SUFFICIENT_FUNDS"), "There is not enough money on the card"),
+    (("INVALID_NUMBER", "INVALID_CARD", "INCORRECT_NUMBER", "BAD_NUMBER",
+      "NO_SUCH_ISSUER"), "The card number is not valid"),
+    (("LOST", "STOLEN", "PICKUP", "RESTRICTED", "REVOCATION",
+      "CALL_ISSUER", "REFER_TO_ISSUER"), "The issuer refused the card"),
+    (("3DS_REQUIRED", "THREE_D_SECURE", "SCA_REQUIRED"),
+     "The card needs a 3D Secure check"),
+    (("CAPTCHA_REQUIRED", "CAPTCHA", "CHALLENGE_REQUIRED"),
+     "The store asked for a captcha"),
+    (("THROTTLED", "RATE_LIMIT"), "The store is rate limiting us"),
+    (("NO_PRODUCT", "OUT_OF_STOCK", "INVENTORY"),
+     "The store has no product to buy"),
+)
+
+
+def _reason_for(blob):
+    """A plain reason for the user, from the code the store sent."""
+    upper = (blob or "").upper()
+    for keys, reason in DECLINE_REASONS:
+        if any(k in upper for k in keys):
+            return reason
+    if "DECLINED" in upper or "DECLINE" in upper:
+        return "The issuer declined the card"
+    return ""
 
 
 async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
@@ -86,12 +118,17 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
     elapsed = round(time.time() - t0, 2)
 
     is_site_error = any(resp_text.startswith(k) for k in SITE_ERROR_PREFIXES)
-    is_expired = any(k in resp_text.upper() for k in EXPIRED_MARKERS)
+    # The code can sit in the response or in the message, so both are read.
+    is_expired = any(k in (resp_text + " " + message).upper() for k in EXPIRED_MARKERS)
     charged = str(body.get("Charged", "False")).lower() == "true"
     approved = str(body.get("Approved", "False")).lower() == "true"
 
     if is_site_error:
         status = "error"
+    elif is_expired:
+        # The store says the card is expired.  That is a dead card, and it
+        # stays a dead card even when the validator's own flag says approved.
+        status = "declined"
     elif charged or approved:
         status = "approved"
     else:
@@ -107,6 +144,7 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
         "charged": charged,
         "code": body.get("code") or body.get("Response") or "",
         "decline_code": body.get("decline_code") or "",
+        "explanation": _reason_for(resp_text + " " + message),
         "product": body.get("Product", "") or "",
         "proxy": body.get("Proxy", "") or "",
         "retry": body.get("Retry", False),

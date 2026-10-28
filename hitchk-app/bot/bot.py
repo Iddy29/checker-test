@@ -1638,7 +1638,7 @@ def format_paypal_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
 def format_shopify_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
                           bank, country, flag, elapsed, amount=None,
                           product=None, gateway=None, code=None, decline_code=None,
-                          proxy=None, charged=False):
+                          proxy=None, charged=False, explanation=None):
     """The /shp output, in the very same frame as the /st output.
 
     Same header, same [↯] rows, same order -- but the Shopify rows carry
@@ -1663,6 +1663,8 @@ def format_shopify_result(status_header, cc, mm, yy, cvv, response, brand, bin_t
         rows.append(f"[↯] 𝗖𝗢𝗗𝗘 →{code}")
     if decline_code and decline_code != code:
         rows.append(f"[↯] 𝗗𝗘𝗖𝗟𝗜𝗡𝗘 →{decline_code}")
+    if explanation:
+        rows.append(f"[↯] 𝗥𝗘𝗔𝗦𝗢𝗡 →{explanation}")
     if response and response != code:
         rows.append(f'[↯] 𝗠𝗘𝗦𝗦𝗔𝗚𝗘 →{response}')
     rows.append(f"[↯] 𝗕𝗜𝗡 →{cc[:6]} - {bin_type} - {brand}")
@@ -2131,6 +2133,7 @@ async def shp_cmd(event):
         decline_code=result.get("decline_code"),
         proxy=result.get("proxy"),
         charged=bool(result.get("charged")),
+        explanation=result.get("explanation"),
     )
     try:
         await status_msg.edit(text)

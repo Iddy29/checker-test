@@ -2176,8 +2176,9 @@ async def validate_card(
                     msg  = str(pe.get("messageUntranslated") or "").upper()
                     raw  = code if code and code not in ("GENERIC_ERROR", "") else msg
                     norm = _normalize_response(raw) if raw else "CARD_DECLINED"
-                    approved = "True" if norm in ("INSUFFICIENT_FUNDS", "INVALID_CVC",
-                                                   "3DS_REQUIRED", "EXPIRED_CARD") else "False"
+                    # An expired card is a dead card, not a live one.
+                    approved = "True" if norm in ("INSUFFICIENT_FUNDS",
+                                                  "INVALID_CVC", "3DS_REQUIRED") else "False"
                     return _r(norm, approved=approved,
                               message=(code or msg or norm)[:120])
 
@@ -2217,8 +2218,9 @@ async def validate_card(
                                               message="Captcha required", is_site_error=True)
                                 raw  = code if code and code not in ("GENERIC_ERROR", "") else msg
                                 norm = _normalize_response(raw) if raw else "CARD_DECLINED"
-                                approved = "True" if norm in ("INSUFFICIENT_FUNDS", "INVALID_CVC",
-                                                               "3DS_REQUIRED", "EXPIRED_CARD") else "False"
+                                # An expired card is a dead card, not a live one.
+                                approved = "True" if norm in ("INSUFFICIENT_FUNDS",
+                                                              "INVALID_CVC", "3DS_REQUIRED") else "False"
                                 return _r(norm, approved=approved,
                                           message=(code or msg or norm)[:120])
                             if pt in ("ProcessingReceipt", "WaitingReceipt"):
@@ -2255,8 +2257,9 @@ async def validate_card(
                                 break
                         if best_code != "CARD_DECLINED":
                             break
-                    approved = "True" if best_code in ("INSUFFICIENT_FUNDS", "INVALID_CVC",
-                                                       "3DS_REQUIRED", "EXPIRED_CARD") else "False"
+                    # An expired card is a dead card, not a live one.
+                    approved = "True" if best_code in ("INSUFFICIENT_FUNDS",
+                                                       "INVALID_CVC", "3DS_REQUIRED") else "False"
                     return _r(best_code, approved=approved,
                               message=(best_msg or best_code)[:120])
                 return _r("CARD_DECLINED", message="No error detail")
