@@ -48,32 +48,6 @@ WC_ACCOUNT = {
     "password": os.environ.get("B3_WC_PASS", ""),
 }
 
-# The store each user set for the braintree auth.  The store is a
-# setting and not a line in the code: the user names the one they want
-# and the gate asks that store.
-ACCOUNTS_FILE = os.environ.get("BRAINTTREE_ACCOUNTS_FILE") or os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "braintree_accounts.json")
-
-
-def account_for(user_id=None):
-    """The store to ask: the one the user set, or the one on the server."""
-    site = dict(WC_ACCOUNT)
-    if not user_id:
-        return site
-    try:
-        with open(ACCOUNTS_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = {}
-    saved = (data or {}).get(str(user_id)) or {}
-    if saved.get("url"):
-        site["url"] = str(saved["url"]).strip().rstrip("/")
-    if saved.get("user"):
-        site["user"] = str(saved["user"]).strip()
-    if saved.get("password"):
-        site["password"] = str(saved["password"])
-    return site
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
@@ -828,7 +802,7 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
     return None, f"the store answered http {r.status_code}", card_info
 
 
-async def check_card_braintree(cc, mm, yy, cvv, proxy=None, user_id=None):
+async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
     if len(yy) == 2:
@@ -857,12 +831,11 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None, user_id=None):
             # 0. the WooCommerce account.  The card is added as a payment
             #    method and the store asks the issuer to verify it, so
             #    the answer is the issuer's and it is a real $0 auth.
-            account = account_for(user_id)
-            if account.get("url") and account.get("user"):
+            if WC_ACCOUNT.get("url") and WC_ACCOUNT.get("user"):
                 elapsed = round(time.time() - start, 2)
                 try:
                     verdict, detail, card_info = await _wc_account_check(
-                        client, account, cc, mm, yy, cvv)
+                        client, WC_ACCOUNT, cc, mm, yy, cvv)
                 except Exception as e:
                     verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
                 if verdict:

@@ -71,10 +71,6 @@ STEALER_GROUP_2 = -1003862598213
 PREMIUM_FILE = "premium.json"
 FREE_FILE = "free_users.json"
 SITE_FILE = "user_sites.json"
-# The store each user set for the braintree auth.  It is shared by the
-# two copies of the bot, so the path comes from the environment.
-BT_ACCOUNTS_FILE = os.environ.get("BRAINTTREE_ACCOUNTS_FILE") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "braintree_accounts.json")
 ADMIN_SITES_FILE = "admin_sites.json"
 KEYS_FILE = "keys.json"
 CC_FILE = "cc.txt"
@@ -2084,68 +2080,6 @@ async def addsite(event):
     if added:
         return await event.reply(f"\u2705 Added {len(added)} site(s):\n" + "\n".join(f"\u2022 `{s}`" for s in added))
     return await event.reply("\u2139\ufe0f No new sites added.")
-
-
-@client.on(events.NewMessage(pattern=r'(?i)^[/]b3site\b'))
-async def b3site_cmd(event):
-    """Set the store the braintree auth asks.
-
-    /b3site <url> [user] [pass]   set the store (and the account)
-    /b3site show                  show what is set
-    /b3site clear                 remove it
-    """
-    user_id = str(event.sender_id)
-    parts = event.raw_text.split()
-
-    def _read():
-        try:
-            with open(BT_ACCOUNTS_FILE, encoding="utf-8") as f:
-                return json.load(f) or {}
-        except Exception:
-            return {}
-
-    def _write(data):
-        with open(BT_ACCOUNTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-
-    if len(parts) < 2:
-        return await event.reply(
-            "**Format:** `/b3site <url> [user] [pass]`\n"
-            "`/b3site show` \u00b7 `/b3site clear`")
-
-    action = parts[1].strip().lower()
-    data = _read()
-
-    if action == "show":
-        saved = data.get(user_id) or {}
-        if not saved.get("url"):
-            return await event.reply("No store is set for the braintree auth.")
-        return await event.reply(
-            f"**The store for the braintree auth:**\n"
-            f"`{saved.get('url')}`\n"
-            f"**The account:** `{saved.get('user') or 'the one on the server'}`")
-
-    if action == "clear":
-        data.pop(user_id, None)
-        _write(data)
-        return await event.reply("\u274c The store is removed. The one on the server is used now.")
-
-    url = action
-    if not url.startswith("http"):
-        url = "https://" + url
-    url = url.strip().rstrip("/")
-    entry = dict(data.get(user_id) or {})
-    entry["url"] = url
-    if len(parts) > 2:
-        entry["user"] = parts[2].strip()
-    if len(parts) > 3:
-        entry["password"] = parts[3]
-    data[user_id] = entry
-    _write(data)
-    return await event.reply(
-        f"\u2705 **The store for the braintree auth:** `{url}`\n"
-        f"**The account:** `{entry.get('user') or 'the one on the server'}`\n"
-        "The check asks this store now.")
 
 
 @client.on(events.NewMessage(pattern=r'(?i)^[/]viewsite$'))
