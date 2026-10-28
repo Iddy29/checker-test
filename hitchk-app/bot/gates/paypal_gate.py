@@ -389,21 +389,18 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 if '"status":"completed"' in txt or '"status":"approved"' in txt:
                     return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
 
-            # An approved order is not a verdict about the card.  The
-            # order is made from the card details, so paypal approves
-            # it before the issuer has been asked: a card with a wrong
-            # security code is approved in the same way.  Without the
-            # capture there is no way to tell a good card from a dead
-            # one, so nothing is claimed.
+            # This gate charges $0.01, it is not an auth.  So the card
+            # either paid or it did not.  An approved order that was
+            # never captured has not paid, and that is a decline.
             if '"status":"approved"' in txt:
-                return (f"Error - PayPal Did Not Judge The Card, "
-                        f"No Money Taken | {cc[:6]} [{elapsed}s]")
+                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
             if '"status":"completed"' in txt:
                 return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
             if '"status":"payer_action_required"' in txt:
-                return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
+                return f"Declined - 3DS Required, Not Charged | {cc[:6]} [{elapsed}s]"
             if '"status":"created"' in txt:
-                return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
+                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
+
 
             if "is3dsecurerequired" in txt:
                 flags = (
@@ -412,11 +409,14 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                     .get("flags", {})
                 )
                 if flags and flags.get("is3DSecureRequired"):
-                    return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
+                    # the card asked for 3d secure, so it did not pay
+                    return f"Declined - 3DS Required, Not Charged | {cc[:6]} [{elapsed}s]"
                 return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
 
             if "thank you" in txt or '"status":"completed"' in txt:
-                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+                if captured:
+                    return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
 
             live_indicators = [
                 "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
@@ -460,7 +460,8 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             if "card_expiry_invalid" in txt:
                 return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
             if "not_authorized" in txt or "insufficient permissions" in txt:
-                return f"Declined - Not Authorized | {cc[:6]} [{elapsed}s]"
+                # the capture was refused, so the $0.01 did not move
+                return f"Declined - Not Charged, Capture Refused | {cc[:6]} [{elapsed}s]"
 
             errors = result_json.get("errors", [])
             if errors:
@@ -486,7 +487,9 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             data = result_json.get("data", {})
             approve = data.get("approveGuestPaymentWithCreditCard")
             if approve is not None:
-                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+                if captured:
+                    return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
 
             msg = _capture(result_text, '"message":"', '"')
             code = _capture(result_text, '"code":"', '"')

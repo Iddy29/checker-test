@@ -1597,7 +1597,7 @@ def format_paypal_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
 
     A check that could not reach a verdict says so instead of guessing.
     """
-    gate = "𝙥𝙖𝙮𝙥𝙖𝙡 𝘼𝙪𝙩𝙝\U0001f501"
+    gate = "𝙥𝙖𝙮𝙥𝙖𝙡 𝘼𝙪𝙩𝙝🔁 $0.01"
     card = f"{cc}|{mm}|{yy}|{cvv}"
     bot_tag = BOT_USERNAME or ADMIN_USERNAME
 
