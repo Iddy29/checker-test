@@ -580,6 +580,23 @@ def _add_captcha_to_html(html, token):
     return html
 
 
+def _strip_verdict_word(text):
+    """The reason without the verdict word in front of it.
+
+    The store writes its reason as "Declined - Call Issuer (...)", and
+    the gate puts the verdict in front of it, so without this the line
+    would read "Declined - Declined - Call Issuer".
+    """
+    out = str(text or "").strip()
+    for word in ("Declined", "Approved", "Error", "Charged"):
+        if out.lower().startswith(word.lower()):
+            out = out[len(word):].strip()
+            if out.startswith("-"):
+                out = out[1:].strip()
+            break
+    return out
+
+
 async def _wc_account_check(client, site, cc, mm, yy, cvv):
     """Add the card as a payment method on a WooCommerce account.
 
@@ -741,9 +758,10 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
             return None, plain[:120], card_info
         m = re.match(r'Status code\s*([A-Za-z0-9_]+)\s*:\s*(.+)$', plain)
         if m:
-            return "Declined", f"{m.group(2).strip()} ({m.group(1)})", card_info
+            reason = _strip_verdict_word(m.group(2).strip())
+            return "Declined", f"{reason} ({m.group(1)})", card_info
     if items:
-        return "Declined", items[0][:140], card_info
+        return "Declined", _strip_verdict_word(items[0])[:140], card_info
     m = re.search(r'Reason\s*:\s*([^<."\']{2,120})', text)
     if m:
         return "Declined", m.group(1).strip(), card_info
