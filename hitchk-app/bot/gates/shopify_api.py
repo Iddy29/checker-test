@@ -77,7 +77,8 @@ def _reason_for(blob):
     return ""
 
 
-async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
+async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
+                           price_min=None, price_max=None):
     """Check a card against the local Shopify Validator API.
 
     Returns a dict:
@@ -95,6 +96,12 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
     }
     if proxy:
         params["proxy"] = proxy
+    # The price band: with a floor, the store sells an item that is worth
+    # something instead of the cheapest sticker in the shop.
+    if price_min is not None:
+        params["min_price"] = str(price_min)
+    if price_max is not None:
+        params["max_price"] = str(price_max)
 
     try:
         async with aiohttp.ClientSession() as sess:
@@ -185,6 +192,25 @@ def _proxy_list_for(user_id, limit=20):
     return ",".join(out)
 
 
+# The price band for a real $1 to $2 charge.
+SHOPIFY_MIN_PRICE = 1.0
+SHOPIFY_MAX_PRICE = 2.0
+
+
+async def shopify_api_check_1_2(cc, mm, yy, cvv, site=None, proxy=None, user_id=None,
+                                **kwargs):
+    """Shopify, but the store sells an item worth $1 to $2.
+
+    The validator picks the cheapest product inside the band, so the
+    order is worth $1 to $2 instead of the $0.25 sticker a plain
+    /shp buys.
+    """
+    kwargs["price_min"] = SHOPIFY_MIN_PRICE
+    kwargs["price_max"] = SHOPIFY_MAX_PRICE
+    return await shopify_api_check(cc, mm, yy, cvv, site=site, proxy=proxy,
+                                    user_id=user_id, **kwargs)
+
+
 async def shopify_api_check(cc, mm, yy, cvv, site=None, proxy=None, user_id=None,
                             **kwargs):
     """Check a card against Shopify via the local validator API.
@@ -197,6 +223,8 @@ async def shopify_api_check(cc, mm, yy, cvv, site=None, proxy=None, user_id=None
     result = await call_shopify_api(
         cc, mm, yy, cvv, site=site, proxy=(proxy_list or proxy),
         timeout=kwargs.get("timeout") or SHOPIFY_API_TIMEOUT,
+        price_min=kwargs.get("price_min"),
+        price_max=kwargs.get("price_max"),
     )
 
     response = str(result.get("response", "") or "Unknown").strip()

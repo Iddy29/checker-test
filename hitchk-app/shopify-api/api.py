@@ -64,6 +64,10 @@ PORT             = int(os.environ.get("PORT", 8080))
 WORKERS          = int(os.environ.get("WORKERS", 1))
 CARDS_FILE       = os.environ.get("CARDS_FILE", "cards.txt")
 MAX_PRICE        = float(os.environ.get("MAX_PRICE", 5.0))
+# A floor for the product price.  With one, the check buys a product that
+# is worth something -- a $1 to $2 item instead of the cheapest sticker
+# in the shop.
+MIN_PRICE        = float(os.environ.get("MIN_PRICE", 0.0))
 SITE_CONCURRENCY = int(os.environ.get("SITE_CONCURRENCY", 15))
 POOL_SIZE        = int(os.environ.get("POOL_SIZE", 500))
 POOL_PER_HOST    = int(os.environ.get("POOL_PER_HOST", 25))
@@ -1313,6 +1317,7 @@ async def validate_card(
     variant_id: Optional[str] = None,
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
+    min_price:  Optional[float] = None,
     candidate_index: int = 0,
 ) -> dict:
     t0       = time.time()
@@ -1321,6 +1326,7 @@ async def validate_card(
     currency = "USD"
     product_title = ""
     effective_max_price = max_price if max_price is not None else MAX_PRICE
+    effective_min_price = min_price if min_price is not None else MIN_PRICE
 
     site_url = site_url.strip()
     ourl     = site_url if site_url.startswith("http") else f"https://{site_url}"
@@ -1378,14 +1384,15 @@ async def validate_card(
             if all_candidates:
                 candidates_under_max = [
                     c for c in all_candidates
-                    if float(c.get("price", 999999)) <= effective_max_price
+                    if effective_min_price <= float(c.get("price", 999999)) <= effective_max_price
                 ]
                 # Cheapest first, so a product that fits the cap after
                 # shipping is found before an expensive one.
                 candidates_under_max.sort(key=lambda c: float(c.get("price_f") or 0))
             else:
                 candidates_under_max = (
-                    [best] if (best and float(best.get("price", 999999)) <= effective_max_price) else []
+                    [best] if (best and effective_min_price <= float(best.get("price", 999999))
+                               <= effective_max_price) else []
                 )
 
             if variant_id:
@@ -2302,6 +2309,7 @@ async def validate_card_with_retry(
     variant_id: Optional[str] = None,
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
+    min_price:  Optional[float] = None,
     max_attempts: int = 6,
 ) -> dict:
     """Run validate_card, retrying with the next cheap product when the
@@ -2317,7 +2325,7 @@ async def validate_card_with_retry(
             result = await validate_card(
                 cc, month, year, cvv, site_url,
                 variant_id=variant_id, proxy_str=proxy_str,
-                max_price=max_price, candidate_index=attempt,
+                max_price=max_price, min_price=min_price, candidate_index=attempt,
             )
         except _PriceOverMax as e:
             # Price over the cap for this candidate -- try the next one.
@@ -2379,6 +2387,7 @@ async def validate_card_across_sites(
     sites:      list[str],
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
+    min_price:  Optional[float] = None,
     max_sites:  int = 8,
 ) -> dict:
     """Try each merchant until one returns a real card verdict.
@@ -2394,14 +2403,14 @@ async def validate_card_across_sites(
         # address.
         result = await validate_card_with_retry(
             cc, month, year, cvv, site,
-            proxy_str=None, max_price=max_price,
+            proxy_str=None, max_price=max_price, min_price=min_price,
         )
         if str(result.get("Response", "")) in ("THROTTLED", "PROXY_ERROR"):
             alt = _pick_rescue_proxy(proxy_str)
             if alt:
                 result = await validate_card_with_retry(
                     cc, month, year, cvv, site,
-                    proxy_str=alt, max_price=max_price,
+                    proxy_str=alt, max_price=max_price, min_price=min_price,
                 )
         resp = str(result.get("Response", ""))
         # A card verdict (or a bank decline) is a real answer -- stop here.
@@ -2459,6 +2468,7 @@ async def shopify_route(
     cc:        Optional[str] = Query(None, description="cc|mm|yy|cvv or cc|mm|yyyy|cvv"),
     proxy:     Optional[str] = Query(None, description="ip:port or ip:port:user:pass"),
     max_price: Optional[float] = Query(None, description="Max product price override"),
+    min_price: Optional[float] = Query(None, description="Min product price override"),
     key:       Optional[str] = Query(None, description="API key"),
 ):
     """Validate a card against a Shopify store checkout."""
@@ -2506,7 +2516,7 @@ async def shopify_route(
 
     result = await validate_card_across_sites(
         card["cc"], card["month"], card["year"], card["cvv"],
-        sites, proxy_str=proxy, max_price=max_price,
+        sites, proxy_str=proxy, max_price=max_price, min_price=min_price,
     )
     _stats[f"response_{result.get('Response', 'UNKNOWN')}"] += 1
 
