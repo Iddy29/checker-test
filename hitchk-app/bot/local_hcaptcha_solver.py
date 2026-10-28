@@ -39,16 +39,22 @@ TOKEN_JS = """
     const el = document.querySelector(
         'textarea[name="h-captcha-response"], input[name="cf-turnstile-response"]');
     if (el && el.value) return el.value;
-    if (window.__captchaToken) return window.__captchaToken;
-    return "";
+    const t = window.__captchaToken;
+    if (!t) return "";
+    // the enterprise captcha hands over an object with the token and
+    // the ekey in it
+    if (typeof t === 'object') return t.response || "";
+    return t;
 }
 """
 
 # the ekey that comes with the enterprise token
 EKEY_JS = """
 () => {
-    if (window.__captchaEkey) return window.__captchaEkey;
-    return "";
+    const e = window.__captchaEkey;
+    if (!e) return "";
+    if (typeof e === 'object') return e.ekey || "";
+    return e;
 }
 """
 
@@ -204,14 +210,28 @@ _PW = None
 _PW_LOOP = None
 _BROWSER_AT = 0.0
 _BROWSER_IDLE = 180.0
+_BROWSER_PROXY = None
 
 
 async def _get_browser(launch):
-    """The browser, opened once and kept for a while."""
-    global _BROWSER, _PW, _PW_LOOP, _BROWSER_AT
+    """The browser, opened once and kept for a while.
+
+    The address the browser goes out through is part of the browser, so
+    a new address means a new browser.
+    """
+    global _BROWSER, _PW, _PW_LOOP, _BROWSER_AT, _BROWSER_PROXY
+    wanted = launch.get("proxy")
+    wanted = wanted.get("server") if isinstance(wanted, dict) else wanted
     if _BROWSER is not None:
-        _BROWSER_AT = time.time()
-        return _BROWSER
+        if wanted == _BROWSER_PROXY:
+            _BROWSER_AT = time.time()
+            return _BROWSER
+        # the address changed, so the browser goes too
+        try:
+            await _BROWSER.close()
+        except Exception:
+            pass
+        _BROWSER = None
     if _PW is None:
         from playwright.async_api import async_playwright
         _PW = await async_playwright().start()
@@ -229,6 +249,7 @@ async def _get_browser(launch):
             viewport={"width": 1366, "height": 900})
     _BROWSER = ctx
     _BROWSER_AT = time.time()
+    _BROWSER_PROXY = wanted
     return ctx
 
 
@@ -262,6 +283,37 @@ def _profile_dir():
     return path
 
 
+# The proxies that are worth trying, and the file they are in.
+PROXY_FILE = "/root/hitchecker/bot/user_proxies.json"
+_bad_proxies = set()
+
+
+def _working_proxies():
+    """The proxies that answered the last time they were tried.
+
+    hCaptcha gives up on an address that has failed, so a proxy that
+    does not work is not asked again.
+    """
+    global _bad_proxies
+    try:
+        import json
+        with open(PROXY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+    out = []
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, dict) and isinstance(v.get("proxies"), list):
+                out.extend(v["proxies"])
+            elif isinstance(v, list):
+                out.extend(v)
+    elif isinstance(data, list):
+        out = list(data)
+    return [p for p in out
+            if isinstance(p, str) and p.count(":") >= 3 and p not in _bad_proxies]
+
+
 def _playwright_proxy(proxy):
     """The proxy for the browser.
 
@@ -292,14 +344,17 @@ def _playwright_proxy(proxy):
         return None
 
 
-# The picture tiles live in a shadow root, so the locators are used:
-# they look inside it, while plain javascript does not.  Only the tiles
-# themselves count, the empty challenge frame has other parts in it.
-_IMAGE_SELECTORS = (".task-image", ".challenge-image", ".challenge-image-container img",
-                    "img[src*='tile']", "[class*='task-image']")
-_IMAGE_WORDS = ("please click", "select all", "click on", "choose all",
-                "find things", "find the", "tap on", "things you would",
-                "press enter", "images of")
+# The picture challenge is recognised by the words it uses: "tap on the
+# buildings", "click on the images" and so on.  The empty placeholders
+# are always in the page, so counting them says nothing at all, and the
+# "please try again / verify" prompt is not a picture either.
+_IMAGE_WORDS = ("tap on", "click on", "select all", "choose all",
+                "find things", "find the", "things you would",
+                "press enter", "images of", "which of the",
+                "two groups with the same", "one group with the same",
+                "objects that", "people that", "animals that",
+                "vehicles that", "food and", "hot and cold",
+                "usually spray", "commonly have")
 
 
 async def _image_challenge_up(page):
@@ -312,12 +367,6 @@ async def _image_challenge_up(page):
     for frame in page.frames:
         if "hcaptcha" not in frame.url and "frame=challenge" not in frame.url:
             continue
-        for sel in _IMAGE_SELECTORS:
-            try:
-                if await frame.locator(sel).count():
-                    return True
-            except Exception:
-                continue
         try:
             text = await frame.locator("body").inner_text(timeout=1500)
         except Exception:
@@ -350,6 +399,29 @@ async def _what_it_showed(page):
         if text not in parts:
             parts.append(text[:150])
     return " / ".join(parts[:3])
+
+
+async def _click_the_verify(page):
+    """Click the Verify button.
+
+    The enterprise captcha puts up a "please try again" and a Verify
+    button in the challenge frame.  Clicking that is what asks for the
+    answer, and without it nothing comes back.
+    """
+    for frame in page.frames:
+        if "hcaptcha" not in frame.url:
+            continue
+        for sel in ("text=/^verify$/i", "text='Verify'", "[class*='verify']",
+                    "[id*='verify']", "a:has-text('Verify')",
+                    "div:has-text('Verify')", "span:has-text('Verify')"):
+            try:
+                el = frame.locator(sel).first
+                if await el.count():
+                    await el.click(timeout=4000)
+                    return True
+            except Exception:
+                continue
+    return False
 
 
 async def _click_the_box(page):
@@ -429,6 +501,7 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
             last_click = 0.0
             picture_seen = False
             box_ticked = False
+            verify_clicked = False
             while time.time() < deadline:
                 token = await page.evaluate(TOKEN_JS)
                 if token:
@@ -473,6 +546,13 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                             box_ticked = True
                     except Exception as e:
                         logger.debug("the checkbox was not clickable: %s", e)
+                    # and the verify button, which is what asks for the
+                    # answer
+                    try:
+                        if await _click_the_verify(page):
+                            verify_clicked = True
+                    except Exception as e:
+                        logger.debug("the verify button was not clickable: %s", e)
                 await page.wait_for_timeout(500)
 
             # The reason is worked out from what really happened, and
@@ -481,6 +561,11 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
             if picture_seen:
                 LAST_REASON = ("the box was ticked, and hCaptcha answered with a "
                                "picture challenge")
+            elif verify_clicked and box_ticked:
+                LAST_REASON = ("the box was ticked and the verify was pressed, "
+                               "but no token came")
+            elif verify_clicked:
+                LAST_REASON = "the verify was pressed, but no token came"
             elif box_ticked:
                 LAST_REASON = "the box was ticked, but no token came"
             elif shown:
@@ -503,24 +588,92 @@ def _budget(default=60):
         return default
 
 
+async def _keep_the_working_ones(attempts):
+    """The addresses that answer, and only those."""
+    global _bad_proxies
+    if len(attempts) < 2:
+        return attempts
+    import httpx
+    alive = []
+    for px in attempts:
+        if px in _bad_proxies:
+            continue
+        pw = _playwright_proxy(px)
+        if not pw:
+            # the direct address always answers
+            alive.append(px)
+            continue
+        url = pw.get("server", "")
+        if url.startswith("http://"):
+            url = url[7:]
+        auth = ""
+        if pw.get("username"):
+            auth = "%s:%s@" % (pw.get("username"), pw.get("password"))
+        try:
+            r = httpx.get("https://api.ipify.org", timeout=12,
+                          proxy="http://%s%s" % (auth, url))
+            if r.status_code == 200:
+                alive.append(px)
+            else:
+                _bad_proxies.add(px)
+        except Exception:
+            _bad_proxies.add(px)
+    logger.info("the addresses that answer: %s of %s",
+                len(alive), len(attempts))
+    return alive or attempts[:1]
+
+
 async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
                                timeout=0):
-    """An hCaptcha token, straight from a browser."""
+    """An hCaptcha token, straight from a browser.
+
+    The first try goes out the way the caller asked.  If the picture
+    challenge comes up, the other addresses are tried, because hCaptcha
+    gives the picture to an address it does not like, and a different
+    address often gets the plain box.
+    """
+    global _bad_proxies
     if not pageurl:
         return None
     if not timeout:
         timeout = _budget(60)
-    try:
-        token = await _solve_in_browser(
-            pageurl, timeout=timeout, proxy=proxy,
-            widget_js=HCAPTCHA_WIDGET, widget_arg=sitekey, widget_arg2=rqdata)
+
+    attempts = []
+    if proxy:
+        attempts.append(proxy)
+    for p in _working_proxies():
+        if p not in attempts:
+            attempts.append(p)
+    # the addresses that work are found first, so the run does not
+    # waste its time on the ones that are dead
+    attempts = await _keep_the_working_ones(attempts)
+
+    last = ""
+    for i, px in enumerate(attempts):
+        try:
+            token = await _solve_in_browser(
+                pageurl, timeout=timeout, proxy=px,
+                widget_js=HCAPTCHA_WIDGET, widget_arg=sitekey, widget_arg2=rqdata)
+        except Exception as e:
+            logger.info("the local hCaptcha solver failed: %s", e)
+            last = str(e)[:80]
+            # a proxy that cannot open a page is not asked again
+            if px and ("ERR_" in last or "Timeout" in last or "timeout" in last):
+                _bad_proxies.add(px)
+            continue
         if token:
             logger.info("the local hCaptcha solver got a token")
             return token
-        logger.info("the local hCaptcha solver found no token: %s",
-                    LAST_REASON or "no reason given")
-    except Exception as e:
-        logger.info("the local hCaptcha solver failed: %s", e)
+        last = LAST_REASON or "no reason given"
+        if "picture" in last:
+            # this address gets the picture, so it is not asked again
+            _bad_proxies.add(px)
+            logger.info("the picture came up on %s, trying another address",
+                        (px.split(":")[0] if px else "the direct one"))
+        else:
+            break
+    logger.info("the local hCaptcha solver found no token: %s",
+                last or "no reason given")
     return None
 
 

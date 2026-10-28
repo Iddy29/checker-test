@@ -265,11 +265,18 @@ async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
             await session.close()
 
 
-async def _local_hcaptcha_solve(sitekey, pageurl, rqdata=None):
-    """The browser solver, with no key and no bill."""
+async def _local_hcaptcha_solve(sitekey, pageurl, rqdata=None, proxy=None):
+    """The browser solver, with no key and no bill.
+
+    The browser goes out through the same proxy as the rest of the
+    request.  If the browser and the api come from two different
+    addresses, hCaptcha notices and puts up a picture challenge
+    instead of the box.
+    """
     try:
         from local_hcaptcha_solver import solve_hcaptcha_local
-        token = await solve_hcaptcha_local(sitekey, pageurl, rqdata=rqdata)
+        token = await solve_hcaptcha_local(sitekey, pageurl, rqdata=rqdata,
+                                          proxy=proxy)
         if token:
             return token
         logger.info("the local hCaptcha solver found no token")
@@ -545,8 +552,8 @@ def _external_allowed() -> bool:
         "1", "true", "yes", "on")
 
 
-async def solve_hcaptcha(sitekey, pageurl, session=None):
-    token = await _local_hcaptcha_solve(sitekey, pageurl)
+async def solve_hcaptcha(sitekey, pageurl, session=None, proxy=None):
+    token = await _local_hcaptcha_solve(sitekey, pageurl, proxy=proxy)
     if token:
         return token
     if not _external_allowed():
@@ -576,12 +583,13 @@ async def solve_hcaptcha(sitekey, pageurl, session=None):
     return None
 
 
-async def solve_hcaptcha_enterprise(sitekey, pageurl, rqdata=None, session=None):
+async def solve_hcaptcha_enterprise(sitekey, pageurl, rqdata=None, session=None,
+                                    proxy=None):
     extra_cs = {}
     if rqdata:
         extra_cs["enterprisePayload"] = {"rqdata": rqdata}
 
-    token = await _local_hcaptcha_solve(sitekey, pageurl, rqdata=rqdata)
+    token = await _local_hcaptcha_solve(sitekey, pageurl, rqdata=rqdata, proxy=proxy)
     if token:
         return token
     if not _external_allowed():
