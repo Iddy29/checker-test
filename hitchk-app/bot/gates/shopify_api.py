@@ -31,12 +31,16 @@ SITE_ERROR_PREFIXES = (
     "NO_ATTEMPT_TOKEN", "NO_SHOPIFY_PAYMENTS_GATEWAY", "CHECKPOINTDENIED",
     "THROTTLED", "TIMEOUT", "SITE_ERROR", "PROXY_ERROR", "NO_SELLER_PROPOSAL",
     "GRAPHQL_ERROR", "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX",
+    # a session or a token that ran out says nothing about the card
+    "SESSION_EXPIRED", "TOKEN_EXPIRED", "LINK_EXPIRED", "NEGOTIATE_FAILED",
+    "ORDER_CREATION_FAILED", "SUBMIT_FAILED", "TOKENIZATION_FAILED",
+    "CAPTCHA_REQUIRED", "API_AUTH_ERROR",
 )
 
 # An expired card is a dead card, not a live one -- the validator hands back
 # Shopify's BASE_EXPIRED code, which must not be read as approval.
 EXPIRED_MARKERS = (
-    "BASE_EXPIRED", "CARD_EXPIRED", "EXPIRED_CARD", "EXPIRED",
+    "BASE_EXPIRED", "CARD_EXPIRED", "EXPIRED_CARD", "INVALID_EXPIRY",
     "PAYMENTS_CREDIT_CARD_BASE_EXPIRED",
 )
 
@@ -134,6 +138,10 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
     else:
         status = "declined"
 
+    explanation = _reason_for(resp_text + " " + message)
+    if not explanation and status == "declined":
+        explanation = "The issuer declined the card"
+
     return {
         "status": status,
         "response": message or resp_text or "Unknown",
@@ -144,7 +152,7 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
         "charged": charged,
         "code": body.get("code") or body.get("Response") or "",
         "decline_code": body.get("decline_code") or "",
-        "explanation": _reason_for(resp_text + " " + message),
+        "explanation": explanation,
         "product": body.get("Product", "") or "",
         "proxy": body.get("Proxy", "") or "",
         "retry": body.get("Retry", False),
