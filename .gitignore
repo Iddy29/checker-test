@@ -47,3 +47,25 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# the secret files
+.env
+*.env
+requests.txt
+requests.txt*
+*.bak
+*.bak-*
+
+# the scratch files
+/test_*.py
+/find_*.py
+/find_*.*.py
+/check_sites.py
+/config_temp.json
