@@ -382,16 +382,20 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             if not result_json:
                 txt = result_text.lower()
 
-            # the money only moved when the capture worked
+            # The money only moved when the capture worked.
             if captured:
                 if '"status":"completed"' in txt or '"status":"approved"' in txt:
                     return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
 
-            # the order was approved, so the card is good, but the
-            # capture was refused and no money moved.  The word charged
-            # is left out on purpose, the bot looks for it.
+            # An approved order is not a verdict about the card.  The
+            # order is made from the card details, so paypal approves
+            # it before the issuer has been asked: a card with a wrong
+            # security code is approved in the same way.  Without the
+            # capture there is no way to tell a good card from a dead
+            # one, so nothing is claimed.
             if '"status":"approved"' in txt:
-                return f"Approved - Card Valid, No Money Taken | {cc[:6]} [{elapsed}s]"
+                return (f"Error - Order Approved, Not Charged, "
+                        f"Card Not Judged | {cc[:6]} [{elapsed}s]")
             if '"status":"completed"' in txt:
                 return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
             if '"status":"payer_action_required"' in txt:
