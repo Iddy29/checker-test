@@ -96,10 +96,10 @@ def _verdict_from_reason(reason):
         text = text[m.end():].strip()
     text = _strip_verdict_word(text)
     low = text.lower()
-    if "risk_threshold" in low:
-        return "Declined", "RISK: Retry this BIN later."
     if "you cannot add a new payment method so soon after the previous one" in low:
-        return "Wait", "Please wait for 20 seconds."
+        # the store is asking us to slow down.  That is not a word about
+        # the card, so no verdict is made and the check waits.
+        return "Wait", ""
     if ("nice! new payment method added" in low
             or "payment method successfully added" in low
             or "payment method added" in low):
@@ -887,15 +887,16 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
             return None, "the store gave no verdict", card_info
         verdict, wording = _verdict_from_reason(reason)
         if verdict == "Wait":
-            # the store is asking us to slow down; that is not a word
-            # about the card, so no verdict is made here
-            return None, wording, card_info
+            # the store is asking us to slow down.  That is not a word
+            # about the card, so no verdict is made here; the reason is
+            # kept for the gate to count the seconds from.
+            return None, reason, card_info
         return verdict, wording, card_info
     if r.status_code == 400:
         reason = _reason_from_body(text) or "the store refused the card (http 400)"
         verdict, wording = _verdict_from_reason(reason)
         if verdict == "Wait":
-            return None, wording, card_info
+            return None, reason, card_info
         return verdict, wording, card_info
     return None, f"the store answered http {r.status_code}", card_info
 
