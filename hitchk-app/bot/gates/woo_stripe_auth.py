@@ -862,6 +862,38 @@ async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None
     return "Declined", (msg or "declined")[:160], err
 
 
+def _asks_for_3ds(res2, msg=""):
+    """Is a 3D Secure challenge really there to be taken?
+
+    The proof is the challenge itself in the answer, not the word
+    "requires_action": a store can ask for an action that has nothing
+    to do with 3D Secure, and that is not a 3D answer.
+
+    A 3D challenge comes back as
+        next_action.type = "use_stripe_sdk"
+    with a three_d_secure_2_source and a type of stripe_3ds2_fingerprint
+    inside it.  That is the challenge the cardholder has to finish.
+    """
+    data = (res2 or {}).get("data") or {}
+    next_action = data.get("next_action") or {}
+
+    if next_action.get("type") == "use_stripe_sdk":
+        sdk = next_action.get("use_stripe_sdk") or {}
+        blob = json.dumps(sdk).lower() if not isinstance(sdk, str) else sdk.lower()
+        if ("3ds" in blob or "three_d_secure" in blob or "three_ds" in blob):
+            return True
+        # an action is there, but it is not a 3d challenge
+        return False
+
+    # no action in the answer, so the message is all there is
+    low = (msg or "").lower()
+    for word in ("authenticate", "challenge", "3d secure", "3ds",
+                 "requires_action", "require_action"):
+        if word in low:
+            return True
+    return False
+
+
 def _verdict_from_store(res2, msg=""):
     """Judge what the store answered, in this order.
 
@@ -870,26 +902,20 @@ def _verdict_from_store(res2, msg=""):
     3. success OR status_val == 'succeeded'          -> APPROVED
     4. "so soon" / "too many" in msg                  -> a rate limit, try again
     5. "security code is" in msg                      -> LIVE
-    6. "authenticate" / "challenge" / "3d" / "requires_action" /
-       "require_action" in msg                         -> 3DS
+    6. a 3d challenge in the answer                  -> 3DS
     7. otherwise                                      -> DECLINED
 
     A card that is 3D Secure enrolled answers with success and a
-    status of requires_action.  That card passed the checks, but the
-    challenge was never finished, so the issuer never looked at the
-    balance.  It is its own answer, not a card the issuer verified.
+    status of requires_action, and the challenge comes with it.  That
+    card passed the checks, but the challenge was never finished, so
+    the issuer never looked at the balance.  It is its own answer, not
+    a card the issuer verified.
     """
     success = bool((res2 or {}).get("success", False))
     status_val = ((res2 or {}).get("data") or {}).get("status", "unknown")
     low = (msg or "").lower()
-    status_low = str(status_val).lower()
 
-    asked_for_3ds = (
-        "requires_action" in status_low or "require_action" in status_low
-        or "authenticate" in low or "challenge" in low
-        or "requires_action" in low or "require_action" in low
-        or "3d" in low
-    )
+    asked_for_3ds = _asks_for_3ds(res2, msg)
 
     if (success and not asked_for_3ds) or status_val == "succeeded":
         return "APPROVED"
