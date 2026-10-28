@@ -772,7 +772,8 @@ def _pace_feedback(dropped):
     else:
         _STORE_PACE["gap"] = max(_STORE_PACE["min_gap"], _STORE_PACE["gap"] * 0.9)
 
-async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None, pk=""):
+async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None, pk="",
+                        card=None):
     """Ask the store to create AND confirm a setup intent.
 
     The store confirms it with its own secret key, so the ISSUER answers
@@ -871,7 +872,8 @@ async def _setup_intent(client, host, nonce, pm_id, budget, route, max_wait=None
         # log says which part of the answer asked for it.
         sdk = ((data.get("next_action") or {}).get("use_stripe_sdk") or {})
         done = await _finish_3ds(client, pk, str(data.get("client_secret") or ""),
-                                  str(data.get("id") or ""), pm_id, sdk, budget)
+                                  str(data.get("id") or ""), pm_id, sdk, budget,
+                                  card=card)
         if done:
             return done[0], done[1], data
         # The challenge could not be taken here, and that is not a bug:
@@ -920,6 +922,62 @@ def _three_ds_evidence(res2, msg=""):
     return "the store asked for the challenge"
 
 
+async def _pk_live_check(client, cc, mm, yy, cvv, budget):
+    """Ask Stripe with a publishable key.  The HTTP code is the answer.
+
+    The token endpoint with a publishable key is the one call that can
+    be made on its own -- no merchant, no cart, no charge.  Its reply
+    is the code: 200 means Stripe took the card, 400 means Stripe
+    refused it, and the refusal names the reason.
+
+    Returns (verdict, reason).  The verdict is None when the call could
+    not be made, so nothing is guessed.
+    """
+    try:
+        r = await client.post(
+            f"{STRIPE_API}/tokens",
+            data={
+                "card[number]": cc, "card[cvc]": cvv,
+                "card[exp_month]": mm, "card[exp_year]": yy,
+                "card[address_zip]": "03867",
+                "key": LEGACY_TOKEN_PK,
+                "payment_user_agent": ("stripe.js/c21825cd1c; stripe-js-v3/c21825cd1c; "
+                                       "card-element"),
+                "pasted_fields": "number",
+                "client_attribution_metadata[client_session_id]": _guid(36),
+                "client_attribution_metadata[merchant_integration_source]": "elements",
+                "client_attribution_metadata[merchant_integration_subtype]": "card-element",
+                "client_attribution_metadata[merchant_integration_version]": "2017",
+                "client_attribution_metadata[wallet_config_id]": _guid(36),
+            },
+            headers={
+                "User-Agent": UA,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://js.stripe.com",
+                "Referer": "https://js.stripe.com/",
+            },
+            timeout=budget.slice(20),
+        )
+    except Exception as e:
+        return None, f"the pk_live check could not be made: {str(e)[:60]}"
+    try:
+        body = r.json()
+    except Exception:
+        return None, f"the pk_live check answered http {r.status_code} with something else"
+
+    if r.status_code == 200 and "error" not in body:
+        return ("Approved",
+                "the pk_live check took the card (the token was created, http 200)")
+
+    err = body.get("error") or {}
+    code = str(err.get("code") or err.get("decline_code") or "").strip()
+    message = str(err.get("message") or "").strip()
+    if r.status_code == 400:
+        return ("Declined",
+                f"the pk_live check refused the card (http 400): {message or code}"[:160])
+    return None, f"the pk_live check answered http {r.status_code}"
+
+
 async def _read_setup_intent(client, pk, cs, intent_id, tries=3):
     """Read the setup intent after the challenge was taken.
 
@@ -957,7 +1015,7 @@ async def _read_setup_intent(client, pk, cs, intent_id, tries=3):
     return None
 
 
-async def _finish_3ds(client, pk, cs, intent_id, pm_id, sdk, budget):
+async def _finish_3ds(client, pk, cs, intent_id, pm_id, sdk, budget, card=None):
     """Take the 3D Secure action so the card gets a real answer.
 
     A setup intent that comes back as requires_action is not a verdict:
@@ -1103,6 +1161,20 @@ async def _finish_3ds(client, pk, cs, intent_id, pm_id, sdk, budget):
             msg = str(err.get("message") or err.get("decline_code")
                       or "the issuer refused the card")
             return "Declined", msg[:140]
+
+    # 4. the publishable key check.  The challenge cannot be run on a $0
+    #    verification, so the card is judged by the one call that can be
+    #    made on its own: the token endpoint with a publishable key.
+    #    Its code is the answer -- 200 is good, 400 is bad.
+    if card:
+        verdict, reason = await _pk_live_check(client, card[0], card[1],
+                                                card[2], card[3], budget)
+        if verdict == "Approved":
+            return ("Approved", reason +
+                    " - the merchant asked for an extra step that a $0 "
+                    "check cannot run")
+        if verdict == "Declined":
+            return "Declined", reason
     return None
 
 
@@ -1372,7 +1444,7 @@ async def _run_store(client, store, cc, mm, yy, cvv, budget, max_wait=None):
         try:
             verdict, detail, _ = await _setup_intent(
                 client, host, nonce, pm_id, budget, routes[route_idx], max_wait,
-                pk=pk,
+                pk=pk, card=(cc, mm, yy, cvv),
             )
         except IntegrationError as e:
             # The store refused to answer.
