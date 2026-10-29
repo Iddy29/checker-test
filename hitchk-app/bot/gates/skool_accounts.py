@@ -93,6 +93,10 @@ def _save_statuses():
         logger.warning(f"Error saving statuses: {e}")
 
 CHROME_IMPERSONATE = "chrome131"
+# The browser that answers the bot challenge has to look like the same
+# browser the api calls pretend to be.
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")
 
 
 def _load_accounts():
@@ -388,6 +392,73 @@ def _next_user_proxy(current=None):
     return random.choice(pool)
 
 
+def _cookie_dict(client):
+    """The cookies of the client as a plain dict."""
+    cookies = getattr(client, "cookies", None)
+    if cookies is None:
+        return {}
+    try:
+        return {c.name: c.value for c in cookies.jar}
+    except Exception:
+        try:
+            return dict(cookies)
+        except Exception:
+            return {}
+
+
+async def _browser_login(email, password):
+    """Log in to Skool in a real browser.
+
+    Skool's bot protection turns a plain request away with a 403, and
+    the browser is the only thing that answers the challenge and hands
+    out the token the api wants.  So the login is done in the browser and
+    the session is taken from there.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except Exception as e:
+        logger.info("skool: the browser is not there: %s", str(e)[:70])
+        return None
+    cookies = []
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=[
+                "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+                "--disable-gpu", "--disable-blink-features=AutomationControlled"])
+            try:
+                ctx = await browser.new_context(
+                    user_agent=UA, viewport={"width": 1366, "height": 900},
+                    locale="en-US")
+                await ctx.add_init_script(
+                    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
+                page = await ctx.new_page()
+                await page.goto("https://www.skool.com/login",
+                                wait_until="domcontentloaded", timeout=60000)
+                await asyncio.sleep(4)
+                email_el = await page.query_selector("input[type='email']")
+                pass_el = await page.query_selector("input[type='password']")
+                if not email_el or not pass_el:
+                    logger.info("skool: the login page gave no fields")
+                    return None
+                await email_el.fill(email)
+                await pass_el.fill(password)
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(8)
+                cookies = await ctx.cookies()
+            finally:
+                await browser.close()
+    except Exception as e:
+        logger.info("skool: the browser login failed: %s", str(e)[:90])
+        return None
+
+    jar = {c["name"]: c["value"] for c in cookies}
+    if "auth_token" not in jar:
+        logger.info("skool: the browser login gave no session")
+        return None
+    logger.info("[%s] the browser login gave a session", email[:15])
+    return cookies
+
+
 def _make_fresh_client(user_proxy=None):
     proxy = user_proxy or _get_random_proxy()
     kwargs = {
@@ -465,7 +536,30 @@ async def _do_login(client, email, password):
         json={"email": email, "password": password},
         timeout=LOGIN_TIMEOUT,
     )
+    if r.status_code == 403:
+        # The bot protection turned the request away.  The browser
+        # answers the challenge and hands out the session, so the login
+        # is done there and the cookies are put on the client.
+        cookies = await _browser_login(email, password)
+        if cookies:
+            for c in cookies:
+                try:
+                    client.cookies.set(c["name"], c["value"],
+                                       domain=c.get("domain") or ".skool.com",
+                                       path=c.get("path") or "/")
+                except Exception:
+                    pass
+            logger.info("[%s] the browser session is on the client", email[:15])
+            return _FakeLoginOk()
     return r
+
+
+class _FakeLoginOk:
+    """Stands in for the answer of a login that the browser did."""
+    status_code = 200
+
+    def __init__(self):
+        self.text = "{}"
 
 
 async def _preflight(client):
@@ -546,7 +640,7 @@ async def get_authed_client(account, force_refresh=False, user_proxy=None):
             r = await _do_login(client, email, password)
 
             if r.status_code == 200:
-                session_cookies = dict(client.cookies) if hasattr(client, 'cookies') else {}
+                session_cookies = _cookie_dict(client)
                 auth_token = session_cookies.get("auth_token")
                 if auth_token:
                     data["logged_in_ts"] = time.time()
@@ -792,7 +886,7 @@ async def login_session(client, account, force_refresh=False):
             r = await _do_login(client, email, password)
 
             if r.status_code == 200:
-                session_cookies = dict(client.cookies) if hasattr(client, 'cookies') else {}
+                session_cookies = _cookie_dict(client)
                 auth_token = session_cookies.get("auth_token")
                 if auth_token:
                     _mark_account_success(email)
