@@ -2038,10 +2038,17 @@ async def welcome_handler(event):
 from gates.shopify_api import call_shopify_api as _canonical_shopify_api
 
 
-async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120):
-    """Check a card against the local Shopify Validator API."""
+async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
+                           price_min=None, price_max=None):
+    """Check a card against the local Shopify Validator API.
+
+    The price band says what the store should sell: with a floor of $1
+    and a cap of $2 the store buys an item worth $1 to $2 instead of the
+    cheapest thing in the shop.
+    """
     return await _canonical_shopify_api(cc, mm, yy, cvv, site=site, proxy=proxy,
-                                        timeout=timeout)
+                                        timeout=timeout, price_min=price_min,
+                                        price_max=price_max)
 
 
 # -- Shopify commands --------------------------------------------------------

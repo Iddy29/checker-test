@@ -2429,7 +2429,13 @@ async def validate_card_across_sites(
             return result
         # The store could not do the checkout.  It is put aside for a
         # while so the next cards go to the stores that still answer.
-        _store_penalise(site)
+        #
+        # A store that simply has nothing in the price band is not
+        # broken: it is asked for a $1 to $2 item and it sells a $5
+        # one.  Benching it would empty the pool of good stores for
+        # nothing, so only a real failure puts it aside.
+        if not (resp == "NO_PRODUCT" and (min_price or 0) > 0):
+            _store_penalise(site)
         last = result
     if last is not None:
         return last
