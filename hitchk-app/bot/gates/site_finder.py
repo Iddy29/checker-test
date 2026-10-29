@@ -155,6 +155,28 @@ _BROAD_DORK_TEMPLATES = [
     '"{gateway_term}" {action} site:{tld}',
 ]
 
+# The engines mangle a query with several quoted terms or an inurl:
+# operator -- they answer with something else entirely.  So the dorks
+# are plain words and the check on the page does the rest.
+_AUTHORIZENET_TEMPLATES = [
+    'authorizenet payment form',
+    'authorizenet credit card payment',
+    'authorizenet make a payment',
+    'authorizenet hosted payment form',
+    'authorizenet billing payment form',
+    'authorizenet donate payment',
+    'accept js authorizenet payment form',
+]
+
+_STRIPE_DONATION_TEMPLATES = [
+    'stripe donation form',
+    'donate with stripe credit card',
+    'stripe donation checkout',
+    'one time donation stripe',
+    'stripe donate now credit card',
+    'stripe donation amount',
+]
+
 _SHOPIFY_TEMPLATES = [
     "site:myshopify.com {niche}",
     "site:myshopify.com {niche} shop",
@@ -263,7 +285,11 @@ _MAX_CACHE_PER_GW = 200
 def _generate_dorks(gateway: str, count: int = 12) -> List[str]:
     gw = gateway.lower()
     terms = _GATEWAY_TERMS.get(gw, [gateway])
-    if gw == "shopify":
+    if gw in ("authorize.net", "authorizenet", "authnet"):
+        templates = _AUTHORIZENET_TEMPLATES
+    elif gw in ("stripe", "stripedonation", "stripe_donation"):
+        templates = _STRIPE_DONATION_TEMPLATES + _DORK_TEMPLATES
+    elif gw == "shopify":
         templates = _SHOPIFY_TEMPLATES
     elif gw == "braintree":
         templates = _BRAINTREE_TEMPLATES + _DORK_TEMPLATES
@@ -422,17 +448,20 @@ def _extract_real_url(href: str) -> Optional[str]:
 
 
 def _cffi_search(engine: str, query: str, proxy: Optional[str] = None, num: int = 20) -> List[str]:
-    """Search the engine, straight from this machine first.
+    """Search the engine, straight from this machine.
 
     Measured: the search engines answer in about 0.3 s directly, while
     the same query through one of the proxies waits for the whole
-    timeout and then gives nothing.  So the direct route goes first and
-    the proxy is only used when the engine says nothing.
+    timeout and then gives nothing.  So the direct route is the only
+    one that is asked.
+
+    The proxy route is not a fallback either: bing through a proxy
+    answers with results for a different question altogether (the
+    quotes and the operator are dropped and the words of the query are
+    searched on their own), so the hits are of no use.  It was the
+    reason the scan found nothing but dictionary and weather sites.
     """
-    urls = _cffi_search_inner(engine, query, None, num)
-    if not urls and proxy:
-        urls = _cffi_search_inner(engine, query, proxy, num)
-    return urls
+    return _cffi_search_inner(engine, query, None, num)
 
 
 def _cffi_search_inner(engine: str, query: str, proxy: Optional[str] = None, num: int = 20) -> List[str]:
@@ -522,6 +551,30 @@ def _cffi_search_inner(engine: str, query: str, proxy: Optional[str] = None, num
                             urls.append(cite_text.split(" ")[0])
                 if found == 0:
                     break
+
+        elif engine == "yahoo":
+            # yahoo gives a different set of results for every question,
+            # which is what bing stopped doing for this address.
+            try:
+                r = cffi_requests.get(
+                    f"https://search.yahoo.com/search?p={quote_plus(query)}&n=30",
+                    impersonate="chrome",
+                    proxies=proxies,
+                    timeout=20,
+                )
+            except Exception:
+                r = None
+            if r is not None and r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    href = (a.get("href") or "").strip()
+                    if "r.search.yahoo.com" in href:
+                        m = re.search(r"RU=(.+?)/RK=", href)
+                        if m:
+                            from urllib.parse import unquote as _unq
+                            urls.append(_unq(m.group(1)))
+                    elif href.startswith("http") and "yahoo.com" not in href:
+                        urls.append(href)
 
         elif engine == "marginalia":
             # a small independent index -- good for the sites the big
@@ -681,6 +734,18 @@ def _extract_keys_from_html(html: str, gateway: str) -> List[str]:
             if pk not in seen:
                 seen.add(pk)
                 keys.append(pk)
+    elif gateway in ('authorize.net', 'authorizenet', 'authnet'):
+        # The merchant's page carries the two keys the gate needs: the
+        # api login id and the client key of the Authorize.net account.
+        seen = set()
+        for m in re.finditer(r'data-apiLoginID="([^"]+)"', html, re.I):
+            if m.group(1) not in seen:
+                seen.add(m.group(1))
+                keys.append(m.group(1))
+        for m in re.finditer(r'data-clientKey="([^"]+)"', html, re.I):
+            if m.group(1) not in seen:
+                seen.add(m.group(1))
+                keys.append(m.group(1))
     elif gateway == 'razorpay':
         seen = set()
         for m in RZP_LINK_PATTERN.finditer(html):
@@ -853,7 +918,10 @@ async def find_sites(
     # its full 20 s timeout and returns nothing, and google, brave and
     # startpage answer with an empty page.  Asking them only made the
     # scan slower.
-    engines = ["bing", "marginalia"]
+    # Bing answers the same ten results for every query from this
+    # address, so yahoo is asked as well: it gives a different set for
+    # every question.
+    engines = ["bing", "yahoo", "marginalia"]
     search_tasks = []
     pi = 0
 
