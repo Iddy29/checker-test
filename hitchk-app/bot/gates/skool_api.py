@@ -7,7 +7,7 @@ import re
 import os
 import logging
 from gates.skool_accounts import (
-    get_next_account, get_authed_client, invalidate_session,
+    get_next_account, get_authed_client, invalidate_session, get_browser_api, _make_fresh_client,
     get_account_lock, get_fallback_account, get_last_login_error,
     get_next_account_for_user, get_fallback_account_for_user,
 )
@@ -76,17 +76,27 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
     for attempt in range(MAX_RETRIES):
         try:
             force_refresh = attempt > 0
-            client = await get_authed_client(account, force_refresh=force_refresh, user_proxy=user_proxy)
-            if not client:
-                # get_authed_client() already retried the login itself, so
-                # trying the same account again only multiplies the wait and
-                # pushes the gate past the outer timeout.
+            # The skool api only lets the browser in, so the calls go
+            # from the page the browser is on.  The plain session is
+            # only there for stripe.
+            bapi = await get_browser_api(account, force_refresh=force_refresh)
+            if not bapi:
                 elapsed = round(time.time() - start, 2)
                 last_err = get_last_login_error(account)
                 reason = f" ({last_err})" if last_err else ""
-                return f"Error - Skool Account Login Error{reason} [{elapsed}s]"
+                return f"Error - Skool browser session failed{reason} [{elapsed}s]"
+            client = _make_fresh_client(user_proxy=user_proxy)
 
-            r_si = await client.post(
+            # The skool api only lets the browser in, so the calls
+            # go from the page the browser is on.
+            bapi = await get_browser_api(account, force_refresh=force_refresh,
+                                        fallback=client)
+            if not bapi:
+                elapsed = round(time.time() - start, 2)
+                return f"Error - Skool browser session failed [{elapsed}s]"
+
+
+            r_si = await bapi.post(
                 f"{SKOOL_API}/self/setup-payment-method", json={}, timeout=REQUEST_TIMEOUT
             )
             if r_si.status_code != 200:
@@ -182,7 +192,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
 
             if status == "succeeded":
                 try:
-                    await client.post(
+                    await bapi.post(
                         f"{SKOOL_API}/self/add-payment-method",
                         json={"pt": pm_id, "sid": setup_intent_id},
                         timeout=REQUEST_TIMEOUT,

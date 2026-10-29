@@ -1185,3 +1185,217 @@ async def get_fallback_account_for_user(user_id, exclude_email, is_admin=False):
             return fallback_any
 
     return None
+
+
+# ----------------------------------------------------------------------
+# The skool api, called from inside the browser.
+#
+# The protection turns a plain request away even when the cookies are the
+# ones the browser handed out.  So the browser does the calls itself,
+# with the fetch the site makes.  The browser is kept for a while,
+# because the login is slow and the token it gets is short lived.
+# ----------------------------------------------------------------------
+
+_browser_state = {"playwright": None, "browser": None, "ctx": None,
+                  "page": None, "email": None, "at": 0.0}
+_browser_lock = asyncio.Lock()
+BROWSER_TTL = 600
+
+_FETCH_SCRIPT = """
+async ([method, url, payload, form]) => {
+    const opts = {method: method, credentials: 'include', headers: {}};
+    if (payload !== null && payload !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(payload);
+    } else if (form !== null && form !== undefined) {
+        opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        opts.body = new URLSearchParams(form).toString();
+    }
+    const call = fetch(url, opts).then(async (r) => [r.status, await r.text()])
+                          .catch((e) => [0, String(e)]);
+    const guard = new Promise((r) => setTimeout(() => r([0, 'the call took too long']), 15000));
+    return await Promise.race([call, guard]);
+}
+"""
+
+
+class BrowserResponse:
+    """What the gates expect from a response."""
+
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body or ""
+
+    def json(self):
+        try:
+            return json.loads(self._body) if self._body else {}
+        except Exception:
+            return {}
+
+    @property
+    def text(self):
+        return self._body
+
+    @property
+    def content(self):
+        return self._body.encode("utf-8", "replace")
+
+
+class BrowserApi:
+    """The skool api, seen from the browser.
+
+    The page fetch is the call the site makes, so it is the one the
+    protection lets in.  The plain client is the second try, for when
+    the page cannot reach the api at all.
+    """
+
+    def __init__(self, page, fallback=None):
+        self._page = page
+        self._fallback = fallback
+
+    async def _call(self, method, url, **kw):
+        payload = kw.get("json")
+        form = kw.get("data")
+        params = kw.get("params")
+        if params:
+            # the query is part of the call, so it goes on the url
+            from urllib.parse import urlencode
+            url = url + ("&" if "?" in url else "?") + urlencode(params)
+        try:
+            status, body = await asyncio.wait_for(
+                self._page.evaluate(_FETCH_SCRIPT, [method, url, payload, form]),
+                timeout=20)
+            if status:
+                return BrowserResponse(status, body)
+            logger.info("skool: the page could not reach the api (%s)", str(body)[:60])
+        except Exception as e:
+            logger.info("skool: the browser call failed: %s", str(e)[:70])
+        if self._fallback is not None:
+            try:
+                if method == "GET":
+                    r = await self._fallback.get(url, timeout=kw.get("timeout"))
+                elif payload is not None:
+                    r = await self._fallback.post(url, json=payload,
+                                                 headers=kw.get("headers"),
+                                                 timeout=kw.get("timeout"))
+                else:
+                    r = await self._fallback.post(url, data=kw.get("data"),
+                                                 headers=kw.get("headers"),
+                                                 timeout=kw.get("timeout"))
+                return BrowserResponse(r.status_code, r.text)
+            except Exception as e:
+                logger.info("skool: the plain call failed too: %s", str(e)[:70])
+        return BrowserResponse(0, "")
+
+    async def get(self, url, **kw):
+        return await self._call("GET", url, **kw)
+
+    async def post(self, url, **kw):
+        return await self._call("POST", url, **kw)
+
+
+def _playwright_proxy(proxy):
+    """The proxy in the shape the browser wants."""
+    if not proxy:
+        return None
+    server = proxy if "://" in proxy else "http://" + proxy
+    username = password = None
+    if "@" in server:
+        creds, server = server.rsplit("@", 1)
+        server = server.split("://", 1)[-1]
+        if ":" in creds:
+            username, password = creds.split(":", 1)
+        else:
+            username = creds
+        server = "http://" + server
+    out = {"server": server}
+    if username:
+        out["username"] = username
+        out["password"] = password or ""
+    return out
+
+
+async def _open_browser_page(email, password, proxy=None):
+    """Open the browser, log in and keep the page."""
+    try:
+        from playwright.async_api import async_playwright
+    except Exception as e:
+        logger.info("skool: the browser is not there: %s", str(e)[:70])
+        return None
+    try:
+        if _browser_state["playwright"] is None:
+            _browser_state["playwright"] = await async_playwright().start()
+        if _browser_state["browser"] is None:
+            _browser_state["browser"] = await _browser_state["playwright"].chromium.launch(
+                headless=True, args=[
+                    "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+                    "--disable-gpu", "--disable-blink-features=AutomationControlled"])
+        browser = _browser_state["browser"]
+        ctx = await browser.new_context(
+            user_agent=UA, viewport={"width": 1366, "height": 900}, locale="en-US",
+            proxy=_playwright_proxy(proxy))
+        await ctx.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
+        page = await ctx.new_page()
+        await page.goto("https://www.skool.com/login",
+                        wait_until="domcontentloaded", timeout=60000)
+        await asyncio.sleep(4)
+        email_el = await page.query_selector("input[type='email']")
+        pass_el = await page.query_selector("input[type='password']")
+        if not email_el or not pass_el:
+            logger.info("skool: the login page gave no fields")
+            await ctx.close()
+            return None
+        await email_el.fill(email)
+        await pass_el.fill(password)
+        await page.keyboard.press("Enter")
+        await asyncio.sleep(8)
+        cookies = await ctx.cookies()
+        jar = {c["name"]: c["value"] for c in cookies}
+        if "auth_token" not in jar:
+            logger.info("skool: the browser login gave no session")
+            await ctx.close()
+            return None
+        logger.info("[%s] the browser is in", email[:15])
+        return ctx, page
+    except Exception as e:
+        logger.info("skool: the browser login failed: %s", str(e)[:90])
+        return None
+
+
+async def get_browser_api(account, force_refresh=False, fallback=None, proxy=None):
+    """The skool api as the browser sees it.
+
+    The browser holds the session the api accepts, so the calls go
+    through it.
+    """
+    if isinstance(account, dict):
+        email = account.get("email")
+        password = account.get("password")
+    else:
+        email = str(account)
+        password = ""
+    async with _browser_lock:
+        now = time.time()
+        if (not force_refresh and _browser_state["page"] is not None
+                and _browser_state["email"] == email
+                and now - _browser_state["at"] < BROWSER_TTL):
+            return BrowserApi(_browser_state["page"], fallback)
+        old_ctx = _browser_state["ctx"]
+        got = await _open_browser_page(email, password, proxy)
+        if old_ctx is not None:
+            try:
+                await old_ctx.close()
+            except Exception:
+                pass
+        if not got:
+            _browser_state["ctx"] = None
+            _browser_state["page"] = None
+            _browser_state["email"] = None
+            return None
+        ctx, page = got
+        _browser_state["ctx"] = ctx
+        _browser_state["page"] = page
+        _browser_state["email"] = email
+        _browser_state["at"] = time.time()
+        return BrowserApi(page, fallback)
