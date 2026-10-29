@@ -2112,13 +2112,17 @@ async def rmsite(event):
     return await event.reply("\u2139\ufe0f No matching sites.")
 
 
-@client.on(events.NewMessage(pattern=r'(?i)^[/]shp\b'))
+@client.on(events.NewMessage(pattern=r'(?i)^[/]shp(2)?\b'))
 async def shp_cmd(event):
     """Single Shopify check via the local validator API.
 
     This is the ONLY handler that matches /shp - "shp" was removed from the
     generic gateway_cmd pattern so a single /shp runs the check once instead
     of twice (telebot runs every matching handler).
+
+    /shp2 is the same check with the price band: the store sells an item
+    worth $1 to $2 instead of the cheapest thing in the shop.  The output
+    is the same frame either way.
     """
     can_access, access_type = await can_use(event.sender_id, event.chat)
     if access_type == "banned":
@@ -2135,6 +2139,7 @@ async def shp_cmd(event):
         return await event.reply(f"Cooldown: wait {remaining}s")
 
     parts = event.raw_text.split()
+    is_price_band = parts[0].strip().lower().lstrip("/").endswith("2")
     if len(parts) < 2:
         return await event.reply("**Format:** `/shp 4111111111111111|12|29|123`")
 
@@ -2151,7 +2156,12 @@ async def shp_cmd(event):
 
     status_msg = await event.reply("\u23f3 Checking on Shopify...")
     try:
-        result = await call_shopify_api(cc, mm, yy, cvv, site=target_site or None, timeout=130)
+        if is_price_band:
+            result = await call_shopify_api(cc, mm, yy, cvv, site=target_site or None,
+                                           timeout=130, price_min=1.0, price_max=2.0)
+        else:
+            result = await call_shopify_api(cc, mm, yy, cvv, site=target_site or None,
+                                           timeout=130)
     except Exception as e:
         await status_msg.edit(f"\u274c Error: {type(e).__name__}: {str(e)[:120]}")
         return
