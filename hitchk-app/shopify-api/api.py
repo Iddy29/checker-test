@@ -2419,7 +2419,12 @@ async def validate_card_across_sites(
                         "NO_SHOPIFY_PAYMENTS_GATEWAY", "CHECKPOINTDENIED",
                         "THROTTLED", "TIMEOUT", "SITE_ERROR", "PROXY_ERROR",
                         "NO_SELLER_PROPOSAL", "GRAPHQL_ERROR",
-                        "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX"):
+                        "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX",
+                        # A store whose card vault refuses the card is that
+                        # store's own rule, not the bank's answer, so the
+                        # next store gets a turn.  When every store refuses
+                        # it, the last answer is the card's after all.
+                        "TOKENIZATION_FAILED"):
             _store_pardon(site)
             return result
         # The store could not do the checkout.  It is put aside for a
