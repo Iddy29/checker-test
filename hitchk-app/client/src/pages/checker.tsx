@@ -29,6 +29,8 @@ interface Gateway {
   category: string;
   enabled: boolean;
   premiumOnly: boolean;
+  // false when the gate only ever gave errors: it is not working
+  working?: boolean;
 }
 
 interface CheckResult {
@@ -624,7 +626,7 @@ export default function CheckerPage() {
                           <SelectItem key={g.id} value={g.id} data-testid={`option-gateway-${g.id}`}>
                             <div className="flex items-center gap-2">
                               {/* a gate that is switched off is red, not blue */}
-                              <Shield className={`w-3 h-3 ${g.enabled ? "text-blue-400" : "text-red-400"}`} />
+                              <Shield className={`w-3 h-3 ${g.working === false ? "text-red-400" : "text-blue-400"}`} />
                               <span className={g.enabled ? "" : "opacity-60"}>{g.name}</span>
                               {g.premiumOnly && <Badge variant="secondary" className="text-[10px] px-1 py-0">PRO</Badge>}
                             </div>
@@ -638,7 +640,7 @@ export default function CheckerPage() {
                         {chargeGates.map(g => (
                           <SelectItem key={g.id} value={g.id} data-testid={`option-gateway-${g.id}`}>
                             <div className="flex items-center gap-2">
-                              <ShieldAlert className={`w-3 h-3 ${g.enabled ? "text-yellow-400" : "text-red-400"}`} />
+                              <ShieldAlert className={`w-3 h-3 ${g.working === false ? "text-red-400" : "text-yellow-400"}`} />
                               <span className={g.enabled ? "" : "opacity-60"}>{g.name}</span>
                               {g.premiumOnly && <Badge variant="secondary" className="text-[10px] px-1 py-0">PRO</Badge>}
                             </div>

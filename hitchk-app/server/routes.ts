@@ -2412,10 +2412,59 @@ export async function registerRoutes(
     res.json(userJobs);
   });
 
+// The bot writes every check it makes to its own log.  A gate that
+// only ever gave errors is not working, and the panel shows it in red.
+const GATE_LOG_PATHS = [
+  process.env.BOT_GATE_LOG,
+  path.resolve(process.cwd(), "bot", "gate_results.log"),
+  "/root/hitchecker/bot/gate_results.log",
+].filter(Boolean) as string[];
+
+let gateHealthCache: { at: number; data: Record<string, boolean> } | null = null;
+
+function gateHealth(): Record<string, boolean> {
+  if (gateHealthCache && Date.now() - gateHealthCache.at < 60_000) {
+    return gateHealthCache.data;
+  }
+  const out: Record<string, boolean> = {};
+  for (const p of GATE_LOG_PATHS) {
+    let text = "";
+    try {
+      text = fs.readFileSync(p, "utf-8");
+    } catch {
+      continue;
+    }
+    // the whole log, so a gate that only ever gave errors is still seen
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const parts = line.split(" | ").map((s) => s.trim());
+      if (parts.length < 4) continue;
+      const alias = (parts[1] || "").toLowerCase();
+      if (!alias || alias.includes(" ")) continue;
+      const st = (parts[3] || "").toUpperCase();
+      if (st === "APPROVED" || st === "CHARGED" || st === "DECLINED") {
+        out[alias] = true;
+      } else if ((st === "ERROR" || st === "UNKNOWN") && out[alias] === undefined) {
+        out[alias] = false;
+      }
+    }
+    break;
+  }
+  gateHealthCache = { at: Date.now(), data: out };
+  return out;
+}
+
   app.get("/api/checker/gateways", requireAuth, (req, res) => {
     try {
       const allGateways = botManager.getGateways();
-      const gateways = allGateways.filter((g: any) => g.enabled);
+      const health = gateHealth();
+      const gateways = allGateways
+        .filter((g: any) => g.enabled)
+        // a gate that never gave the bank a verdict is not working
+        .map((g: any) => ({
+          ...g,
+          working: health[String(g.id).toLowerCase()] === true,
+        }));
       res.json(gateways);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
