@@ -6823,22 +6823,18 @@ async def process_mtxt_cards(event, cards, sites):
             last_edit_time[0] = time.time()
             bar = _make_progress_bar(checked, total)
             pct = int((checked / total) * 100) if total > 0 else 0
-            lines = []
-            for i, s in enumerate(slot_status):
-                last = slot_last_result[i]
-                line = f"`T{i+1:02d}` {s}"
-                if last:
-                    line += f"\n     \u2514\u2500 {last}"
-                lines.append(line)
-            progress_text = "\n".join(lines)
             elapsed = time.time() - start_time
             speed = checked / elapsed if elapsed > 0 else 0
+            # The counting line and the counters.  The work of every
+            # worker is not shown: the message is edited on every card,
+            # and the running cards only made the edits slower.
             try:
                 await status_msg.edit(
                     f"\u26a1 **Mass Checking** `[{checked}/{total}]` **{pct}%**\n"
                     f"{bar}\n"
                     f"\u23f1 `{elapsed:.0f}s` | \u26a1 `{speed:.1f} cc/s`\n\n"
-                    f"{progress_text}",
+                    f"\U0001f525 Charged: **{charged}** | \u2705 Approved: **{approved}** | "
+                    f"\u274c Declined: **{declined}** | \u26a0 Errors: **{errors}**",
                     buttons=make_mtxt_buttons(checked, total, charged, approved, declined, errors),
                 )
             except:
@@ -6926,12 +6922,10 @@ async def process_mtxt_cards(event, cards, sites):
             retry_tag = f" R{attempt}" if attempt > 0 else ""
             # the store name is never shown
             slot_status[slot_idx] = f"\U0001f7e1 `...{card_short}` \u279c{retry_tag}"
-            await _update_status_msg()
 
             async def slot_progress(step):
                 emoji = _stage_emoji(step)
                 slot_status[slot_idx] = f"{emoji} `...{card_short}` \u2014 {step}{retry_tag}"
-                await _update_status_msg()
 
             should_retry = False
             try:
@@ -6943,7 +6937,6 @@ async def process_mtxt_cards(event, cards, sites):
             except asyncio.TimeoutError:
                 if attempt < MAX_RETRIES:
                     slot_status[slot_idx] = f"\U0001f504 `...{card_short}` \u2014 Timeout, retrying..."
-                    await _update_status_msg()
                     current_site = await _get_different_site(tried_sites)
                     continue
                 checked += 1
@@ -6953,7 +6946,6 @@ async def process_mtxt_cards(event, cards, sites):
             except Exception as ex:
                 if attempt < MAX_RETRIES:
                     slot_status[slot_idx] = f"\U0001f504 `...{card_short}` \u2014 Error, retrying..."
-                    await _update_status_msg()
                     current_site = await _get_different_site(tried_sites)
                     continue
                 checked += 1
@@ -6981,7 +6973,6 @@ async def process_mtxt_cards(event, cards, sites):
                         local_sites.remove(current_site)
                 if attempt < MAX_RETRIES:
                     slot_status[slot_idx] = f"\U0001f504 `...{card_short}` \u2014 Dead site removed, retrying..."
-                    await _update_status_msg()
                     current_site = await _get_different_site(tried_sites)
                     if not current_site:
                         checked += 1
