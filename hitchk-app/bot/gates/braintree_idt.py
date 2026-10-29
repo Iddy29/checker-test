@@ -990,6 +990,12 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
                                 account.get("url"), detail)
                     break
 
+            # 1. the stores with a donation form.  These are the
+            #    braintree stores and nothing else: the account flow
+            #    above is the WooCommerce one.
+            sites = all_sites()
+            sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
+
             for site_info in sites:
                 site_url = site_info["url"]
                 site_type = site_info["type"]
