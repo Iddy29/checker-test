@@ -23,7 +23,9 @@ STRIPE_API = "https://api.stripe.com/v1"
 
 BILLING_PK = "pk_live_51Msq2SK2xk1aF7GmLfdnbGQwTp0k2kt23vSuMyDBouKfriqp9W52yocwbPK72oXs5LtVsFYqiJ0oMfXouhXZMFSu00T7SlnP47"
 
-GROUP_NAME = "dollar"
+GROUP_NAME = "loudbudgets"
+# the paid tier of the group
+TIER_NAME = "vip"
 _group_id_cache = {"id": None, "ts": 0}
 GROUP_ID = None
 
@@ -124,7 +126,7 @@ async def skool_charge2_check(cc, mm, yy, cvv, proxy=None, user_id=None, is_admi
         async with lock:
             result = await _check_with_account(cc, mm, yy, cvv, account, user_proxy=proxy)
 
-        if "Skool Account Login Error" in result:
+        if "Skool Account Login Error" in result or "no_matching_product" in result:
             if user_id:
                 fallback = await get_fallback_account_for_user(user_id, account["email"], is_admin=is_admin)
             else:
@@ -169,7 +171,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
             # The skool api only lets the browser in, so the calls go
             # from the page the browser is on.  The plain session is
             # only there for stripe.
-            bapi = await get_browser_api(account, force_refresh=force_refresh)
+            bapi = await get_browser_api(account)
             if not bapi:
                 elapsed = round(time.time() - start, 2)
                 last_err = get_last_login_error(account)
@@ -316,7 +318,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
 
             r_join = await bapi.post(
                 f"{SKOOL_API}/groups/{GROUP_NAME}/join-group-paid",
-                params={"pm": pm_id, "recurring_interval": "month", "tier": "standard"},
+                params={"pm": pm_id, "recurring_interval": "month", "tier": TIER_NAME},
                 timeout=REQUEST_TIMEOUT,
             )
             joined_group = True

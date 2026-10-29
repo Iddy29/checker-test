@@ -79,7 +79,7 @@ async def _check_with_account(cc, mm, yy, cvv, account, user_proxy=None):
             # The skool api only lets the browser in, so the calls go
             # from the page the browser is on.  The plain session is
             # only there for stripe.
-            bapi = await get_browser_api(account, force_refresh=force_refresh)
+            bapi = await get_browser_api(account)
             if not bapi:
                 elapsed = round(time.time() - start, 2)
                 last_err = get_last_login_error(account)

@@ -4356,7 +4356,7 @@ async def gateway_cmd(event):
                             else:
                                 try:
                                     card_started = time.time()
-                                    gate_timeout = 90
+                                    gate_timeout = 150 if alias in ("skl", "skl1", "skl2") else 90
                                     resp = await asyncio.wait_for(
                                         run_gateway(alias, m_cc, m_mm, m_yy, m_cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID),
                                         timeout=gate_timeout
@@ -4514,7 +4514,7 @@ async def gateway_cmd(event):
                                               event.sender_id, first_name, "mass-inline")
                     else:
                         try:
-                            gate_timeout = 90
+                            gate_timeout = 150 if alias in ("skl", "skl1", "skl2") else 90
                             resp = await asyncio.wait_for(
                                 run_gateway(alias, m_cc, m_mm, m_yy, m_cvv, user_id=event.sender_id, is_admin=event.sender_id in ADMIN_ID),
                                 timeout=gate_timeout

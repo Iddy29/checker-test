@@ -1197,9 +1197,9 @@ async def get_fallback_account_for_user(user_id, exclude_email, is_admin=False):
 # ----------------------------------------------------------------------
 
 _browser_state = {"playwright": None, "browser": None, "ctx": None,
-                  "page": None, "email": None, "at": 0.0}
+                  "page": None, "email": None, "at": 0.0, "api": None}
 _browser_lock = asyncio.Lock()
-BROWSER_TTL = 600
+BROWSER_TTL = 3600
 
 _FETCH_SCRIPT = """
 async ([method, url, payload, form]) => {
@@ -1252,6 +1252,7 @@ class BrowserApi:
     def __init__(self, page, fallback=None):
         self._page = page
         self._fallback = fallback
+        self.stale = False
 
     async def _call(self, method, url, **kw):
         payload = kw.get("json")
@@ -1266,6 +1267,9 @@ class BrowserApi:
                 self._page.evaluate(_FETCH_SCRIPT, [method, url, payload, form]),
                 timeout=20)
             if status:
+                if status in (401, 403):
+                    # the session is gone, so the next call needs a new one
+                    self.stale = True
                 return BrowserResponse(status, body)
             logger.info("skool: the page could not reach the api (%s)", str(body)[:60])
         except Exception as e:
@@ -1337,27 +1341,29 @@ async def _open_browser_page(email, password, proxy=None):
         await ctx.add_init_script(
             "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
         page = await ctx.new_page()
-        await page.goto("https://www.skool.com/login",
-                        wait_until="domcontentloaded", timeout=60000)
-        await asyncio.sleep(4)
-        email_el = await page.query_selector("input[type='email']")
-        pass_el = await page.query_selector("input[type='password']")
-        if not email_el or not pass_el:
-            logger.info("skool: the login page gave no fields")
-            await ctx.close()
-            return None
-        await email_el.fill(email)
-        await pass_el.fill(password)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(8)
-        cookies = await ctx.cookies()
-        jar = {c["name"]: c["value"] for c in cookies}
-        if "auth_token" not in jar:
-            logger.info("skool: the browser login gave no session")
-            await ctx.close()
-            return None
-        logger.info("[%s] the browser is in", email[:15])
-        return ctx, page
+        # the page needs a while before its script is ready, and the
+        # login is worth a second try
+        for try_no in (1, 2):
+            await page.goto("https://www.skool.com/login",
+                            wait_until="domcontentloaded", timeout=60000)
+            await asyncio.sleep(9 if try_no == 1 else 13)
+            email_el = await page.query_selector("input[type='email']")
+            pass_el = await page.query_selector("input[type='password']")
+            if not email_el or not pass_el:
+                logger.info("skool: the login page gave no fields")
+                continue
+            await email_el.fill(email)
+            await pass_el.fill(password)
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(11)
+            cookies = await ctx.cookies()
+            jar = {c["name"]: c["value"] for c in cookies}
+            if "auth_token" in jar:
+                logger.info("[%s] the browser is in", email[:15])
+                return ctx, page
+            logger.info("skool: the browser login gave no session (try %d)", try_no)
+        await ctx.close()
+        return None
     except Exception as e:
         logger.info("skool: the browser login failed: %s", str(e)[:90])
         return None
@@ -1377,10 +1383,12 @@ async def get_browser_api(account, force_refresh=False, fallback=None, proxy=Non
         password = ""
     async with _browser_lock:
         now = time.time()
-        if (not force_refresh and _browser_state["page"] is not None
+        api = _browser_state.get("api")
+        if (not force_refresh and api is not None and not api.stale
+                and _browser_state["page"] is not None
                 and _browser_state["email"] == email
                 and now - _browser_state["at"] < BROWSER_TTL):
-            return BrowserApi(_browser_state["page"], fallback)
+            return api
         old_ctx = _browser_state["ctx"]
         got = await _open_browser_page(email, password, proxy)
         if old_ctx is not None:
@@ -1398,4 +1406,6 @@ async def get_browser_api(account, force_refresh=False, fallback=None, proxy=Non
         _browser_state["page"] = page
         _browser_state["email"] = email
         _browser_state["at"] = time.time()
-        return BrowserApi(page, fallback)
+        api = BrowserApi(page, fallback)
+        _browser_state["api"] = api
+        return api
