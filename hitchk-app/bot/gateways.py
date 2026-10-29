@@ -28,7 +28,7 @@ GATEWAY_REGISTRY = {
             "shp": {"name": "Shopify", "func": "shopify_api.shopify_api_check", "type": "charge"},
             "shp2": {"name": "Shopify Charge $1-2", "func": "shopify_api.shopify_api_check_1_2", "type": "charge"},
             "skl1": {"name": "Stripe Charge $1", "func": "skool_charge2.skool_charge2_check", "type": "charge"},
-            "skl2": {"name": "Stripe Charge $7", "func": "skool_charge.skool_charge_check", "type": "charge"},
+            "skl2": {"name": "Stripe Charge $9", "func": "skool_charge.skool_charge_check", "type": "charge"},
             "b3c": {"name": "Braintree Charge", "func": "b3_charge.b3_charge_check", "type": "charge"},
             "ppn": {"name": "PayPal Charge $1", "func": "ppnormal.ppnormal_check", "type": "charge"},
             "bnc": {"name": "PayPal Charge $1", "func": "binnaclehouse.binnaclehouse_check", "type": "charge"},

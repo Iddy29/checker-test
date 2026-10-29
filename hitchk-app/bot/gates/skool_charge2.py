@@ -23,9 +23,9 @@ STRIPE_API = "https://api.stripe.com/v1"
 
 BILLING_PK = "pk_live_51Msq2SK2xk1aF7GmLfdnbGQwTp0k2kt23vSuMyDBouKfriqp9W52yocwbPK72oXs5LtVsFYqiJ0oMfXouhXZMFSu00T7SlnP47"
 
-GROUP_NAME = "loudbudgets"
+GROUP_NAME = "dollar"
 # the paid tier of the group
-TIER_NAME = "vip"
+TIER_NAME = "standard"
 _group_id_cache = {"id": None, "ts": 0}
 GROUP_ID = None
 

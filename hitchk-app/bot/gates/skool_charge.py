@@ -23,9 +23,9 @@ STRIPE_API = "https://api.stripe.com/v1"
 
 BILLING_PK = "pk_live_51Msq2SK2xk1aF7GmLfdnbGQwTp0k2kt23vSuMyDBouKfriqp9W52yocwbPK72oXs5LtVsFYqiJ0oMfXouhXZMFSu00T7SlnP47"
 
-GROUP_NAME = "loudbudgets"
+GROUP_NAME = "claudecodeclub"
 # the paid tier of the group
-TIER_NAME = "premium"
+TIER_NAME = "standard"
 GROUP_ID = "99a1e27651dc4008abcefd5cea0a10a1"
 
 MAX_RETRIES = 3
