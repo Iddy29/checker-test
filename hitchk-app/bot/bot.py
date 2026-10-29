@@ -776,10 +776,9 @@ async def can_use(user_id, chat):
     if is_private:
         if is_premium or is_admin:
             return True, "premium_private"
-        elif await is_channel_member(user_id):
-            return True, "channel_member_private"
-        else:
-            return False, "no_access"
+        # The bot is used without joining the channel or the group.
+        # Only a ban keeps a person out.
+        return True, "free_private"
     else:
         if is_premium:
             return True, "premium_group"
@@ -921,7 +920,8 @@ def get_cc_limit(access_type, user_id=None):
         return batch_limit
     if access_type in ["premium_private", "premium_group"]:
         return 3000
-    elif access_type in ["group_free", "group_member_private"]:
+    elif access_type in ("group_free", "group_member_private",
+                         "channel_free", "channel_member_private", "free_private"):
         return 1000
     return 0
 
