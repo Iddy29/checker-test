@@ -4837,6 +4837,49 @@ async def mvbv_cmd(event):
 # --- Proxy Management ---
 PROXY_FILE = os.path.join(os.path.dirname(__file__), "proxy.txt")
 
+@client.on(events.NewMessage(pattern=r'(?i)^[/]gate\b'))
+async def gate_cmd(event):
+    """Turn a gate on or off.  Admin only.
+
+    /gate on <alias>    turn the gate on
+    /gate off <alias>   turn the gate off
+    /gate list          the gates and their state
+    """
+    if event.sender_id not in ADMIN_ID:
+        return await event.reply("**Admin only.**")
+
+    from gateways import set_gateway_status
+    flat = get_flat_registry()
+    parts = event.raw_text.split()
+    action = parts[1].strip().lower() if len(parts) > 1 else "list"
+
+    if action in ("list", "show", ""):
+        lines = []
+        for alias, info in flat.items():
+            dot = "\U0001f7e2" if is_gateway_on(alias) else "\U0001f534"
+            lines.append(f"  {dot} `/{alias}` \u2014 {info.get('name', alias)}")
+        return await event.reply(
+            "**The gates**\n" + "\n".join(lines) +
+            "\n\n`/gate on <alias>` \u00b7 `/gate off <alias>`")
+
+    alias = parts[2].strip().lower().lstrip("/") if len(parts) > 2 else ""
+    if alias not in flat:
+        return await event.reply(
+            f"`{alias}` is not a gate. `/gate list` shows them all.")
+
+    if action in ("on", "enable", "true"):
+        set_gateway_status(alias, True)
+        return await event.reply(
+            f"\U0001f7e2 `/{alias}` is **on** now.")
+    if action in ("off", "disable", "false"):
+        set_gateway_status(alias, False)
+        return await event.reply(
+            f"\U0001f534 `/{alias}` is **off** now. The users cannot use it "
+            "until it is turned back on.")
+    return await event.reply(
+        "**Usage:** `/gate on <alias>` \u00b7 `/gate off <alias>` \u00b7 `/gate list`")
+
+
 @client.on(events.NewMessage(pattern=r'(?i)^[/]logs\b'))
 async def logs_cmd(event):
     """Show the last results of the gate checks.

@@ -365,7 +365,7 @@ class BotManager {
   }
 
   getBotSettings(): Record<string, any> {
-    const settingsPath = path.join(this.botDir, "bot_settings.json");
+    const settingsPath = process.env.BOT_SETTINGS_FILE || path.join(this.botDir, "bot_settings.json");
     try {
       if (!fs.existsSync(settingsPath)) return { mass_check_enabled: true, inline_mass_limit: 10, file_mass_limit: 300, gateway_settings: {}, tool_settings: {} };
       const content = fs.readFileSync(settingsPath, "utf-8");
@@ -377,7 +377,7 @@ class BotManager {
   }
 
   saveBotSettings(settings: Record<string, any>) {
-    const settingsPath = path.join(this.botDir, "bot_settings.json");
+    const settingsPath = process.env.BOT_SETTINGS_FILE || path.join(this.botDir, "bot_settings.json");
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
     saveAllJsonFiles().catch(() => {});
   }

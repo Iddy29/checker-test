@@ -284,7 +284,11 @@ def get_flat_registry():
             }
     return flat
 
-BOT_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "bot_settings.json")
+# The settings are shared by the two copies of the bot, so the panel and
+# the telegram bot read and write the same file.  Without this the panel
+# could switch a gate off and the bot never heard of it.
+BOT_SETTINGS_FILE = os.environ.get("BOT_SETTINGS_FILE") or os.path.join(
+    os.path.dirname(__file__), "bot_settings.json")
 _bot_settings_cache = {}
 _bot_settings_ts = 0
 
