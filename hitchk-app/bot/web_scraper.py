@@ -96,6 +96,18 @@ async def scrape_via_telethon_user(scrape_type, chat_id, limit, api_id, api_hash
         except ValueError:
             chat_entity = chat_id
 
+        # A chat id is only a name until the session knows the chat, so
+        # the dialogs are read first: that fills the cache with every
+        # chat the account is in.
+        try:
+            chat_entity = await client.get_entity(chat_entity)
+        except Exception:
+            try:
+                await client.get_dialogs()
+                chat_entity = await client.get_entity(chat_entity)
+            except Exception as e:
+                return {"error": f"Cannot find that chat with this account: {str(e)[:200]}"}
+
         results = set()
         total_messages = 0
 
@@ -117,6 +129,8 @@ async def scrape_via_telethon_user(scrape_type, chat_id, limit, api_id, api_hash
         error_msg = str(e)
         if "GetHistoryRequest" in error_msg or "restricted" in error_msg.lower():
             return {"error": "Cannot read message history. User session required for this operation."}
+        if "Could not find the input entity" in error_msg:
+            return {"error": "Cannot find that chat with this account. The account has to be in the chat."}
         return {"error": error_msg[:500]}
     finally:
         await client.disconnect()
@@ -141,6 +155,15 @@ async def scrape_via_telethon_bot(scrape_type, chat_id, limit, api_id, api_hash,
         except ValueError:
             chat_entity = chat_id
 
+        try:
+            chat_entity = await client.get_entity(chat_entity)
+        except Exception:
+            try:
+                await client.get_dialogs()
+                chat_entity = await client.get_entity(chat_entity)
+            except Exception:
+                return None
+
         results = set()
         total_messages = 0
 
@@ -162,6 +185,8 @@ async def scrape_via_telethon_bot(scrape_type, chat_id, limit, api_id, api_hash,
         error_msg = str(e)
         if "GetHistoryRequest" in error_msg or "restricted" in error_msg.lower():
             return None
+        if "Could not find the input entity" in error_msg:
+            return None
         return {"error": error_msg[:500]}
     finally:
         await client.disconnect()
@@ -174,14 +199,34 @@ async def scrape_via_telethon_bot(scrape_type, chat_id, limit, api_id, api_hash,
                 pass
 
 
-async def scrape_messages(scrape_type, chat_id, limit):
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    with open(config_path, "r") as f:
-        config = json.load(f)
+def _bot_settings():
+    """The bot's settings, from the file the service loads."""
+    out = {}
+    env_path = os.path.join(os.path.dirname(__file__), "bot.env")
+    try:
+        with open(env_path, "r") as f:
+            for line in f:
+                m = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line)
+                if m:
+                    out[m.group(1)] = m.group(2).strip()
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "config.json"), "r") as f:
+            config = json.load(f)
+        for k, v in config.items():
+            out.setdefault(k, v)
+    except Exception:
+        pass
+    return out
 
-    api_id = int(config.get("TELEGRAM_API_ID", os.environ.get("TELEGRAM_API_ID", "0")))
-    api_hash = config.get("TELEGRAM_API_HASH", os.environ.get("TELEGRAM_API_HASH", ""))
-    bot_token = config.get("TELEGRAM_BOT_TOKEN", os.environ.get("TELEGRAM_BOT_TOKEN", ""))
+
+async def scrape_messages(scrape_type, chat_id, limit):
+    config = _bot_settings()
+
+    api_id = int(config.get("TELEGRAM_API_ID", os.environ.get("TELEGRAM_API_ID", "0")) or 0)
+    api_hash = config.get("TELEGRAM_API_HASH", os.environ.get("TELEGRAM_API_HASH", "")) or ""
+    bot_token = config.get("TELEGRAM_BOT_TOKEN", os.environ.get("TELEGRAM_BOT_TOKEN", "")) or ""
 
     if not api_id or not api_hash or not bot_token:
         return {"error": "Missing Telegram API credentials in config"}

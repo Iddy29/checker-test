@@ -65,6 +65,75 @@ export default function ScraperPage() {
     queryKey: ["/api/tools/sk-checker-status"],
   });
 
+  // The CC scraper reads a chat with a Telegram user account, because a
+  // bot may not read the history of a channel.  So the admin has to log
+  // in once, and that is done here.
+  const { data: sessionStatus, refetch: refetchSession } = useQuery<{ hasSession: boolean }>({
+    queryKey: ["/api/tools/scraper-session-status"],
+    enabled: !!isAdmin,
+    retry: false,
+  });
+  const [phone, setPhone] = useState("");
+  const [loginCode, setLoginCode] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [phoneCodeHash, setPhoneCodeHash] = useState("");
+  const [sessionBusy, setSessionBusy] = useState(false);
+
+  const sendSessionCode = useCallback(async () => {
+    if (!phone.trim()) {
+      toast({ title: "Enter the phone number of the Telegram account", variant: "destructive" });
+      return;
+    }
+    setSessionBusy(true);
+    try {
+      const res = await apiRequest("POST", "/api/tools/scraper-session/send-code", { phone: phone.trim() });
+      const data = await res.json();
+      if (data.error) {
+        toast({ title: data.error, variant: "destructive" });
+      } else {
+        setPhoneCodeHash(data.phoneCodeHash || data.phone_code_hash || "");
+        toast({ title: "Telegram sent the code, type it below" });
+      }
+    } catch (err: any) {
+      let msg = "Could not send the code";
+      try { const p = JSON.parse(err.message.replace(/^\d+:\s*/, "")); msg = p.error || msg; } catch {}
+      toast({ title: msg, variant: "destructive" });
+    } finally {
+      setSessionBusy(false);
+    }
+  }, [phone, toast]);
+
+  const verifySession = useCallback(async () => {
+    if (!phone.trim() || !loginCode.trim() || !phoneCodeHash) {
+      toast({ title: "Send the code first, then type it here", variant: "destructive" });
+      return;
+    }
+    setSessionBusy(true);
+    try {
+      const res = await apiRequest("POST", "/api/tools/scraper-session/verify", {
+        phone: phone.trim(),
+        code: loginCode.trim(),
+        phoneCodeHash,
+        password: loginPassword.trim() || undefined,
+      });
+      const data = await res.json();
+      if (data.error) {
+        toast({ title: data.error, variant: "destructive" });
+      } else {
+        setLoginCode("");
+        setLoginPassword("");
+        await refetchSession();
+        toast({ title: "The user session is ready, the scraper can read chats now" });
+      }
+    } catch (err: any) {
+      let msg = "Could not verify the code";
+      try { const p = JSON.parse(err.message.replace(/^\d+:\s*/, "")); msg = p.error || msg; } catch {}
+      toast({ title: msg, variant: "destructive" });
+    } finally {
+      setSessionBusy(false);
+    }
+  }, [phone, loginCode, loginPassword, phoneCodeHash, refetchSession, toast]);
+
   const checkSingleSk = useCallback(async (sk: string): Promise<SkCheckResult> => {
     try {
       const res = await apiRequest("POST", "/api/tools/check-sk", { sk });
@@ -326,6 +395,74 @@ export default function ScraperPage() {
                       data-testid="input-limit"
                     />
                   </div>
+                  {isAdmin && !sessionStatus?.hasSession && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 lg:p-4 flex flex-col gap-3">
+                      <div className="text-xs lg:text-sm">
+                        <span className="font-medium text-amber-600 dark:text-amber-400">A Telegram user session is needed.</span>{" "}
+                        A bot may not read the history of a channel, so the scraper has to sign in as a
+                        user account. Do that once here and the scraper works for everybody.
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-xs lg:text-sm font-medium text-muted-foreground">Phone number</label>
+                        <Input
+                          placeholder="+15551234567"
+                          value={phone}
+                          onChange={e => setPhone(e.target.value)}
+                          disabled={sessionBusy}
+                          className="font-mono text-sm"
+                          data-testid="input-session-phone"
+                        />
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={sendSessionCode}
+                        disabled={sessionBusy || !phone.trim()}
+                        data-testid="button-session-send-code"
+                      >
+                        {sessionBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Scan className="w-4 h-4 mr-2" />}
+                        Send the login code
+                      </Button>
+                      {phoneCodeHash && (
+                        <>
+                          <div className="flex flex-col gap-2">
+                            <label className="text-xs lg:text-sm font-medium text-muted-foreground">The code Telegram sent</label>
+                            <Input
+                              placeholder="12345"
+                              value={loginCode}
+                              onChange={e => setLoginCode(e.target.value)}
+                              disabled={sessionBusy}
+                              className="font-mono text-sm"
+                              data-testid="input-session-code"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <label className="text-xs lg:text-sm font-medium text-muted-foreground">Two factor password (only if you have one)</label>
+                            <Input
+                              type="password"
+                              value={loginPassword}
+                              onChange={e => setLoginPassword(e.target.value)}
+                              disabled={sessionBusy}
+                              className="font-mono text-sm"
+                              data-testid="input-session-password"
+                            />
+                          </div>
+                          <Button
+                            onClick={verifySession}
+                            disabled={sessionBusy || !loginCode.trim()}
+                            data-testid="button-session-verify"
+                          >
+                            {sessionBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                            Sign in and save the session
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {isAdmin && sessionStatus?.hasSession && (
+                    <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-xs lg:text-sm">
+                      The user session is ready, the scraper can read chats.
+                    </div>
+                  )}
                   <Button
                     onClick={handleScrape}
                     disabled={loading || !chatId.trim()}

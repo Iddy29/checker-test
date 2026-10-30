@@ -9,13 +9,39 @@ os.chdir(os.path.dirname(__file__))
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 
-async def send_code(phone):
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    with open(config_path, "r") as f:
-        config = json.load(f)
+def _settings():
+    """The bot's settings, from the file the service loads.
 
-    api_id = int(config.get("TELEGRAM_API_ID", "0"))
-    api_hash = config.get("TELEGRAM_API_HASH", "")
+    The bot reads bot.env, so the session setup has to read the same
+    file and not the old config.json.
+    """
+    out = {}
+    env_path = os.path.join(os.path.dirname(__file__), "bot.env")
+    try:
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                out[key.strip()] = value.strip()
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "config.json"), "r") as f:
+            config = json.load(f)
+        for key, value in config.items():
+            out.setdefault(key, value)
+    except Exception:
+        pass
+    return out
+
+
+async def send_code(phone):
+    config = _settings()
+
+    api_id = int(config.get("TELEGRAM_API_ID", "0") or 0)
+    api_hash = config.get("TELEGRAM_API_HASH", "") or ""
     session_path = os.path.join(os.path.dirname(__file__), "scraper_user")
 
     client = TelegramClient(session_path, api_id, api_hash)
@@ -34,12 +60,10 @@ async def send_code(phone):
 
 
 async def verify_code(phone, code, phone_code_hash, password=None):
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    with open(config_path, "r") as f:
-        config = json.load(f)
+    config = _settings()
 
-    api_id = int(config.get("TELEGRAM_API_ID", "0"))
-    api_hash = config.get("TELEGRAM_API_HASH", "")
+    api_id = int(config.get("TELEGRAM_API_ID", "0") or 0)
+    api_hash = config.get("TELEGRAM_API_HASH", "") or ""
     session_path = os.path.join(os.path.dirname(__file__), "scraper_user")
 
     client = TelegramClient(session_path, api_id, api_hash)
