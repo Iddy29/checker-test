@@ -1613,6 +1613,46 @@ def format_stripe_result(status_header, cc, mm, yy, cvv, response, brand, bin_ty
 𝗕𝗼𝘁 𝗕𝘆 ⇾『{bot_tag}』"""
 
 
+def format_braintree_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
+                             level, bank, country, flag, elapsed, first_name, user_id, rank):
+    """The /b3 output, in the same frame as the /st output.
+
+    The store asks the issuer when it takes the card as a payment
+    method, so the reason on the respond row is the issuer's own
+    wording: "2010: Card Issuer Declined CVV", "avs: avs", "2038:
+    Processor Declined".
+
+    A check that could not reach a verdict says so instead of guessing.
+    """
+    gate = "𝙥𝙧𝙖𝙣്𝙩𝙩𝙧𝙚𝙚 𝙘𝙪𝙚𝙰 0$"
+    card = f"{cc}|{mm}|{yy}|{cvv}"
+    bot_tag = BOT_USERNAME or ADMIN_USERNAME
+
+    if is_approved_status(status_header):
+        status_word = "approved"
+        head = "𝘼𝙥𝙥𝙧𝙤𝙫𝙲𝙙 ✅(/b3)"
+    elif status_header == "DECLINED":
+        status_word = "declined"
+        head = "𝘿𝙚𝙘𝙡𝙞𝙣𝙲𝙙 ❌(/b3)"
+    elif status_header == "CHARGED":
+        status_word = "charged"
+        head = "𝘾𝙝𝙖𝚛𝙶𝙚𝙙 💰(/b3)"
+    else:
+        status_word = "error"
+        head = "⚠️ Error (/b3)"
+
+    reason = clean_response(response) or "Error"
+    return f"""{head}
+[↯] 𝗖𝗖 ⇾{card}
+[↯] 𝗚𝗮𝘁𝗲𝘄𝗮𝘆 ➳ {gate}
+[↯] 𝗥𝗲𝘀𝗽𝗼𝗻𝘀𝗲 ➳ {reason}
+[↯] 𝗕𝗜𝗡 ➳ {brand} - {bin_type} - {level}
+[↯] 𝗕𝗮𝗻𝗸 ➳ {bank}
+[↯] 𝗖𝗼𝘂𝗻𝘁𝗿𝘆 ➳ {country} - {flag}
+[↯] 𝗧𝗶𝗺𝗲 𝗧𝗮𝗸𝗲𝗻 ⇾{elapsed} secounds .
+𝗕𝗼𝘁 𝗕𝘆 ⇾『{bot_tag}』"""
+
+
 def format_paypal_result(status_header, cc, mm, yy, cvv, response, brand, bin_type,
                          bank, country, flag, elapsed, first_name, user_id, rank):
     """The /pp output, in the same frame as the /st output.
@@ -4705,6 +4745,12 @@ async def gateway_cmd(event):
             msg = format_paypal_result(
                 status_header, cc, mm, yy, cvv, response,
                 brand, bin_type, bank, country, flag,
+                elapsed, first_name, event.sender_id, rank
+            )
+        elif alias in ("b3", "b3c"):
+            msg = format_braintree_result(
+                status_header, cc, mm, yy, cvv, response,
+                brand, bin_type, level, bank, country, flag,
                 elapsed, first_name, event.sender_id, rank
             )
         else:

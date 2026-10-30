@@ -1198,19 +1198,15 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
                 for attempt in (1, 2):
                     elapsed = round(time.time() - start, 2)
                     try:
-                        # The card is checked while the token is made, so
-                        # braintree asks the issuer and nothing is
-                        # charged.  The store that takes the card as a
-                        # payment method is the second try, for when the
-                        # store will not check the card.
-                        if os.environ.get("B3_USE_TOKEN_CHECK", "1").strip() == "1":
+                        # The store takes the card as a payment method,
+                        # so it asks the issuer and the answer is the
+                        # issuer's.  The token check is the second try,
+                        # for when the store will not look at the card.
+                        verdict, detail, card_info = await _wc_account_check(
+                            client, account, cc, mm, yy, cvv)
+                        if not verdict and os.environ.get(
+                                "B3_USE_TOKEN_CHECK", "1").strip() == "1":
                             verdict, detail, card_info = await _token_check(
-                                client, account, cc, mm, yy, cvv)
-                            if not verdict:
-                                verdict, detail, card_info = await _wc_account_check(
-                                    client, account, cc, mm, yy, cvv)
-                        else:
-                            verdict, detail, card_info = await _wc_account_check(
                                 client, account, cc, mm, yy, cvv)
                     except Exception as e:
                         verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
