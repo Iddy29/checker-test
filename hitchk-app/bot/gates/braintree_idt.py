@@ -167,6 +167,11 @@ def _verdict_from_reason(reason):
         return "Approved", "Approved (CVV)"
     if "card issuer declined cvv" in low:
         return "Approved", "Approved (CCN)"
+    if "risk_threshold" in low or "risk threshold" in low or "risk:" in low:
+        # The store's own risk rules refused the request.  That says
+        # nothing about the card, so it must not be read as a refusal
+        # of the card.
+        return "Error", "the store refused the request (its risk rules)"
     if "expired" in low:
         return "Declined", "Expired Card"
     if "expiry" in low or "expiration" in low:
@@ -757,9 +762,38 @@ def _reason_from_page(text):
         m = re.match(r'Reason\s*:\s*(.+)$', plain)
         if m:
             return _strip_verdict_word(m.group(1).strip())
-    if items:
-        return _strip_verdict_word(items[0])[:140]
+    # A list on the page is not always the answer.  When the store
+    # gives a page that is not the payment page, its links end up in
+    # the list and they are not a word about the card.  So an item has
+    # to look like the answer before it is taken.
+    for plain in items:
+        if _looks_like_an_answer(plain):
+            return _strip_verdict_word(plain)[:140]
     return ""
+
+
+def _looks_like_an_answer(text):
+    """Does this line read like the store's word about the card?
+
+    The answer always carries a code and a reason, or the name of the
+    rule that stopped it.  A link on the page ("View our profile on
+    Facebook") carries neither, so it is not an answer.
+    """
+    plain = str(text or "").strip()
+    if not plain:
+        return False
+    if re.search(r"\(\s*\d+\s*:", plain):
+        return True
+    if re.match(r"^\d{4}\s*:", plain):
+        return True
+    low = plain.lower()
+    if any(k in low for k in ("declined", "approved", "rejected", "error",
+                               "insufficient funds", "issuer", "fraud",
+                               "expired card", "invalid", "not supported",
+                               "risk", "avs", "cvv", "blacklist", "try again",
+                               "pick up card", "do not honor")):
+        return True
+    return False
 
 
 def _reason_from_body(text):
@@ -1213,6 +1247,8 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
                     if verdict:
                         _remember_store(account.get("url"))
                         info = _parse_card_info(card_info) if card_info else "??"
+                        if verdict == "Error":
+                            return f"Error - {detail} | {info} [{elapsed}s]"
                         return f"{verdict} - {detail} | {info} [{elapsed}s]"
                     wait = _wait_seconds(detail)
                     if attempt == 1 and wait:
