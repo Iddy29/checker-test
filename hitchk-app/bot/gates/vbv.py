@@ -1,4 +1,5 @@
 import httpx
+import datetime
 import re
 import random
 import time
@@ -16,6 +17,27 @@ STREETS = ["123 Oak Street", "456 Pine Avenue", "789 Maple Drive", "321 Cedar La
 CITIES = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix"]
 STATES = ["NY", "CA", "IL", "TX", "AZ"]
 ZIPS = ["10001", "90001", "60601", "77001", "85001"]
+
+
+def _expiry_problem(mm, yy):
+    """What is wrong with the card's date, if anything.
+
+    The lookup does not ask the issuer, so a card whose date is over
+    has to be refused here.
+    """
+    try:
+        month = int(str(mm).strip())
+        year = int(str(yy).strip())
+    except (TypeError, ValueError):
+        return "Invalid Expiry"
+    if year < 100:
+        year += 2000
+    if month < 1 or month > 12:
+        return "Invalid Expiry"
+    now = datetime.datetime.now()
+    if (year, month) < (now.year, now.month):
+        return "Expired Card"
+    return None
 
 
 def random_email():
@@ -48,6 +70,11 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
 
 
 async def _vbv_run(cc, mm, yy, cvv, proxy=None):
+    problem = _expiry_problem(mm, yy)
+    if problem:
+        return f"Declined - {problem} | {cc[:6]} [0.0s]"
+
+
     start = time.time()
 
     if len(yy) == 4:
