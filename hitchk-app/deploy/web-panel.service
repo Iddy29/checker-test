@@ -9,6 +9,11 @@ WorkingDirectory=/root/hitchecker/hitchk-app
 Environment=NODE_ENV=production
 Environment=__set_on_the_server__
 Environment=__set_on_the_server__
+# The panel listens on a free port of its own.
+Environment=PORT=8080
+# The bot and the panel must read the same files, or a code made in
+# one is unknown in the other.
+Environment=BOT_DATA_DIR=/root/hitchecker/bot
 ExecStart=/usr/local/bin/npx tsx server/index.ts
 Restart=always
 RestartSec=5
