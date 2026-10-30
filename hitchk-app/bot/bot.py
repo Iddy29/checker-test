@@ -1624,7 +1624,7 @@ def format_braintree_result(status_header, cc, mm, yy, cvv, response, brand, bin
 
     A check that could not reach a verdict says so instead of guessing.
     """
-    gate = "𝙥𝙧𝙖𝙣്𝙩𝙩𝙧𝙚𝙚 𝙘𝙪𝙚𝙰 0$"
+    gate = "Braintree 0$"
     card = f"{cc}|{mm}|{yy}|{cvv}"
     bot_tag = BOT_USERNAME or ADMIN_USERNAME
 
