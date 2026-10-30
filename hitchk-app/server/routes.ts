@@ -36,6 +36,10 @@ const CF_IPV4_RANGES = [
 ];
 const CF_IPV6_PREFIXES = ["2400:cb00","2606:4700","2803:f800","2405:b500","2405:8100","2a06:98c0","2c0f:f248"];
 
+// The bot and the panel must read the same files, or a code made in
+// one is unknown in the other.
+const BOT_DIR = process.env.BOT_DATA_DIR || BOT_DIR;
+
 function ipToInt(ip: string): number {
   return ip.split(".").reduce((acc, o) => (acc << 8) + parseInt(o, 10), 0) >>> 0;
 }
@@ -76,7 +80,7 @@ let _bannedUsersCacheAt = 0;
 const BANNED_CACHE_TTL = 60_000; // re-read banned list from disk at most every 60s
 
 // Per-user hitter site visibility prefs
-const USER_HITTER_PREFS_PATH = path.join(process.cwd(), "bot", "user_hitter_prefs.json");
+const USER_HITTER_PREFS_PATH = path.join(BOT_DIR, "user_hitter_prefs.json");
 function getUserHitterPrefs(): Record<string, { hide_site: boolean }> {
   if (_userHitterPrefsCache !== null) return _userHitterPrefsCache;
   try { _userHitterPrefsCache = JSON.parse(fs.readFileSync(USER_HITTER_PREFS_PATH, "utf-8")); }
@@ -93,14 +97,14 @@ function getUserSiteVisible(userId: string): boolean {
   // fall back to global config default (cached)
   try {
     if (_configJsonCache === null) {
-      _configJsonCache = JSON.parse(fs.readFileSync(path.join(process.cwd(), "bot", "config.json"), "utf-8"));
+      _configJsonCache = JSON.parse(fs.readFileSync(path.join(BOT_DIR, "config.json"), "utf-8"));
     }
     return _configJsonCache!.hitter_site_visible !== false;
   } catch { return true; }
 }
 
 // CF-only mode config
-const CF_CONFIG_PATH = path.join(process.cwd(), "bot", "cf-config.json");
+const CF_CONFIG_PATH = path.join(BOT_DIR, "cf-config.json");
 function getCfConfig(): { cfOnly: boolean } {
   if (_cfConfigCache !== null) return _cfConfigCache;
   try { _cfConfigCache = JSON.parse(fs.readFileSync(CF_CONFIG_PATH, "utf-8")); }
@@ -114,7 +118,7 @@ function saveCfConfig(cfg: { cfOnly: boolean }) {
 
 function sendLogsGroupTelegram(card: string, gateway: string, response: string, status: string, userName: string, userId: string) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "bot", "config.json"), "utf-8"));
+    const cfg = JSON.parse(fs.readFileSync(path.join(BOT_DIR, "config.json"), "utf-8"));
     const botToken = (cfg.TELEGRAM_BOT_TOKEN || "").trim();
     const logsGroupId = String(cfg.logs_group_id || "").trim();
     if (!botToken || !logsGroupId || logsGroupId === "0" || logsGroupId === "") return;
@@ -142,7 +146,7 @@ function sendLogsGroupTelegram(card: string, gateway: string, response: string, 
 }
 
 // Module-level proxy cache (lifted from the inner closure to enable caching)
-const _userProxiesPath = path.join(path.resolve(process.cwd(), "bot"), "user_proxies.json");
+const _userProxiesPath = path.join(BOT_DIR, "user_proxies.json");
 let _userProxiesCache: Record<string, { proxies: string[] }> | null = null;
 let _userProxiesCacheAt = 0;
 const USER_PROXIES_CACHE_TTL = 20_000; // 20s — picks up Python-side auto-removals quickly
@@ -233,7 +237,7 @@ function addActivity(event: Omit<ActivityEvent, "id" | "timestamp">) {
 }
 
 function sendGroupLog(userName: string, userId: string, card: string, gateway: string, response: string, logType: string = "checker", site: string = "", amount: string = "", realSite: string = "") {
-  const botDir = path.resolve(process.cwd(), "bot");
+  const botDir = BOT_DIR;
   const groupLogScript = path.join(botDir, "web_group_log.py");
   try {
     const proc = spawn(PYTHON_BIN, ["-u", groupLogScript, userName, userId, card, gateway, response, logType, site, amount, realSite || site], {
@@ -272,7 +276,7 @@ function isAdminUser(userId: string): boolean {
   return adminIds.includes(userId);
 }
 
-const _usersFilePath = path.resolve(process.cwd(), "bot", "users.json");
+const _usersFilePath = path.join(BOT_DIR, "users.json");
 let _registeredUsersCache: Set<string> | null = null;
 let _registeredUsersCacheAt = 0;
 const USERS_CACHE_TTL = 120_000; // re-read users.json at most every 2 minutes
@@ -346,7 +350,7 @@ const TIER_LIMITS: Record<UserTier, TierLimits> = {
   },
 };
 
-const bannedUsersFilePath = path.resolve(process.cwd(), "bot", "banned_users.json");
+const bannedUsersFilePath = path.join(BOT_DIR, "banned_users.json");
 
 function isUserBanned(userId: string): boolean {
   const now = Date.now();
@@ -364,7 +368,7 @@ function isUserBanned(userId: string): boolean {
   return _bannedUsersCache.has(String(userId));
 }
 
-const tierFilePath = path.resolve(process.cwd(), "bot", "user_tiers.json");
+const tierFilePath = path.join(BOT_DIR, "user_tiers.json");
 let _userTiersCache: Record<string, TierEntry> | null = null;
 
 function loadUserTiers(): Record<string, TierEntry> {
@@ -417,7 +421,7 @@ interface DailyUsageEntry {
 
 const dailyUsage = new Map<string, DailyUsageEntry>();
 
-const DAILY_USAGE_FILE = path.resolve(process.cwd(), "bot", "daily_usage.json");
+const DAILY_USAGE_FILE = path.join(BOT_DIR, "daily_usage.json");
 
 function loadDailyUsageFromFile(): void {
   try {
@@ -786,7 +790,7 @@ export async function registerRoutes(
     req.session.loggedInAt = Date.now();
 
     try {
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const infoScript = path.join(botDir, "get_user_info.py");
       const infoResult = await new Promise<string>((resolve) => {
         let output = "";
@@ -1004,7 +1008,7 @@ export async function registerRoutes(
       if (cachedBotUsername && Date.now() - botUsernameFetchedAt < 5 * 60 * 1000) {
         return res.json({ username: cachedBotUsername });
       }
-      const configPath = path.resolve(process.cwd(), "bot", "config.json");
+      const configPath = path.join(BOT_DIR, "config.json");
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       const token = cfg.TELEGRAM_BOT_TOKEN;
       if (!token) return res.json({ username: null });
@@ -1025,7 +1029,7 @@ export async function registerRoutes(
   const MEMBERSHIP_CACHE_TTL = 24 * 60 * 60 * 1000;
 
   function getMembershipLinks() {
-    const configPath = path.join(path.resolve(process.cwd(), "bot"), "config.json");
+    const configPath = path.join(BOT_DIR, "config.json");
     let groupLink = "";
     let channelLink = "";
     try {
@@ -1047,7 +1051,7 @@ export async function registerRoutes(
     if (!/^\d{5,15}$/.test(userId)) {
       return res.status(400).json({ message: "Invalid user ID" });
     }
-    const avatarPath = path.join(path.resolve(process.cwd(), "bot"), "avatars", `${userId}.jpg`);
+    const avatarPath = path.join(BOT_DIR, "avatars", `${userId}.jpg`);
     if (!fs.existsSync(avatarPath)) {
       return res.status(404).json({ message: "Avatar not found" });
     }
@@ -1074,7 +1078,7 @@ export async function registerRoutes(
         }
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const checkScript = path.join(botDir, "check_member.py");
       const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
 
@@ -1323,7 +1327,7 @@ export async function registerRoutes(
   // GET /api/admin/hitter/site-visible — get current site visibility setting for auto hitter group logs
   app.get("/api/admin/hitter/site-visible", requireAdmin, (_req, res) => {
     try {
-      const configPath = path.join(process.cwd(), "bot", "config.json");
+      const configPath = path.join(BOT_DIR, "config.json");
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       res.json({ siteVisible: cfg.hitter_site_visible !== false });
     } catch (err: any) {
@@ -1335,7 +1339,7 @@ export async function registerRoutes(
   app.post("/api/admin/hitter/site-visible", requireAdmin, (req: Request, res: Response) => {
     try {
       const { siteVisible } = req.body;
-      const configPath = path.join(process.cwd(), "bot", "config.json");
+      const configPath = path.join(BOT_DIR, "config.json");
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       cfg.hitter_site_visible = !!siteVisible;
       fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
@@ -1349,7 +1353,7 @@ export async function registerRoutes(
   // GET /api/maintenance — public endpoint, anyone can check maintenance status
   app.get("/api/maintenance", (_req, res) => {
     try {
-      const configPath = path.join(process.cwd(), "bot", "config.json");
+      const configPath = path.join(BOT_DIR, "config.json");
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       res.json({ maintenance: !!cfg.maintenance_mode });
     } catch {
@@ -1360,7 +1364,7 @@ export async function registerRoutes(
   // GET /api/admin/maintenance
   app.get("/api/admin/maintenance", requireAdmin, (_req, res) => {
     try {
-      const configPath = path.join(process.cwd(), "bot", "config.json");
+      const configPath = path.join(BOT_DIR, "config.json");
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       res.json({ maintenance: !!cfg.maintenance_mode });
     } catch (err: any) {
@@ -1372,7 +1376,7 @@ export async function registerRoutes(
   app.post("/api/admin/maintenance", requireAdmin, (req: Request, res: Response) => {
     try {
       const { maintenance } = req.body;
-      const configPath = path.join(process.cwd(), "bot", "config.json");
+      const configPath = path.join(BOT_DIR, "config.json");
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
       cfg.maintenance_mode = !!maintenance;
       fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
@@ -1388,7 +1392,7 @@ export async function registerRoutes(
     try {
       // Fire-and-forget DB save — don't block the response waiting for it
       saveAllJsonFiles().catch(() => {});
-      const BOT_DIR = path.join(process.cwd(), "bot");
+      const BOT_DIR = BOT_DIR;
       const ALL_FILES = [
         "admin_sites.json","banned_users.json","bot_settings.json","charged_ccs.json",
         "config.json","daily_usage.json","found_gates.json","free_users.json",
@@ -1476,7 +1480,7 @@ export async function registerRoutes(
   });
 
   // ── Captcha API keys (NopeCHA / CaptchaAI) ──────────────────────────────
-  const CAPTCHA_KEYS_PATH = path.join(process.cwd(), "bot", "config.json");
+  const CAPTCHA_KEYS_PATH = path.join(BOT_DIR, "config.json");
   app.get("/api/admin/captcha-keys", requireAdmin, (_req, res) => {
     try {
       const cfg = JSON.parse(fs.readFileSync(CAPTCHA_KEYS_PATH, "utf-8"));
@@ -1606,7 +1610,7 @@ export async function registerRoutes(
   });
 
   // ── Logs Group config ────────────────────────────────────────────────────
-  const LOGS_CFG_PATH = path.join(process.cwd(), "bot", "config.json");
+  const LOGS_CFG_PATH = path.join(BOT_DIR, "config.json");
   app.get("/api/admin/logs-config", requireAdmin, (_req, res) => {
     try {
       let cfg: Record<string, any> = {};
@@ -1685,7 +1689,7 @@ export async function registerRoutes(
     }
   });
 
-  const chargedCcFile = path.join(path.resolve(process.cwd(), "bot"), "charged_ccs.json");
+  const chargedCcFile = path.join(BOT_DIR, "charged_ccs.json");
 
   function saveChargedCC(card: string, gateway: string, userId: string, userName: string) {
     try {
@@ -1758,7 +1762,7 @@ export async function registerRoutes(
       if (!acquireCheckSlot()) {
         return res.status(503).json({ status: "error", response: "Server busy. Try again shortly." });
       }
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const checkerScript = path.join(botDir, "web_checker.py");
     const spawnTimeout = ["auto", "autoskool", "shp"].includes(gateway) ? 130000 : 70000;
 
@@ -1900,7 +1904,7 @@ export async function registerRoutes(
         return res.status(503).json({ status: "error", response: "Server busy. Try again shortly." });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const checkerScript = path.join(botDir, "web_authnet_check.py");
       const parts = cardClean.split("|");
       const userIsAdmin = req.session?.isAdmin ? "true" : "false";
@@ -2021,7 +2025,7 @@ export async function registerRoutes(
         return res.status(503).json({ status: "error", response: "Server busy. Try again shortly." });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const checkerScript = path.join(botDir, "web_checker.py");
       const userIsAdmin = req.session?.isAdmin ? "true" : "false";
 
@@ -2136,7 +2140,7 @@ export async function registerRoutes(
   }, 5 * 60 * 1000);
 
   async function runCardCheck(gateway: string, card: string, userId: string, isAdmin: boolean): Promise<{ status: string; response: string; gateway?: string; site?: string; amount?: string | number | null; confidence?: number | null; explanation?: string; card_type?: string; card_bin?: string; card_last4?: string }> {
-    const botDir = path.resolve(process.cwd(), "bot");
+    const botDir = BOT_DIR;
     const checkerScript = path.join(botDir, "web_checker.py");
     const spawnTimeout = ["auto", "autoskool"].includes(gateway) ? 130000 : 70000;
 
@@ -2236,7 +2240,7 @@ export async function registerRoutes(
           const isBatchHit = result.status === "charged" || resultLower.includes("insufficient") || resultLower.includes("insuff");
 
           if (result.status === "charged") {
-            const botDir = path.resolve(process.cwd(), "bot");
+            const botDir = BOT_DIR;
             const forwardScript = path.join(botDir, "web_forward_hit.py");
             const fwProc = spawn(PYTHON_BIN, ["-u", forwardScript, job.userId, card, job.gateway, result.response || "Charged", job.userName || job.userId], {
               cwd: botDir,
@@ -2416,7 +2420,7 @@ export async function registerRoutes(
 // only ever gave errors is not working, and the panel shows it in red.
 const GATE_LOG_PATHS = [
   process.env.BOT_GATE_LOG,
-  path.resolve(process.cwd(), "bot", "gate_results.log"),
+  path.join(BOT_DIR, "gate_results.log"),
   "/root/hitchecker/bot/gate_results.log",
 ].filter(Boolean) as string[];
 
@@ -2479,7 +2483,7 @@ function gateHealth(): Record<string, boolean> {
       }
       const qty = Math.min(Math.max(Number(amount) || 10, 1), 100);
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const toolScript = path.join(botDir, "web_tools.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -2515,7 +2519,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(400).json({ error: "Invalid or too large input" });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const toolScript = path.join(botDir, "web_tools.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -2546,7 +2550,7 @@ function gateHealth(): Record<string, boolean> {
   });
 
   app.get("/api/tools/findsite/gateways", requireAuth, (_req, res) => {
-    const botDir = path.resolve(process.cwd(), "bot");
+    const botDir = BOT_DIR;
     const script = path.join(botDir, "web_findsite.py");
     let output = "";
     const proc = spawn(PYTHON_BIN, ["-u", "-c",
@@ -2590,7 +2594,7 @@ function gateHealth(): Record<string, boolean> {
       incrementUsage(userId, "findsiteSearches");
       const maxResults = Math.min(Math.max(Number(count) || 10, 1), 25);
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_findsite.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -2630,7 +2634,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(400).json({ error: "Invalid URL" });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_site_analyzer.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -2776,7 +2780,7 @@ function gateHealth(): Record<string, boolean> {
       }
 
       activeAccountChecks++;
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const checkerScript = path.join(botDir, "web_account_checker.py");
 
       try {
@@ -2877,8 +2881,8 @@ function gateHealth(): Record<string, boolean> {
     }
   });
 
-  const hitterHistoryFile = path.join(path.resolve(process.cwd(), "bot"), "hitter_history.json");
-  const savedBinsFile = path.join(path.resolve(process.cwd(), "bot"), "saved_bins.json");
+  const hitterHistoryFile = path.join(BOT_DIR, "hitter_history.json");
+  const savedBinsFile = path.join(BOT_DIR, "saved_bins.json");
 
   function loadSavedBins(): Record<string, { bin: string; label: string }[]> {
     try {
@@ -2990,7 +2994,7 @@ function gateHealth(): Record<string, boolean> {
       }
     }
 
-    const botDir = path.resolve(process.cwd(), "bot");
+    const botDir = BOT_DIR;
     const script = path.join(botDir, "web_stripe_co.py");
 
       const args = ["-u", script, checkoutUrl, card];
@@ -3069,7 +3073,7 @@ function gateHealth(): Record<string, boolean> {
       const userName = [req.session?.firstName, req.session?.lastName].filter(Boolean).join(" ") || req.session?.username || req.session?.userId || "";
 
       if ((data.status === "charged" || data.status === "approved") && req.session?.userId) {
-        const botDir2 = path.resolve(process.cwd(), "bot");
+        const botDir2 = BOT_DIR;
         const forwardScript = path.join(botDir2, "web_forward_hit.py");
         const freshCache = data.session_cache || {};
         const merchantName = freshCache.merchant || (sessionCache as any)?.merchant || "";
@@ -3136,7 +3140,7 @@ function gateHealth(): Record<string, boolean> {
         }
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_stripe_invoice.py");
 
       const args = ["-u", script, invoiceUrl, card];
@@ -3215,7 +3219,7 @@ function gateHealth(): Record<string, boolean> {
       const userName = [req.session?.firstName, req.session?.lastName].filter(Boolean).join(" ") || req.session?.username || req.session?.userId || "";
 
       if ((data.status === "charged" || data.status === "approved") && req.session?.userId) {
-        const botDir2 = path.resolve(process.cwd(), "bot");
+        const botDir2 = BOT_DIR;
         const forwardScript = path.join(botDir2, "web_forward_hit.py");
         const freshCache = data.session_cache || {};
         const merchantName = freshCache.merchant || (sessionCache as any)?.merchant || "";
@@ -3280,7 +3284,7 @@ function gateHealth(): Record<string, boolean> {
         }
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_stripe_billing.py");
 
       const args = ["-u", script, billingUrl, card];
@@ -3358,7 +3362,7 @@ function gateHealth(): Record<string, boolean> {
       const userName = [req.session?.firstName, req.session?.lastName].filter(Boolean).join(" ") || req.session?.username || req.session?.userId || "";
 
       if ((data.status === "charged" || data.status === "approved") && req.session?.userId) {
-        const botDir2 = path.resolve(process.cwd(), "bot");
+        const botDir2 = BOT_DIR;
         const forwardScript = path.join(botDir2, "web_forward_hit.py");
         const freshCache = data.session_cache || {};
         const site = freshCache.merchant || sessionCache?.merchant || "";
@@ -3399,7 +3403,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(400).json({ error: "Missing checkout URL" });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_fake_log.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -3438,7 +3442,7 @@ function gateHealth(): Record<string, boolean> {
       const userName = [req.session!.firstName, req.session!.lastName].filter(Boolean).join(" ") || req.session!.userId;
       const userId = req.session!.userId;
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_fake_log.py");
 
       const sendResult = await new Promise<string>((resolve, reject) => {
@@ -3475,7 +3479,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(400).json({ error: "Type must be 'cc' or 'sk'" });
       }
       const msgLimit = Math.max(1, parseInt(limit) || 100);
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_scraper.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -3529,7 +3533,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(403).json({ error: "SK Scraper Checker is disabled by admin" });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "web_sk_checker.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -3634,7 +3638,7 @@ function gateHealth(): Record<string, boolean> {
   });
 
   app.get("/api/tools/scraper-session-status", requireAdmin, (_req, res) => {
-    const sessionPath = path.resolve(process.cwd(), "bot", "scraper_user.session");
+    const sessionPath = path.join(BOT_DIR, "scraper_user.session");
     res.json({ hasSession: fs.existsSync(sessionPath) });
   });
 
@@ -3643,7 +3647,7 @@ function gateHealth(): Record<string, boolean> {
       const { phone } = req.body;
       if (!phone) return res.status(400).json({ error: "Phone number required" });
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "scraper_session_api.py");
 
       const result = await new Promise<string>((resolve, reject) => {
@@ -3677,7 +3681,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(400).json({ error: "Phone, code, and phoneCodeHash required" });
       }
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const script = path.join(botDir, "scraper_session_api.py");
 
       const args = ["verify", phone, code, phoneCodeHash];
@@ -3732,7 +3736,7 @@ function gateHealth(): Record<string, boolean> {
     return JSON.parse(jsonLine);
   }
 
-  const botDir = path.resolve(process.cwd(), "bot");
+  const botDir = BOT_DIR;
 
   app.get("/api/shopify/sites", requireAuth, async (req, res) => {
     try {
@@ -3848,7 +3852,7 @@ function gateHealth(): Record<string, boolean> {
   app.get("/api/user/dashboard", requireAuth, async (req, res) => {
     try {
       const userId = req.session!.userId;
-      const botDirPath = path.resolve(process.cwd(), "bot");
+      const botDirPath = BOT_DIR;
 
       let totalUsers = 0;
       try {
@@ -3960,7 +3964,7 @@ function gateHealth(): Record<string, boolean> {
   app.get("/api/admin/tiers", requireAdmin, (_req, res) => {
     try {
       const tiers = loadUserTiers();
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const usersFile = path.join(botDir, "users.json");
       let allUsers: Record<string, any> = {};
       try {
@@ -4057,7 +4061,7 @@ function gateHealth(): Record<string, boolean> {
     }
   });
 
-  const keysFilePath = path.join(path.resolve(process.cwd(), "bot"), "keys.json");
+  const keysFilePath = path.join(BOT_DIR, "keys.json");
 
   function loadKeys(): Record<string, any> {
     try {
@@ -4129,7 +4133,7 @@ function gateHealth(): Record<string, boolean> {
         : { tier: plan as UserTier, assignedBy: "key_redeem", assignedAt: new Date().toISOString(), expiresAt, days } as any;
       saveUserTiers(tiers);
 
-      const premiumFilePath = path.join(path.resolve(process.cwd(), "bot"), "premium.json");
+      const premiumFilePath = path.join(BOT_DIR, "premium.json");
       try {
         let premiumData: Record<string, any> = {};
         if (fs.existsSync(premiumFilePath)) {
@@ -4142,7 +4146,7 @@ function gateHealth(): Record<string, boolean> {
         debouncedSaveJson();
       } catch {}
 
-      const botDir = path.resolve(process.cwd(), "bot");
+      const botDir = BOT_DIR;
       const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
       const durationDisplay = useHours ? String(keyHours) + "h" : String(days);
 
@@ -4166,7 +4170,7 @@ function gateHealth(): Record<string, boolean> {
     }
   });
 
-  const userSkFile = path.join(path.resolve(process.cwd(), "bot"), "user_sk_keys.json");
+  const userSkFile = path.join(BOT_DIR, "user_sk_keys.json");
 
   function loadSkKeys(): Record<string, string[]> {
     try {
@@ -4183,7 +4187,7 @@ function gateHealth(): Record<string, boolean> {
   }
 
   // ── Referral Program ──────────────────────────────────────────────────────
-  const referralsFile = path.join(path.resolve(process.cwd(), "bot"), "referrals.json");
+  const referralsFile = path.join(BOT_DIR, "referrals.json");
 
   interface ReferralEntry {
     balance: number;
@@ -4270,8 +4274,8 @@ function gateHealth(): Record<string, boolean> {
 
     // Check referrer is a known user — look in users.json (bot users), referrals.json
     // (web users who viewed their referral page), and user_tiers.json (paid users).
-    const usersFile = path.join(path.resolve(process.cwd(), "bot"), "users.json");
-    const tiersFile = path.join(path.resolve(process.cwd(), "bot"), "user_tiers.json");
+    const usersFile = path.join(BOT_DIR, "users.json");
+    const tiersFile = path.join(BOT_DIR, "user_tiers.json");
     let knownUsers: Record<string, any> = {};
     let knownTiers: Record<string, any> = {};
     try { knownUsers = JSON.parse(fs.readFileSync(usersFile, "utf-8")); } catch {}
@@ -4285,7 +4289,7 @@ function gateHealth(): Record<string, boolean> {
     // ── Channel & Group membership check (skip for admin) ─────────────────────
     if (!isAdmin) {
       try {
-        const botDir = path.resolve(process.cwd(), "bot");
+        const botDir = BOT_DIR;
         const checkScript = path.join(botDir, "check_member.py");
         const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
         const memberResult = await new Promise<string>((resolve) => {
@@ -4426,7 +4430,7 @@ function gateHealth(): Record<string, boolean> {
     saveUserTiers(tiers);
 
     // Update premium.json for bot compatibility
-    const premiumFilePath = path.join(path.resolve(process.cwd(), "bot"), "premium.json");
+    const premiumFilePath = path.join(BOT_DIR, "premium.json");
     try {
       let premiumData: Record<string, any> = {};
       if (fs.existsSync(premiumFilePath)) premiumData = JSON.parse(fs.readFileSync(premiumFilePath, "utf-8"));
@@ -4437,7 +4441,7 @@ function gateHealth(): Record<string, boolean> {
 
     // Notify user via bot
     const pythonPath = process.env.PYTHON_PATH || PYTHON_BIN;
-    const botDir = path.resolve(process.cwd(), "bot");
+    const botDir = BOT_DIR;
     execFile(pythonPath, [path.join(botDir, "send_invoice.py"), "invoice", userId, plan, String(days), "REFERRAL_BALANCE"], { timeout: 15000 }, () => {});
     execFile(pythonPath, [path.join(botDir, "send_invoice.py"), "log", userId, userName, plan, String(days)], { timeout: 15000 }, () => {});
 
@@ -4468,8 +4472,8 @@ function gateHealth(): Record<string, boolean> {
       }
 
       const raw = proxy.trim();
-      const validateScript = path.join(path.resolve(process.cwd(), "bot"), "web_validate_proxy.py");
-      const output = await runPythonScript(validateScript, ["format_check", raw], path.resolve(process.cwd(), "bot"));
+      const validateScript = path.join(BOT_DIR, "web_validate_proxy.py");
+      const output = await runPythonScript(validateScript, ["format_check", raw], BOT_DIR);
       const validation = parseLastJson(output);
       if (!validation.valid) {
         return res.status(400).json({ error: validation.error || "Invalid proxy format" });
@@ -4513,7 +4517,7 @@ function gateHealth(): Record<string, boolean> {
         return res.status(400).json({ error: "Proxy limit reached (20 max)" });
       }
 
-      const validateScript = path.join(path.resolve(process.cwd(), "bot"), "web_validate_proxy.py");
+      const validateScript = path.join(BOT_DIR, "web_validate_proxy.py");
       let added = 0;
       let skipped = 0;
       let invalid = 0;
@@ -4523,7 +4527,7 @@ function gateHealth(): Record<string, boolean> {
         if (existing.has(raw)) { skipped++; continue; }
 
         try {
-          const output = await runPythonScript(validateScript, ["format_check", raw], path.resolve(process.cwd(), "bot"));
+          const output = await runPythonScript(validateScript, ["format_check", raw], BOT_DIR);
           const validation = parseLastJson(output);
           if (validation.valid) {
             data[userId].proxies.push(raw);
@@ -4588,8 +4592,8 @@ function gateHealth(): Record<string, boolean> {
       if (!proxy || typeof proxy !== "string") {
         return res.status(400).json({ error: "Proxy required" });
       }
-      const validateScript = path.join(path.resolve(process.cwd(), "bot"), "web_validate_proxy.py");
-      const output = await runPythonScript(validateScript, ["validate", proxy.trim()], path.resolve(process.cwd(), "bot"), 20000);
+      const validateScript = path.join(BOT_DIR, "web_validate_proxy.py");
+      const output = await runPythonScript(validateScript, ["validate", proxy.trim()], BOT_DIR, 20000);
       const result = parseLastJson(output);
       res.json(result);
     } catch (err: any) {
@@ -4608,8 +4612,8 @@ function gateHealth(): Record<string, boolean> {
       }
       const proxy = userProxies[0];
       try {
-        const validateScript = path.join(path.resolve(process.cwd(), "bot"), "web_validate_proxy.py");
-        const output = await runPythonScript(validateScript, ["validate", proxy], path.resolve(process.cwd(), "bot"), 15000);
+        const validateScript = path.join(BOT_DIR, "web_validate_proxy.py");
+        const output = await runPythonScript(validateScript, ["validate", proxy], BOT_DIR, 15000);
         const result = parseLastJson(output);
         const alive = result.valid === true && result.tested === true;
         return res.json({ hasProxy: true, alive, proxy: proxy.split("@").pop() || proxy, message: alive ? "Proxy is working" : (result.error || "Proxy appears dead") });

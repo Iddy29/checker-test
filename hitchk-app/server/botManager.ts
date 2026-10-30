@@ -26,7 +26,7 @@ class BotManager {
   private manualStop: boolean = false;
 
   constructor() {
-    this.botDir = path.resolve(process.cwd(), "bot");
+    this.botDir = process.env.BOT_DATA_DIR || path.resolve(process.cwd(), "bot");
     this.botScript = path.join(this.botDir, "bot.py");
   }
 

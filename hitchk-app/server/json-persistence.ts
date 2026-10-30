@@ -2,7 +2,7 @@ import pg from "pg";
 import fs from "fs";
 import path from "path";
 
-const BOT_DIR = path.resolve(process.cwd(), "bot");
+const BOT_DIR = process.env.BOT_DATA_DIR || path.resolve(process.cwd(), "bot");
 
 const JSON_FILES = [
   "admin_sites.json",
