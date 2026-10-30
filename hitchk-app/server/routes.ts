@@ -1009,9 +1009,7 @@ export async function registerRoutes(
       if (cachedBotUsername && Date.now() - botUsernameFetchedAt < 5 * 60 * 1000) {
         return res.json({ username: cachedBotUsername });
       }
-      const configPath = path.join(BOT_DIR, "config.json");
-      const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      const token = cfg.TELEGRAM_BOT_TOKEN;
+      const token = botManager.getBotEnvConfig().botToken;
       if (!token) return res.json({ username: null });
       const resp = await fetch(`https://api.telegram.org/bot${token}/getMe`);
       const data = await resp.json() as any;
@@ -1474,7 +1472,10 @@ export async function registerRoutes(
       if (channelLink !== undefined) updates.TELEGRAM_CHANNEL_LINK = channelLink;
       botManager.updateBotEnvConfig(updates);
       _configJsonCache = null; // invalidate cached config.json
-      res.json({ success: true, message: "Configuration saved. Restart the bot to apply changes." });
+      // The bot reads its settings when it starts, so it is restarted to
+      // pick up what was just changed.
+      botManager.restart().catch(() => {});
+      res.json({ success: true, message: "Configuration saved and the bot restarted." });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

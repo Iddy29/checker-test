@@ -24,10 +24,73 @@ class BotManager {
   private lastRestartTime: number = 0;
   private maxRestartsPerMinute: number = 3;
   private manualStop: boolean = false;
+  // The bot runs as a systemd service.  The panel drives that service, so
+  // there is one bot and not two: two of them would fight over the
+  // Telegram updates and the panel would show a bot that is not the one
+  // doing the work.
+  private serviceName: string;
 
   constructor() {
     this.botDir = process.env.BOT_DATA_DIR || path.resolve(process.cwd(), "bot");
     this.botScript = path.join(this.botDir, "bot.py");
+    this.serviceName = process.env.BOT_SERVICE_NAME || "hitchecker-bot.service";
+  }
+
+  private hasService(): boolean {
+    try {
+      execFileSync("systemctl", ["show", this.serviceName, "-p", "LoadState"],
+                   { timeout: 8000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private serviceState(): { active: boolean; pid: number | null; since: string | null } {
+    try {
+      const out = execFileSync("systemctl",
+        ["show", this.serviceName, "-p", "ActiveState", "-p", "MainPID", "-p", "ActiveEnterTimestamp"],
+        { timeout: 8000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+      const map: Record<string, string> = {};
+      for (const line of out.split("\n")) {
+        const at = line.indexOf("=");
+        if (at > 0) map[line.slice(0, at)] = line.slice(at + 1).trim();
+      }
+      return {
+        active: map.ActiveState === "active",
+        pid: map.MainPID && map.MainPID !== "0" ? parseInt(map.MainPID, 10) : null,
+        since: map.ActiveEnterTimestamp || null,
+      };
+    } catch {
+      return { active: false, pid: null, since: null };
+    }
+  }
+
+  private serviceCommand(action: "start" | "stop" | "restart"): { ok: boolean; out: string } {
+    try {
+      const out = execFileSync("systemctl", [action, this.serviceName], {
+        timeout: 40_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { ok: true, out: String(out || "").trim() };
+    } catch (err: any) {
+      return { ok: false, out: String(err?.stdout || err?.message || "") };
+    }
+  }
+
+  /** The bot's own journal, so the panel shows what the bot wrote. */
+  private journalLogs(): BotLog[] | null {
+    try {
+      const out = execFileSync("journalctl",
+        ["-u", this.serviceName, "-n", "200", "--no-pager", "-o", "short-iso"],
+        { timeout: 15_000, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024 });
+      return out.split("\n").filter((l) => l.trim()).map((line) => ({
+        timestamp: (line.slice(0, 25) || new Date().toISOString()).trim(),
+        message: line.slice(25).trim(),
+        type: /error|traceback|exception|refused/i.test(line) ? "stderr" : "stdout",
+      }));
+    } catch {
+      return null;
+    }
   }
 
   private addLog(message: string, type: BotLog["type"]) {
@@ -42,11 +105,30 @@ class BotManager {
   }
 
   isRunning(): boolean {
+    if (this.hasService()) {
+      return this.serviceState().active;
+    }
     return this.process !== null && this.process.exitCode === null;
   }
 
   getStatus() {
-    const running = this.isRunning();
+    if (this.hasService()) {
+      const state = this.serviceState();
+      let uptime: number | null = null;
+      if (state.active && state.since) {
+        const started = Date.parse(state.since);
+        if (!Number.isNaN(started)) uptime = (Date.now() - started) / 1000;
+      }
+      return {
+        running: state.active,
+        pid: state.pid,
+        uptime,
+        startedAt: state.since,
+        managedBy: "systemd",
+        service: this.serviceName,
+      };
+    }
+    const running = this.process !== null && this.process.exitCode === null;
     return {
       running,
       pid: running ? this.process?.pid ?? null : null,
@@ -54,10 +136,14 @@ class BotManager {
         ? (Date.now() - this.startedAt.getTime()) / 1000
         : null,
       startedAt: this.startedAt?.toISOString() ?? null,
+      managedBy: "panel",
+      service: null,
     };
   }
 
   getLogs(): BotLog[] {
+    const journal = this.journalLogs();
+    if (journal) return journal;
     return [...this.logs];
   }
 
@@ -68,6 +154,18 @@ class BotManager {
   async start(): Promise<{ success: boolean; message: string }> {
     if (this.isRunning()) {
       return { success: false, message: "Bot is already running" };
+    }
+
+    if (this.hasService()) {
+      this.addLog("Starting the bot service...", "system");
+      const result = this.serviceCommand("start");
+      if (!result.ok) {
+        this.addLog("The bot service did not start: " + result.out.slice(0, 160), "system");
+        return { success: false, message: result.out.slice(0, 200) || "The bot service did not start" };
+      }
+      this.addLog("The bot service started", "system");
+      log("Bot service started", "bot-manager");
+      return { success: true, message: "Bot started successfully" };
     }
 
     if (!fs.existsSync(this.botScript)) {
@@ -168,6 +266,20 @@ class BotManager {
   }
 
   async stop(): Promise<{ success: boolean; message: string }> {
+    if (this.hasService()) {
+      if (!this.isRunning()) {
+        return { success: false, message: "Bot is not running" };
+      }
+      this.addLog("Stopping the bot service...", "system");
+      const result = this.serviceCommand("stop");
+      if (!result.ok) {
+        return { success: false, message: result.out.slice(0, 200) || "The bot service did not stop" };
+      }
+      this.addLog("The bot service stopped", "system");
+      log("Bot service stopped", "bot-manager");
+      return { success: true, message: "Bot stopped successfully" };
+    }
+
     if (!this.isRunning() || !this.process) {
       return { success: false, message: "Bot is not running" };
     }
@@ -201,6 +313,16 @@ class BotManager {
   }
 
   async restart(): Promise<{ success: boolean; message: string }> {
+    if (this.hasService()) {
+      this.addLog("Restarting the bot service...", "system");
+      const result = this.serviceCommand("restart");
+      if (!result.ok) {
+        return { success: false, message: result.out.slice(0, 200) || "The bot service did not restart" };
+      }
+      this.addLog("The bot service restarted", "system");
+      log("Bot service restarted", "bot-manager");
+      return { success: true, message: "Bot restarted successfully" };
+    }
     if (this.isRunning()) {
       await this.stop();
     }
@@ -464,27 +586,57 @@ class BotManager {
     saveAllJsonFiles().catch(() => {});
   }
 
+  /** The bot's env file, the one the service loads. */
+  private readBotEnv(): Record<string, string> {
+    const envPath = path.join(this.botDir, "bot.env");
+    const out: Record<string, string> = {};
+    try {
+      for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
+        const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+        if (m) out[m[1]] = m[2].trim();
+      }
+    } catch {}
+    return out;
+  }
+
   getBotEnvConfig() {
+    // The bot reads bot.env, so the panel reads and writes that file.
+    const env = this.readBotEnv();
     const config = this.getConfig();
     return {
-      botToken: config.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "",
-      apiId: config.TELEGRAM_API_ID || process.env.TELEGRAM_API_ID || "",
-      apiHash: config.TELEGRAM_API_HASH || process.env.TELEGRAM_API_HASH || "",
-      adminId: config.TELEGRAM_ADMIN_ID || process.env.TELEGRAM_ADMIN_ID || "",
-      groupId: config.TELEGRAM_GROUP_ID || process.env.TELEGRAM_GROUP_ID || "",
-      groupLink: config.TELEGRAM_GROUP_LINK || process.env.TELEGRAM_GROUP_LINK || "",
-      channelLink: config.TELEGRAM_CHANNEL_LINK || process.env.TELEGRAM_CHANNEL_LINK || "",
+      botToken: env.TELEGRAM_BOT_TOKEN || config.TELEGRAM_BOT_TOKEN || "",
+      apiId: env.TELEGRAM_API_ID || config.TELEGRAM_API_ID || "",
+      apiHash: env.TELEGRAM_API_HASH || config.TELEGRAM_API_HASH || "",
+      adminId: env.TELEGRAM_ADMIN_ID || config.TELEGRAM_ADMIN_ID || "",
+      groupId: env.TELEGRAM_GROUP_ID || config.TELEGRAM_GROUP_ID || "",
+      groupLink: env.TELEGRAM_GROUP_LINK || config.TELEGRAM_GROUP_LINK || "",
+      channelLink: env.TELEGRAM_CHANNEL_LINK || config.TELEGRAM_CHANNEL_LINK || "",
     };
   }
 
   updateBotEnvConfig(updates: Record<string, string>) {
-    const config = this.getConfig();
-    for (const [key, value] of Object.entries(updates)) {
+    const envPath = path.join(this.botDir, "bot.env");
+    let text = "";
+    try {
+      text = fs.readFileSync(envPath, "utf-8");
+    } catch {}
+    const lines = text.split("\n");
+    const written = new Set<string>();
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+      if (!m) continue;
+      const key = m[1];
+      const value = updates[key];
       if (value !== undefined && value !== null) {
-        config[key] = value;
+        lines[i] = `${key}=${String(value)}`;
+        written.add(key);
       }
     }
-    this.saveConfig(config);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === undefined || value === null) continue;
+      if (!written.has(key)) lines.push(`${key}=${String(value)}`);
+    }
+    fs.writeFileSync(envPath, lines.join("\n"), "utf-8");
   }
 
   private getBotProcessEnv(): Record<string, string> {
