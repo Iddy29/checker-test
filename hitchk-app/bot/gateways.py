@@ -457,6 +457,9 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                     # the check off throws away a card that was fine.
                     if "shopify" in gate_info.get("func_path", "").lower():
                         gate_timeout = max(gate_timeout, 140)
+                    # The paypal gate opens a browser, so it needs room.
+                    if "paypal_gate" in gate_info.get("func_path", "").lower():
+                        gate_timeout = max(gate_timeout, 150)
                     if "budget_sec" in params:
                         try:
                             default_budget = int(

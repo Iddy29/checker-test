@@ -14,7 +14,7 @@ from gates.shopify_api import call_shopify_api as _shopify_api_call
 GATE_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gate_results.log")
 
 # the gates that need more than a minute
-SLOW_GATES = ("auto", "autoskool", "shp", "shp2", "skl", "skl1", "skl2")
+SLOW_GATES = ("auto", "autoskool", "shp", "shp2", "skl", "skl1", "skl2", "pp")
 SLOW_TIMEOUT = 150
 FAST_TIMEOUT = 60
 
