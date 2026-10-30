@@ -663,8 +663,9 @@ export async function registerRoutes(
       // Reserve the IP slot immediately to block concurrent requests
       ipRateLimit.set(ip, Date.now());
 
-      if (!isRegisteredUser(uid)) {
+      if (!isRegisteredUser(uid) && !isAdminUser(uid)) {
         ipRateLimit.delete(ip);
+        console.warn(`[auth] the id ${uid} is not known to the bot`);
         return res.status(404).json({ message: "User not found. Start the bot with /start first." });
       }
 
