@@ -91,6 +91,9 @@ async def scrape_via_telethon_user(scrape_type, chat_id, limit, api_id, api_hash
 
         pattern = CC_PATTERN if scrape_type == "cc" else SK_PATTERN
 
+        chat_id = str(chat_id).strip()
+        if chat_id.startswith("@"):
+            chat_id = chat_id[1:]
         try:
             chat_entity = int(chat_id)
         except ValueError:
@@ -150,6 +153,9 @@ async def scrape_via_telethon_bot(scrape_type, chat_id, limit, api_id, api_hash,
 
         pattern = CC_PATTERN if scrape_type == "cc" else SK_PATTERN
 
+        chat_id = str(chat_id).strip()
+        if chat_id.startswith("@"):
+            chat_id = chat_id[1:]
         try:
             chat_entity = int(chat_id)
         except ValueError:
