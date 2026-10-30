@@ -1764,7 +1764,7 @@ export async function registerRoutes(
       }
       const botDir = BOT_DIR;
       const checkerScript = path.join(botDir, "web_checker.py");
-    const spawnTimeout = ["auto", "autoskool", "shp"].includes(gateway) ? 130000 : 70000;
+    const spawnTimeout = ["auto", "autoskool", "shp", "shp2", "skl", "skl1", "skl2"].includes(gateway) ? 165000 : 75000;
 
       try {
         const result = await new Promise<string>((resolve, reject) => {

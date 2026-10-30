@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess, execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { log } from "./index";
@@ -329,7 +329,53 @@ class BotManager {
     return out;
   }
 
+  private static registryCache: { at: number; gates: any[] } | null = null;
+
+  /**
+   * The gates the bot itself has.
+   *
+   * The panel used to keep its own copy of the list, and it went out of
+   * step with the bot: a gate that was missing and a price that was
+   * wrong.  So the bot is asked, and the answer is kept for a moment.
+   */
+  private readBotRegistry(): any[] | null {
+    try {
+      const now = Date.now();
+      if (BotManager.registryCache && now - BotManager.registryCache.at < 30_000) {
+        return BotManager.registryCache.gates;
+      }
+      const script = path.join(this.botDir, "gateways.py");
+      const pythonBin = process.platform === "win32" ? "python" : "python3";
+      const out = execFileSync(pythonBin, [script, "--json"], {
+        cwd: this.botDir,
+        timeout: 10_000,
+        encoding: "utf-8",
+        env: { ...process.env } as NodeJS.ProcessEnv,
+      });
+      const raw = JSON.parse(out);
+      const settings = this.getBotSettings();
+      const gates = Object.entries(raw as Record<string, any>).map(([id, g]) => {
+        const gs = settings.gateway_settings?.[id];
+        return {
+          id,
+          name: g.name,
+          type: g.type,
+          category: g.category,
+          enabled: gs?.enabled !== undefined ? gs.enabled : true,
+          premiumOnly: gs?.premium_only !== undefined ? gs.premium_only : false,
+        };
+      });
+      if (!gates.length) return null;
+      BotManager.registryCache = { at: now, gates };
+      return gates;
+    } catch {
+      return null;
+    }
+  }
+
   getGateways() {
+    const live = this.readBotRegistry();
+    if (live && live.length) return live;
     const settings = this.getBotSettings();
     const gateways: any[] = [];
     for (const [catKey, catData] of Object.entries(BotManager.GATEWAY_REGISTRY)) {

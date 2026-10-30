@@ -762,3 +762,12 @@ def classify_response(response_text):
     if any(k in resp_lower for k in declined_keywords):
         return "DECLINED"
     return "UNKNOWN"
+
+
+if __name__ == "__main__":
+    # the panel asks the bot what gates it has, so the two never drift
+    import sys as _sys
+    if len(_sys.argv) > 1 and _sys.argv[1] == "--json":
+        print(json.dumps(get_flat_registry()))
+    else:
+        print("\n".join(sorted(get_flat_registry().keys())))
