@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import httpx
 import os
 import re
@@ -112,6 +113,27 @@ def _remember_store(url):
 
 
 # The answer, in the words the operator's own script uses.
+def _expiry_problem(mm, yy):
+    """What is wrong with the card's date, if anything.
+
+    Braintree makes a token for a card whose date is long gone, so the
+    date has to be read here.  A card that is over is over.
+    """
+    try:
+        month = int(str(mm).strip())
+        year = int(str(yy).strip())
+    except (TypeError, ValueError):
+        return "Invalid Expiry"
+    if year < 100:
+        year += 2000
+    if month < 1 or month > 12:
+        return "Invalid Expiry"
+    now = datetime.datetime.now()
+    if (year, month) < (now.year, now.month):
+        return "Expired Card"
+    return None
+
+
 def _verdict_from_reason(reason):
     """Turn the store's reason into a verdict and the wording for it.
 
@@ -145,6 +167,10 @@ def _verdict_from_reason(reason):
         return "Approved", "Approved (CVV)"
     if "card issuer declined cvv" in low:
         return "Approved", "Approved (CCN)"
+    if "expired" in low:
+        return "Declined", "Expired Card"
+    if "expiry" in low or "expiration" in low:
+        return "Declined", "Invalid Expiry"
     return "Declined", text[:140]
 
 
@@ -319,10 +345,16 @@ async def _get_bt_auth(client, checkout_html, site_url=None):
 async def _tokenize_card(client, auth, cc, mm, yy, cvv, validate=False):
     """Turn the card into a payment method.
 
-    With validate turned on, braintree asks the issuer about the card
-    while it makes the token, so a card the issuer refuses gives no
-    token and the reason comes back with it.  That is the $0 check.
+    The date of the card is read first: a card that is over is refused
+    here, because braintree is happy to make a token for one.  With
+    validate turned on, braintree asks the issuer while it makes the
+    token, so a card it will not take gives no token and the reason
+    comes back with it.
     """
+    problem = _expiry_problem(mm, yy)
+    if problem:
+        return None, None, problem
+
     bt_headers = {
         "authorization": f"Bearer {auth}",
         "braintree-version": "2018-05-10",
