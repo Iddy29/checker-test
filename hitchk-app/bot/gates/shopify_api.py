@@ -66,6 +66,64 @@ DECLINE_REASONS = (
 )
 
 
+# What the card is: the type, the bin, the bank and the country.  The
+# other gates say this in their answer and a Shopify answer did not, so
+# the log had nothing but a code.
+_BIN_CACHE = {}
+_BIN_URL = "https://bins.antipublic.cc/bins/{bin}"
+
+
+async def _card_details(cc):
+    """The details of a card, from its bin."""
+    number = str(cc or "")
+    bin_number = number[:6]
+    if not bin_number.isdigit():
+        return {}
+    if bin_number in _BIN_CACHE:
+        return _BIN_CACHE[bin_number]
+    data = {}
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(_BIN_URL.format(bin=bin_number),
+                                timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                data = await resp.json(content_type=None) or {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    out = {
+        "brand": (data.get("brand") or "").upper(),
+        "type": (data.get("type") or "").upper(),
+        "bank": (data.get("bank") or "").upper(),
+        "country": (data.get("country") or "").upper(),
+        "bin": bin_number,
+        "last4": number[-4:],
+    }
+    if not out["brand"] and not out["bank"]:
+        out = {}
+    _BIN_CACHE[bin_number] = out
+    return out
+
+
+def _detail_string(details):
+    """The details of the card in one piece, the way the gates write them."""
+    if not details:
+        return ""
+    parts = []
+    card_type = " ".join(x for x in (details.get("brand"), details.get("type")) if x)
+    if card_type:
+        parts.append(card_type)
+    if details.get("bin"):
+        parts.append(details["bin"])
+    if details.get("bank"):
+        parts.append(details["bank"])
+    if details.get("country"):
+        parts.append(details["country"])
+    if details.get("last4"):
+        parts.append(details["last4"])
+    return " | ".join(parts)
+
 def _reason_for(blob):
     """A plain reason for the user, from the code the store sent."""
     upper = (blob or "").upper()
@@ -133,6 +191,9 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
     is_expired = any(k in (resp_text + " " + message).upper() for k in EXPIRED_MARKERS)
     charged = str(body.get("Charged", "False")).lower() == "true"
     approved = str(body.get("Approved", "False")).lower() == "true"
+    # A card that needs a 3D Secure check is live, but the challenge was
+    # never confirmed, so it is not the same as a card that went through.
+    three_ds = "3DS_REQUIRED" in (resp_text + " " + message).upper()
 
     if is_site_error:
         status = "error"
@@ -140,10 +201,14 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
         # The store says the card is expired.  That is a dead card, and it
         # stays a dead card even when the validator's own flag says approved.
         status = "declined"
-    elif charged or approved:
+    elif charged:
         status = "approved"
+    elif approved:
+        status = "approved_3ds" if three_ds else "approved"
     else:
         status = "declined"
+
+    details = await _card_details(cc)
 
     explanation = _reason_for(resp_text + " " + message)
     if not explanation and status == "declined":
@@ -165,6 +230,14 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
         "retry": body.get("Retry", False),
         "api_time": body.get("Time", "") or "",
         "extra": {"product": body.get("Product", "")},
+        "card_detail": _detail_string(details),
+        "brand": details.get("brand", ""),
+        "card_type": details.get("type", ""),
+        "bank": details.get("bank", ""),
+        "country": details.get("country", ""),
+        "bin": details.get("bin", ""),
+        "last4": details.get("last4", ""),
+        "three_ds": three_ds,
     }
 
 
@@ -229,18 +302,29 @@ async def shopify_api_check(cc, mm, yy, cvv, site=None, proxy=None, user_id=None
 
     response = str(result.get("response", "") or "Unknown").strip()
     message = response
+    # The card details, so the log says what the card is and not only
+    # what the store answered.
+    detail = str(result.get("card_detail", "") or "")
+
+    def _with_detail(text):
+        return f"{text} | {detail}" if detail else text
 
     if result.get("status") == "error":
         return message
 
     if any(k in response.upper() for k in EXPIRED_MARKERS):
-        return f"Declined - {message}"
+        return _with_detail(f"Declined - {message}")
+
+    if result.get("status") == "approved_3ds":
+        # The card is live, but the challenge was asked for and never
+        # confirmed, so it is not the same as a card that went through.
+        return _with_detail(f"Approved with 3ds - {message} (not confirmed)")
 
     if result.get("status") == "approved":
-        return f"Approved - {message}"
+        return _with_detail(f"Approved - {message}")
 
     price = result.get("amount")
     if price and str(price) != "N/A":
-        return f"{message} | ${price}"
+        return _with_detail(f"{message} | ${price}")
 
-    return message or response
+    return _with_detail(message or response)

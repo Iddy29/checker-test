@@ -2184,6 +2184,18 @@ async def shp_cmd(event):
 
     brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
 
+    # The log keeps what the card is, the way the other gates do.
+    _detail = str(result.get("card_detail") or "")
+    _logged = f"{resp} | {_detail}" if _detail else str(resp)
+    _alias = "shp2" if is_price_band else "shp"
+    try:
+        await log_gate_result(_alias, f"{cc}|{mm}|{yy}|{cvv}",
+                               classify_response(_logged), _logged, elapsed,
+                               event.sender_id, getattr(event.sender, "first_name", "") or "",
+                               "single", result.get("explanation") or "")
+    except Exception:
+        pass
+
     text = format_shopify_result(
         status_header, cc, mm, yy, cvv, resp,
         brand, bin_type, bank, country, flag, elapsed,
