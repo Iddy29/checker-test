@@ -1238,10 +1238,17 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
                         # for when the store will not look at the card.
                         verdict, detail, card_info = await _wc_account_check(
                             client, account, cc, mm, yy, cvv)
-                        if not verdict and os.environ.get(
+                        # When the store did not give a word about the
+                        # card (it said nothing, or its own risk rule
+                        # stopped it), the token check is the $0 check
+                        # that decides.
+                        if (not verdict or verdict == "Error") and os.environ.get(
                                 "B3_USE_TOKEN_CHECK", "1").strip() == "1":
-                            verdict, detail, card_info = await _token_check(
+                            token_verdict, token_detail, token_info = await _token_check(
                                 client, account, cc, mm, yy, cvv)
+                            if token_verdict:
+                                verdict, detail = token_verdict, token_detail
+                                card_info = card_info or token_info
                     except Exception as e:
                         verdict, detail, card_info = None, f"{type(e).__name__}: {str(e)[:60]}", None
                     if verdict:
