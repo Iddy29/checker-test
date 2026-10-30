@@ -23,7 +23,31 @@ def random_email():
     return f"{name}@gmail.com"
 
 
+def _dead_proxy(result):
+    """The answer that says the proxy never came back."""
+    text = str(result)
+    return ("Gateway timeout" in text or "ConnectError" in text
+            or "ProxyError" in text or "ReadTimeout" in text
+            or "ConnectTimeout" in text or "RemoteProtocolError" in text
+            or "PoolTimeout" in text)
+
+
 async def vbv_check(cc, mm, yy, cvv, proxy=None):
+    """The lookup, with a second try when the proxy stays quiet.
+
+    A proxy that does not answer used to take the whole gate with it and
+    the card never got a verdict.  The store answers straight from the
+    machine in a moment, so the gate goes on without the proxy.
+    """
+    if not proxy:
+        return await _vbv_run(cc, mm, yy, cvv, None)
+    result = await _vbv_run(cc, mm, yy, cvv, proxy)
+    if _dead_proxy(result):
+        result = await _vbv_run(cc, mm, yy, cvv, None)
+    return result
+
+
+async def _vbv_run(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
     if len(yy) == 4:
@@ -58,7 +82,7 @@ async def vbv_check(cc, mm, yy, cvv, proxy=None):
         'x-requested-with': 'XMLHttpRequest',
     }
 
-    client_kwargs = dict(timeout=httpx.Timeout(45.0), follow_redirects=True, verify=False)
+    client_kwargs = dict(timeout=httpx.Timeout(25.0), follow_redirects=True, verify=False)
     if proxy:
         client_kwargs["proxy"] = proxy
 

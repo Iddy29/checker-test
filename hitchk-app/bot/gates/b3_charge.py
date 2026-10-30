@@ -160,7 +160,31 @@ def _classify_bt_error(msg):
 
 CHARGE_AMOUNT = "4.45"
 
+def _dead_proxy(result):
+    """The answer that says the proxy never came back."""
+    text = str(result)
+    return ("Gateway timeout" in text or "ConnectError" in text
+            or "ProxyError" in text or "ReadTimeout" in text
+            or "ConnectTimeout" in text or "RemoteProtocolError" in text
+            or "PoolTimeout" in text)
+
+
 async def b3_charge_check(cc, mm, yy, cvv, proxy=None):
+    """The check, with a second try when the proxy stays quiet.
+
+    A proxy that does not answer used to take the whole gate with it and
+    the card never got a verdict.  The stores answer straight from the
+    machine in a moment, so the gate goes on without the proxy.
+    """
+    if not proxy:
+        return await _b3_charge_check_run(cc, mm, yy, cvv, None)
+    result = await _b3_charge_check_run(cc, mm, yy, cvv, proxy)
+    if _dead_proxy(result):
+        result = await _b3_charge_check_run(cc, mm, yy, cvv, None)
+    return result
+
+
+async def _b3_charge_check_run(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
     if len(yy) == 2:
