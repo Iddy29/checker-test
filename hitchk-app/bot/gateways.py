@@ -30,6 +30,7 @@ GATEWAY_REGISTRY = {
             "skl1": {"name": "Stripe Charge $1", "func": "skool_charge2.skool_charge2_check", "type": "charge"},
             "skl2": {"name": "Stripe Charge $9", "func": "skool_charge.skool_charge_check", "type": "charge"},
             "b3c": {"name": "Braintree Charge", "func": "b3_charge.b3_charge_check", "type": "charge"},
+            "wbc": {"name": "Woo Braintree Charge $19.99", "func": "wc_braintree_charge.wc_braintree_charge_check", "type": "charge"},
             "ppn": {"name": "PayPal Charge $1", "func": "ppnormal.ppnormal_check", "type": "charge"},
             "bnc": {"name": "PayPal Charge $1", "func": "binnaclehouse.binnaclehouse_check", "type": "charge"},
             "ch": {"name": "Stripe Charge €5", "func": "donate_ch.donate_ch_check", "type": "charge"},
@@ -460,6 +461,10 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                     # The paypal gate opens a browser, so it needs room.
                     if "paypal_gate" in gate_info.get("func_path", "").lower():
                         gate_timeout = max(gate_timeout, 150)
+                    # The woocommerce braintree gate opens a browser and
+                    # waits for the google token, so it needs room too.
+                    if "wc_braintree_charge" in gate_info.get("func_path", "").lower():
+                        gate_timeout = max(gate_timeout, 180)
                     if "budget_sec" in params:
                         try:
                             default_budget = int(

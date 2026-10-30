@@ -1010,6 +1010,7 @@ GATEWAY_DISPLAY_NAMES = {
     "skl1": "Stripe Charge $1",
     "skl2": "Stripe Charge $7",
     "b3c": "Braintree Charge",
+    "wbc": "Woo Braintree Charge $19.99",
     "ppn": "PayPal Charge $1",
     "bnc": "PayPal Charge $1",
     "ch": "Stripe Charge \u20ac5",
@@ -4254,7 +4255,7 @@ async def all_gateways_cmd(event):
 
     await edit_progress(done=True)
 
-@client.on(events.NewMessage(pattern=r'(?i)^[/\.](b3|sa|pp|mau|mb3|vbv|skl|skl1|skl2|ppn|b3c|ch|an|azz|adn|skb|st|rz|cw|charge|sq|isp|auto|bnc|ppk|rbc|sc|sc2|stc|stc2|shp2)\b'))
+@client.on(events.NewMessage(pattern=r'(?i)^[/\.](b3|sa|pp|mau|mb3|vbv|skl|skl1|skl2|ppn|b3c|wbc|ch|an|azz|adn|skb|st|rz|cw|charge|sq|isp|auto|bnc|ppk|rbc|sc|sc2|stc|stc2|shp2)\b'))
 async def gateway_cmd(event):
     match = re.match(r'[/\.]([\w]+)', event.raw_text)
     if match and match.group(1).lower() == 'auth':
@@ -4344,7 +4345,7 @@ async def gateway_cmd(event):
                         INLINE_MASS_LIMIT = max(INLINE_MASS_LIMIT, 1000)
                     if len(multi_cards) > INLINE_MASS_LIMIT:
                         return await event.reply(f"Maximum **{INLINE_MASS_LIMIT}** cards. Found {len(multi_cards)} in replied message.")
-                    if alias in ("b3", "b3c"):
+                    if alias in ("b3", "b3c", "wbc"):
                         is_prem = await is_premium_user(event.sender_id)
                         if not is_prem and event.sender_id not in ADMIN_ID:
                             return await event.reply("Mass checking on Braintree gates requires **Premium** access.")
@@ -4520,7 +4521,7 @@ async def gateway_cmd(event):
             if len(multi_cards) > INLINE_MASS_LIMIT:
                 return await event.reply(f"Maximum **{INLINE_MASS_LIMIT}** cards per message. You sent {len(multi_cards)}.")
 
-            if alias in ("b3", "b3c"):
+            if alias in ("b3", "b3c", "wbc"):
                 is_prem = await is_premium_user(event.sender_id)
                 if not is_prem and event.sender_id not in ADMIN_ID:
                     return await event.reply("Mass checking on Braintree gates requires **Premium** access.")
@@ -4747,7 +4748,7 @@ async def gateway_cmd(event):
                 brand, bin_type, bank, country, flag,
                 elapsed, first_name, event.sender_id, rank
             )
-        elif alias in ("b3", "b3c"):
+        elif alias in ("b3", "b3c", "wbc"):
             msg = format_braintree_result(
                 status_header, cc, mm, yy, cvv, response,
                 brand, bin_type, level, bank, country, flag,
@@ -5437,7 +5438,7 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
                 pass
             if warmed == 0:
                 return await event.reply("Stripe login error. Check credentials.")
-    elif alias in ("b3", "b3c"):
+    elif alias in ("b3", "b3c", "wbc"):
         concurrency = 3
     elif alias in ("ppn", "pp", "bnc", "ppk"):
         concurrency = 5
