@@ -3291,6 +3291,95 @@ async def add_adn_pk_cmd(event):
     await event.reply(f"Adyen Auth PK key set!\n\n**PK:** `{pk[:20]}...`\n\nUsers can now use `/adn` to check cards.")
 
 
+@client.on(events.NewMessage(pattern=r'(?i)^[/]setsquare\b'))
+async def set_square_cmd(event):
+    """Set the shop that the square charge gate charges at.
+
+    Usage: `/setsquare <location access token> <location id> [amount in cents]`
+    """
+    if event.sender_id not in ADMIN_ID:
+        return await event.reply("Only the admin can set the square shop.")
+
+    parts = event.message.text.split()
+    if len(parts) < 3:
+        return await event.reply(
+            "**Set the square shop**\n\n"
+            "Usage: `/setsquare <location access token> <location id> [amount in cents]`\n\n"
+            "The token belongs to the place of the shop and the id is that place.\n"
+            "The amount is in the small units, so 200 is two dollars.\n"
+            "It defaults to 200 ($2.00).")
+
+    token = parts[1].strip()
+    location = parts[2].strip()
+    amount = 200
+    if len(parts) >= 4:
+        try:
+            amount = int(parts[3].strip())
+            if amount <= 0:
+                return await event.reply("The amount must be a number in the small units. "
+                                        "For example 200 is two dollars.")
+        except ValueError:
+            return await event.reply("The amount must be a number in the small units. "
+                                    "For example 200 is two dollars.")
+
+    if not (token.startswith("EAAA") or token.startswith("EAGD") or token.startswith("sandbox-")):
+        return await event.reply("That does not look like a square access token. "
+                                "It starts with `EAAA`.")
+
+    from gates.square_charge import save_token, TOKEN_FILE
+    save_token(token, location)
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {"token": token, "location_id": location}
+    cfg["amount"] = amount
+    try:
+        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+    except Exception:
+        pass
+
+    # the gate must be able to ask the shop
+    ok = True
+    note = ""
+    try:
+        import httpx
+        url = ("https://connect.squareupsandbox.com/v2/locations"
+               if str(cfg.get("sandbox", "0")) == "1"
+               else "https://connect.squareup.com/v2/locations")
+        r = httpx.get(url, headers={
+            "Authorization": "Bearer " + token,
+            "Square-Version": "2024-06-20",
+            "User-Agent": "Mozilla/5.0",
+        }, timeout=20)
+        if r.status_code == 200:
+            try:
+                places = [p.get("id") for p in (r.json().get("locations") or [])]
+                if location not in places:
+                    note = ("\n\n⚠️ That place is not one of the places of the token: "
+                            + ", ".join(str(p) for p in places[:6]))
+            except Exception:
+                pass
+        else:
+            ok = False
+    except Exception as e:
+        ok = False
+        note = "\n\nThe shop could not be asked: %s" % str(e)[:80]
+
+    if not ok:
+        try:
+            os.remove(TOKEN_FILE)
+        except Exception:
+            pass
+        return await event.reply("❌ The square token did not work, so it was **not** saved.\n\n"
+                                 + (note or "") + "\n\nNothing was changed.")
+    return await event.reply("✅ The square shop is set.\n\n"
+                             "The place: `%s`\nThe amount: $%.2f\n"
+                             "The gate `/sq` charges there now."
+                             % (location, amount / 100.0) + (note or ""))
+
+
 @client.on(events.NewMessage(pattern=r'(?i)^[/]addsk\b'))
 async def add_sk_cmd(event):
     if event.sender_id not in ADMIN_ID:
