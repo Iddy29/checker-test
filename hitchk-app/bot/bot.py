@@ -1024,6 +1024,7 @@ GATEWAY_DISPLAY_NAMES = {
     "sc2": "WooCommerce Stripe $1",
     "stc": "Stripe Charge $0.50",
     "stc2": "Stripe Charge $1",
+    "st2": "Stripe Charge $2",
     "Stripe CO": "Stripe Checkout",
 }
 
@@ -4257,7 +4258,7 @@ async def all_gateways_cmd(event):
 
     await edit_progress(done=True)
 
-@client.on(events.NewMessage(pattern=r'(?i)^[/\.](b3|sa|pp|mau|mb3|vbv|skl|skl1|skl2|ppn|b3c|wbc|wbw|ch|an|azz|adn|skb|st|rz|cw|charge|sq|isp|auto|bnc|ppk|rbc|sc|sc2|stc|stc2|shp2)\b'))
+@client.on(events.NewMessage(pattern=r'(?i)^[/\.](b3|sa|pp|mau|mb3|vbv|skl|skl1|skl2|ppn|b3c|wbc|wbw|ch|an|azz|adn|skb|st|rz|cw|charge|sq|isp|auto|bnc|ppk|rbc|sc|sc2|stc|stc2|st2|shp2)\b'))
 async def gateway_cmd(event):
     match = re.match(r'[/\.]([\w]+)', event.raw_text)
     if match and match.group(1).lower() == 'auth':

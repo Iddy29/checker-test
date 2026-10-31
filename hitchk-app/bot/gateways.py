@@ -43,6 +43,7 @@ GATEWAY_REGISTRY = {
             "sc2": {"name": "WooCommerce Stripe $1", "func": "woo_stripe.woo_stripe_check_100", "type": "charge"},
             "stc": {"name": "Stripe Charge $0.50", "func": "stripe_auth.stripe_charge_050", "type": "charge"},
             "stc2": {"name": "Stripe Charge $1", "func": "stripe_auth.stripe_charge_100", "type": "charge"},
+            "st2": {"name": "Stripe Charge $2", "func": "stripe_charge.stripe_charge_check_200", "type": "charge"},
         }
     },
 }

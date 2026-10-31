@@ -281,3 +281,9 @@ async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
             return f"Declined - Status: {status} [{elapsed}s]"
 
         return f"Declined - Unknown [{elapsed}s]"
+
+
+async def stripe_charge_check_200(cc, mm, yy, cvv, proxy=None, **kwargs):
+    """A charge of two dollars."""
+    return await stripe_charge_check(cc, mm, yy, cvv, amount_cents=200,
+                                     proxy=proxy, **kwargs)
