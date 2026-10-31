@@ -1122,14 +1122,18 @@ async def _fetch_products(
     hostname = urlparse(base_url).netloc
     now      = time.time()
 
-    cached = _product_cache.get(hostname)
+    # The cache keeps one entry per store and price band.  A narrow band
+    # must not serve its answer to a wide one, and the other way round.
+    cache_key = f"{hostname}|{max_price:.2f}"
+
+    cached = _product_cache.get(cache_key)
     if cached and (now - cached["ts"]) < _product_cache_ttl(cached):
         return cached.get("product"), cached.get("candidates", []), cached.get("err")
 
     # Only one fetch per store at a time; the rest wait for its result.
     async with _product_locks[hostname]:
         now = time.time()
-        cached = _product_cache.get(hostname)
+        cached = _product_cache.get(cache_key)
         if cached and (now - cached["ts"]) < _product_cache_ttl(cached):
             return cached.get("product"), cached.get("candidates", []), cached.get("err")
 
@@ -1150,6 +1154,7 @@ async def _fetch_products_locked(
     product list that never arrives.
     """
     now = time.time()
+    cache_key = f"{hostname}|{max_price:.2f}"
 
     session, owned = _make_session(None)
 
@@ -1170,7 +1175,7 @@ async def _fetch_products_locked(
                         break
                 elif resp.status_code in (429, 430):
                     err = "THROTTLED"
-                    _product_cache[hostname] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": False}
+                    _product_cache[cache_key] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": False}
                     return None, [], err
             except Exception:
                 continue
@@ -1235,7 +1240,7 @@ async def _fetch_products_locked(
 
             if not any_variant:
                 err = "No products found"
-                _product_cache[hostname] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": False}
+                _product_cache[cache_key] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": False}
                 return None, [], err
         else:
             for product in all_variants:
@@ -1275,15 +1280,15 @@ async def _fetch_products_locked(
         if not candidates:
             cheapest_txt = (f"${cheapest_any_price:.2f}" if cheapest_any is not None else "n/a")
             err = f"No products under ${max_price:.2f} (cheapest is {cheapest_txt})"
-            _product_cache[hostname] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": True}
+            _product_cache[cache_key] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": True}
             return None, [], err
 
         if not best:
             err = f"No products under ${max_price:.2f}"
-            _product_cache[hostname] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": True}
+            _product_cache[cache_key] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": True}
             return None, [], err
 
-        _product_cache[hostname] = {
+        _product_cache[cache_key] = {
             "ok":         True,
             "product":    best,
             "candidates": candidates,
@@ -1379,7 +1384,8 @@ async def validate_card(
             s_zip  = addr["postalCode"]
 
             # ── 0. Fetch product ─────────────────────────────────────────
-            best, all_candidates, err = await _fetch_products(ourl, proxy_str)
+            best, all_candidates, err = await _fetch_products(
+                ourl, proxy_str, effective_max_price)
 
             if all_candidates:
                 candidates_under_max = [

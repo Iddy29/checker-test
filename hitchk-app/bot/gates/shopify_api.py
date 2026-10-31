@@ -225,13 +225,15 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
     message = str(body.get("Message", "") or resp_text).strip()
     elapsed = round(time.time() - t0, 2)
 
+    is_site_error = any(resp_text.startswith(k) for k in SITE_ERROR_PREFIXES)
+
     # A shop that gave a real answer is kept, so the next card goes
-    # straight to it.
-    if body.get("Site") and resp_text not in ("NO_PRODUCT", "CART_FAILED", "SITE_ERROR",
-                                             "THROTTLED", "TIMEOUT"):
+    # straight to it.  The code can carry a prefix ("NO_PRODUCT: ..."),
+    # so the shop error list decides it, not an exact match.
+    if body.get("Site") and not is_site_error:
         _remember_site(body.get("Site"))
 
-    is_site_error = any(resp_text.startswith(k) for k in SITE_ERROR_PREFIXES)
+    # The code can sit in the response or in the message, so both are read.
     # The code can sit in the response or in the message, so both are read.
     is_expired = any(k in (resp_text + " " + message).upper() for k in EXPIRED_MARKERS)
     charged = str(body.get("Charged", "False")).lower() == "true"

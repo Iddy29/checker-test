@@ -1907,10 +1907,12 @@ def _mass_concurrency(alias, cards, skool_count=1):
     override = os.environ.get("ST_MASS_WORKERS")
     if override:
         return max(1, min(int(override), n or 1))
-    if alias == "shp":
+    if alias in ("shp", "shp2"):
         # Measured on the validator: 24 checks at a time come back clean
         # (3.2 cards/s); at 48 the stores start refusing the checkout
         # and at 96 the whole run falls apart.  So 24 is the ceiling.
+        # The $1 to $2 shopify gate is the same kind of check, so it
+        # gets the same number of workers.
         workers = int(os.environ.get("SHP_MASS_WORKERS", "24"))
     elif alias == "st":
         # measured on the live store: 3 workers -> 0.58 cards/s, 4 -> 0.78,
@@ -5547,7 +5549,7 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
         # requests.  Four is the widest it takes, so a 1000 card file takes
         # about 13-16 minutes.
         concurrency = _mass_concurrency(alias, cards, 1)
-    elif alias == "shp":
+    elif alias in ("shp", "shp2"):
         # Measured on the validator service: 24 checks at a time come back
         # clean (3.2 cards/s), at 48 the stores start refusing the
         # checkout and at 96 the run falls apart.  This flow used to run
@@ -5699,7 +5701,7 @@ async def process_mass_gateway(event, replied_msg, alias, gate_name, fast_mode=F
                         # attempt when the proxy is dead, so it needs more
                         # room than the default cap
                         mass_timeout = 75
-                    if alias == "shp":
+                    if alias in ("shp", "shp2"):
                         # a real checkout with 24 workers running: a slow
                         # store can take a while, and cutting the check
                         # short would throw away a card that was fine
