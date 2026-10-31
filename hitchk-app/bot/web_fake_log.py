@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 os.chdir(os.path.dirname(__file__))
 
 from gates.stripe_co import _fetch_checkout_info
-import httpx
+from browser_identity import BrowserClient
 import requests
 
 def generate_fake_card():
@@ -30,7 +30,7 @@ def generate_fake_card():
 
 
 async def fetch_checkout_details(checkout_url):
-    async with httpx.AsyncClient(verify=False) as client:
+    async with BrowserClient() as client:
         info, err = await _fetch_checkout_info(client, checkout_url)
         if err or not info:
             return None, err or "Failed to fetch checkout info"

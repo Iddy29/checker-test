@@ -151,7 +151,24 @@ def _proxy_url(proxy):
     return f"{proxy.get('scheme', 'http')}://{auth}{proxy['host']}:{proxy['port']}"
 
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+# The browser this solver pretends to be.  It has to be the same
+# browser the api client uses, or the token it wins is thrown away.
+import os as _os
+import sys as _sys
+
+_bot_dir = _os.path.dirname(_os.path.abspath(__file__))
+if _bot_dir not in _sys.path:
+    _sys.path.insert(0, _bot_dir)
+
+try:
+    from browser_identity import (BrowserSession, api_headers, navigation_headers,
+                                  USER_AGENT as UA)
+except Exception:  # the old name when the module is missing
+    UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+    BrowserSession = None
+    api_headers = None
+    navigation_headers = None
 
 
 async def _nopecha_solve(task_type, sitekey, pageurl, session=None, extra=None):
@@ -887,14 +904,20 @@ async def submit_captcha_token(session, page_url, token, captcha_type, html):
             form_data["h-captcha-response"] = token
             form_data["g-recaptcha-response"] = token
 
-        headers = {
-            'User-Agent': UA,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': page_url,
-            'Origin': f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}",
-        }
+        if api_headers is not None:
+            headers = api_headers(
+                origin=f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}",
+                referer=page_url,
+                accept="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        else:
+            headers = {
+                'User-Agent': UA,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': page_url,
+                'Origin': f"{urlparse(page_url).scheme}://{urlparse(page_url).netloc}",
+            }
 
         logger.info(f"Submitting captcha token to: {form_action[:80]}, fields: {list(form_data.keys())}")
 
@@ -928,11 +951,10 @@ async def submit_captcha_token(session, page_url, token, captcha_type, html):
 
 async def solve_checkpoint(checkpoint_url, http_session):
     try:
-        headers = {
-            'User-Agent': UA,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-        }
+        headers = (navigation_headers() if navigation_headers is not None else
+                   {'User-Agent': UA,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9'})
 
         logger.info(f"Fetching checkpoint URL: {checkpoint_url[:80]}")
         async with http_session.get(

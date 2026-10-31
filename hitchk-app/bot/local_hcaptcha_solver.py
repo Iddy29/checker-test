@@ -13,10 +13,28 @@ import time
 
 logger = logging.getLogger("local_captcha")
 
-# The user agent is never written by hand: a browser that claims a
-# different version than it really is gives itself away, and hCaptcha
-# reads that.  So the browser keeps its own.
-UA = None
+# The browser has to say the same name as the client that hands the
+# token in.  A token belongs to the browser that won it, so when the
+# two disagree the token is worth nothing.
+#
+# The browser on the machine is a headless build of another version.
+# It is told the name the api client uses, through the browser's own
+# setting, so the name, the client hints and the handshake all belong
+# to one browser.
+import os as _os
+import sys as _sys
+
+_bot_dir = _os.path.dirname(_os.path.abspath(__file__))
+if _bot_dir not in _sys.path:
+    _sys.path.insert(0, _bot_dir)
+
+try:
+    from browser_identity import (apply_browser_identity, client_hints_metadata,
+                                  USER_AGENT as UA)
+except Exception:  # the browser keeps its own name when the module is missing
+    UA = None
+    apply_browser_identity = None
+    client_hints_metadata = None
 
 # the small things that give a browser away
 STEALTH = """
@@ -493,6 +511,10 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
             # a fresh page, so the scripts above are on it: the page
             # that was open when the profile loaded has none of them
             page = await ctx.new_page()
+            # the browser is told which browser it is, so the token it
+            # wins belongs to the browser the request comes from
+            if apply_browser_identity is not None:
+                await apply_browser_identity(page, client_hints_metadata())
             await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
             await page.wait_for_timeout(1200)
 
