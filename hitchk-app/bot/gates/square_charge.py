@@ -12,6 +12,7 @@ Square answers in the same call, so nothing of the card is kept on the
 way.
 """
 import json
+import logging
 import os
 import random
 import string
@@ -19,6 +20,8 @@ import time
 import uuid
 
 import httpx
+
+logger = logging.getLogger("square_charge")
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -115,8 +118,8 @@ async def square_charge_check(cc, mm, yy, cvv, proxy=None, **kwargs):
     token = cfg.get("token") or ""
     location = cfg.get("location_id") or ""
     if not token or not location:
-        return ("Error - no square shop is set. Give the location token and the "
-                "location id. [0.0s]")
+        return ("Error - no square shop is set. The admin can give it with "
+                "`/setsquare <token> <location id>`. [0.0s]")
 
     amount = kwargs.get("amount") or cfg.get("amount") or DEFAULT_AMOUNT
     try:
@@ -145,6 +148,9 @@ async def square_charge_check(cc, mm, yy, cvv, proxy=None, **kwargs):
     client_kwargs = {"timeout": httpx.Timeout(45.0)}
     if proxy:
         client_kwargs["proxy"] = proxy
+    # the proxy is used for the charge, so it is written down
+    logger.info("the square charge of $%.2f goes through %s",
+                amount / 100.0, (proxy or "the machine itself")[:40])
     try:
         async with httpx.AsyncClient(**client_kwargs) as client:
             r = await client.post(url, json=payload, headers={
