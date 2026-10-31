@@ -1,4 +1,4 @@
-import httpx
+import browser_http as httpx   # the browser client
 import time
 import json
 import os
@@ -88,8 +88,12 @@ def get_charge_sk():
     return sk, amount
 
 
-async def stripe_charge_check(cc, mm, yy, cvv, proxy=None):
-    sk, amount_cents = get_charge_sk()
+async def stripe_charge_check(cc, mm, yy, cvv, proxy=None, amount_cents=None):
+    sk, wanted = get_charge_sk()
+    if amount_cents is None:
+        amount_cents = wanted
+    else:
+        amount_cents = int(amount_cents)
     if not sk:
         return "Error - No SK configured. Admin: /addsk <sk_live_xxx> [amount_cents]"
 

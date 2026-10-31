@@ -1,4 +1,5 @@
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import USER_AGENT as BROWSER_UA
 import asyncio
 import json
 import re
@@ -11,7 +12,7 @@ from urllib.parse import urlparse, urljoin
 
 logger = logging.getLogger("authnet")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+UA = BROWSER_UA   # the browser this gate speaks as
 
 AUTHNET_API_URL = "https://api.authorize.net/xml/v1/request.api"
 

@@ -1,4 +1,5 @@
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import ANDROID_UA
 import asyncio
 import re
 import random
@@ -6,7 +7,7 @@ import string
 import time
 import uuid
 
-UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
+UA = ANDROID_UA   # the phone this gate speaks as
 
 LIVE_DECLINE_CODES = [
     "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",

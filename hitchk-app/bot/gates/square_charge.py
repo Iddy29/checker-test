@@ -19,8 +19,7 @@ import string
 import time
 import uuid
 
-import httpx
-
+import browser_http as httpx   # the browser client
 logger = logging.getLogger("square_charge")
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

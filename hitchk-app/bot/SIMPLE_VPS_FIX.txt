@@ -1,0 +1,74 @@
+================================================================================
+SIMPLEST FIX - COPY & PASTE IN PUTTY
+================================================================================
+
+STEP 1: Open PuTTY
+-------------------
+- Double-click PuTTY
+- Host Name: 72.62.2.181
+- Port: 22
+- Click "Open"
+
+STEP 2: Login
+-------------
+- login as: root
+- Password: MIMIhapa123@#
+  (Type it - you won't see characters, that's normal)
+  (NO comma at the beginning!)
+
+STEP 3: Paste This Block
+-------------------------
+Copy EVERYTHING below and paste it in PuTTY:
+
+cd /root/hitchecker
+pkill -9 -f python
+sleep 2
+echo '{"TELEGRAM_BOT_TOKEN":"8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo","TELEGRAM_API_ID":"20464","TELEGRAM_API_HASH":"c4a32e97023c4d3e6c8f5a9b2d1e3f4a"}' > bot/config.json
+rm -f bot/cc_bot.session*
+nohup python3 bot.py > bot.log 2>&1 &
+sleep 5
+ps aux | grep python
+echo "DONE - Test bot: https://t.me/Myhitz_bot"
+
+STEP 4: Press Enter
+--------------------
+- Wait 10 seconds
+- You should see python processes listed
+- Then you'll see "DONE"
+
+STEP 5: Test in Telegram
+-------------------------
+1. Open Telegram
+2. Go to: https://t.me/Myhitz_bot
+3. CLOSE the chat completely
+4. REOPEN it
+5. Send: /start
+6. Bot should respond!
+
+================================================================================
+IF BOT STILL DOESN'T RESPOND:
+================================================================================
+
+Try creating a NEW bot:
+
+1. In Telegram, search: @BotFather
+2. Send: /newbot
+3. Follow instructions
+4. Get NEW TOKEN
+5. In PuTTY, run:
+
+cd /root/hitchecker
+pkill -9 -f python
+sleep 2
+python3 -c "import json; json.dump({'TELEGRAM_BOT_TOKEN':'YOUR_NEW_TOKEN_HERE'}, open('bot/config.json','w'),indent=2)"
+rm -f bot/cc_bot.session*
+nohup python3 bot.py > bot.log 2>&1 &
+sleep 5
+ps aux | grep python
+echo "DONE"
+
+Replace YOUR_NEW_TOKEN_HERE with actual token from BotFather
+
+================================================================================
+THAT'S IT!
+================================================================================

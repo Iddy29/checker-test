@@ -79,8 +79,7 @@ import re
 import time
 
 import os
-import httpx
-
+import browser_http as httpx   # the browser client
 logger = logging.getLogger(__name__)
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

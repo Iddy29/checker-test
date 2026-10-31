@@ -27,8 +27,7 @@ import sys
 import time
 import uuid
 
-import httpx
-
+import browser_http as httpx   # the browser client
 sys.path.insert(0, os.path.dirname(__file__))
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

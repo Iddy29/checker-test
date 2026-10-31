@@ -1,4 +1,4 @@
-import httpx
+import browser_http as httpx   # the browser client
 import asyncio
 import random
 import string

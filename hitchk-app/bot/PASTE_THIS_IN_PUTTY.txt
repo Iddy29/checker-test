@@ -1,0 +1,59 @@
+================================================================================
+COPY AND PASTE THIS ENTIRE BLOCK INTO PuTTY AFTER CONNECTING
+================================================================================
+
+cd /root/hitchecker
+pkill -9 -f python
+sleep 2
+
+cat > bot/config.json << 'EOFCONFIG'
+{
+  "TELEGRAM_BOT_TOKEN": "8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo",
+  "TELEGRAM_API_ID": "20464",
+  "TELEGRAM_API_HASH": "c4a32e97023c4d3e6c8f5a9b2d1e3f4a"
+}
+EOFCONFIG
+
+rm -f bot/cc_bot.session*
+pip3 install aiofiles aiohttp telethon requests flask --quiet --upgrade
+
+BOT_TOKEN="8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo"
+curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/setMyCommands" -H "Content-Type: application/json" -d '{"commands":[{"command":"start","description":"Start bot"},{"command":"help","description":"Help"}]}'
+
+nohup python3 api_server.py > web.log 2>&1 &
+cd bot
+nohup python3 bot.py > bot.log 2>&1 &
+sleep 5
+
+echo "=========================================="
+echo "STATUS:"
+ps aux | grep -v grep | grep python
+echo ""
+echo "Port 5000:"
+netstat -tlnp | grep 5000
+echo ""
+echo "Bot logs:"
+tail -20 bot.log
+echo ""
+echo "=========================================="
+echo "DONE!"
+echo "Test: https://t.me/Myhitz_bot"
+echo "Send /start - should see menu!"
+echo "=========================================="
+
+================================================================================
+END OF SCRIPT - COPY EVERYTHING ABOVE
+================================================================================
+
+INSTRUCTIONS:
+
+1. Open PuTTY
+2. Connect to: 72.62.2.181
+   - Username: root
+   - Password: MIMIhapa123@# (no comma!)
+3. When you see the prompt, PASTE the entire block above
+4. Press Enter
+5. Wait for it to complete (about 30 seconds)
+6. Test your bot: https://t.me/Myhitz_bot
+
+The bot will start working immediately!

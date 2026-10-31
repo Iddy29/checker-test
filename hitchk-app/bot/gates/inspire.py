@@ -1,4 +1,5 @@
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import USER_AGENT as BROWSER_UA
 import random
 import string
 import time
@@ -24,7 +25,7 @@ STRIPE_TIMEOUT = 25
 
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+UA = BROWSER_UA   # the browser this gate speaks as
 
 LIVE_DECLINES = [
     "insufficient_funds", "do_not_honor", "lost_card", "stolen_card",

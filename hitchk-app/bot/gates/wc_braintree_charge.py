@@ -29,8 +29,7 @@ import sys
 import time
 import uuid
 
-import httpx
-
+import browser_http as httpx   # the browser client
 sys.path.insert(0, os.path.dirname(__file__))
 from braintree_idt import (account_stores, _chosen_store, _tokenize_card,
                            _parse_card_info, UA)

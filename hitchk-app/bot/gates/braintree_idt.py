@@ -1,6 +1,7 @@
 import asyncio
 import datetime
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import USER_AGENT as BROWSER_UA
 import os
 import re
 import random
@@ -179,7 +180,7 @@ def _verdict_from_reason(reason):
     return "Declined", text[:140]
 
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+UA = BROWSER_UA   # the browser this gate speaks as
 
 TOKENIZE_QUERY = """
 mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {

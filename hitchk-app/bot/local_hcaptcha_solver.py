@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import sys
 import time
 
 logger = logging.getLogger("local_captcha")
@@ -231,6 +232,26 @@ _BROWSER_IDLE = 180.0
 _BROWSER_PROXY = None
 
 
+def _clear_the_lock():
+    """Take the lock of a browser that died away.
+
+    A browser that is killed leaves its lock in the profile, and the
+    next browser refuses to start on it.  Then every captcha fails for
+    a reason that has nothing to do with the captcha.
+    """
+    try:
+        folder = _profile_dir()
+        for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+            path = os.path.join(folder, name)
+            if os.path.islink(path) or os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+
 async def _get_browser(launch):
     """The browser, opened once and kept for a while.
 
@@ -260,11 +281,19 @@ async def _get_browser(launch):
             _profile_dir(), channel="chrome", bypass_csp=True, **launch)
     except Exception as e:
         logger.debug("the saved profile browser did not start: %s", e)
-        browser = await _PW.chromium.launch(**launch)
-        ctx = await browser.new_context(
-            bypass_csp=True,
-            locale="en-US", timezone_id="America/Chicago",
-            viewport={"width": 1366, "height": 900})
+        # a browser that was killed leaves its lock behind, and the next
+        # one refuses to start on it
+        _clear_the_lock()
+        try:
+            ctx = await _PW.chromium.launch_persistent_context(
+                _profile_dir(), channel="chrome", bypass_csp=True, **launch)
+        except Exception as e2:
+            logger.debug("the saved profile browser did not start again: %s", e2)
+            browser = await _PW.chromium.launch(**launch)
+            ctx = await browser.new_context(
+                bypass_csp=True,
+                locale="en-US", timezone_id="America/Chicago",
+                viewport={"width": 1366, "height": 900})
     _BROWSER = ctx
     _BROWSER_AT = time.time()
     _BROWSER_PROXY = wanted
@@ -485,6 +514,70 @@ LAST_REASON = ""
 
 async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
                             widget_js=None, widget_arg=None, widget_arg2=None):
+    """The browser work, in a process of its own.
+
+    When the browser dies the driver goes with it, and the driver takes
+    the whole bot down with it.  So the browser is run apart, and the
+    token comes back through a pipe.
+    """
+    import json
+    import subprocess
+    import sys
+
+    job = {
+        "page_url": page_url,
+        "timeout": timeout,
+        "proxy": proxy,
+        "extra_js": extra_js,
+        "widget_js": widget_js,
+        "widget_arg": widget_arg,
+        "widget_arg2": widget_arg2,
+    }
+    me = os.path.abspath(__file__)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, me, "--worker",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except Exception as e:
+        logger.info("the browser worker did not start: %s", e)
+        return None
+
+    try:
+        out, _ = await asyncio.wait_for(
+            proc.communicate(json.dumps(job).encode("utf-8")),
+            timeout=timeout + 90,
+        )
+    except asyncio.TimeoutError:
+        logger.info("the browser worker took too long and was stopped")
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        logger.info("the browser worker failed: %s", e)
+        return None
+
+    try:
+        answer = json.loads((out or b"{}").decode("utf-8", "replace"))
+    except Exception:
+        logger.info("the browser worker said nothing that could be read")
+        return None
+
+    global LAST_REASON, LAST_EKEY
+    LAST_REASON = answer.get("reason") or ""
+    LAST_EKEY = answer.get("ekey") or ""
+    token = answer.get("token") or ""
+    if token:
+        logger.info("the local hCaptcha solver got a token")
+    return token or None
+
+
+async def _solve_in_a_process(page_url, timeout=60, proxy=None, extra_js=None,
+                              widget_js=None, widget_arg=None, widget_arg2=None):
     """Open the page in a real browser and read the token out of it."""
     global LAST_REASON
     LAST_REASON = ""
@@ -718,8 +811,37 @@ async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=0):
     return None
 
 
+async def _worker(job):
+    """The browser work, as a program of its own.
+
+    This is what runs in the other process.  The answer comes back as
+    one line of json.
+    """
+    import json
+    token = ""
+    reason = ""
+    ekey = ""
+    try:
+        token = await _solve_in_a_process(
+            job.get("page_url") or "",
+            timeout=job.get("timeout") or 60,
+            proxy=job.get("proxy"),
+            extra_js=job.get("extra_js"),
+            widget_js=job.get("widget_js"),
+            widget_arg=job.get("widget_arg"),
+            widget_arg2=job.get("widget_arg2"),
+        ) or ""
+    except Exception as e:
+        reason = "%s: %s" % (type(e).__name__, str(e)[:80])
+    if not reason:
+        reason = LAST_REASON or ""
+    ekey = LAST_EKEY or ""
+    sys.stdout.write(json.dumps({"token": token, "reason": reason, "ekey": ekey}))
+    sys.stdout.flush()
+
+
 async def solve_turnstile_local(sitekey, pageurl, proxy=None, timeout=0,
-                                action=None, cdata=None):
+                                  action=None, cdata=None):
     """A Turnstile token, straight from a browser."""
     if not pageurl:
         return None
@@ -735,3 +857,25 @@ async def solve_turnstile_local(sitekey, pageurl, proxy=None, timeout=0,
     except Exception as e:
         logger.info("the local Turnstile solver failed: %s", e)
     return None
+
+
+if __name__ == "__main__" and "--worker" in sys.argv:
+    import json
+    import sys
+
+    async def _run():
+        try:
+            raw = sys.stdin.read()
+        except Exception:
+            raw = ""
+        try:
+            job = json.loads(raw)
+        except Exception:
+            job = {}
+        await _worker(job)
+
+    try:
+        asyncio.run(_run())
+    except Exception:
+        pass
+    os._exit(0)

@@ -1,0 +1,111 @@
+================================================================================
+COPY AND PASTE THIS ENTIRE BLOCK TO YOUR VPS TERMINAL
+================================================================================
+
+# Step 1: Connect to VPS (from your Windows PC)
+# ssh root@72.62.2.181
+# Password: ,MIMIhapa123@#
+
+# Step 2: Paste ALL these commands at once:
+
+echo "=== STOPPING OLD PROCESSES ==="
+pkill -9 -f "python.*bot.py"
+pkill -9 -f "python.*api_server"
+pkill -9 -f "python.*app.py"
+sleep 2
+
+echo "=== FINDING DIRECTORIES ==="
+BOT_DIR=$(find /opt /root /home -name "bot.py" 2>/dev/null | grep -v __pycache__ | head -1 | xargs dirname)
+WEB_DIR=$(find /opt /root /home -name "api_server.py" -o -name "app.py" 2>/dev/null | grep -v __pycache__ | head -1 | xargs dirname)
+echo "Bot directory: $BOT_DIR"
+echo "Web directory: $WEB_DIR"
+
+echo "=== UPDATING BOT CONFIG ==="
+cd $BOT_DIR
+python3 -c "import json; c=json.load(open('config.json')); c['TELEGRAM_BOT_TOKEN']='8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo'; json.dump(c,open('config.json','w'),indent=2); print('✓ Token updated')"
+
+echo "=== INSTALLING DEPENDENCIES ==="
+pip3 install aiofiles aiohttp telethon requests flask --upgrade --quiet
+
+echo "=== CLEANING SESSION ==="
+rm -f cc_bot.session*
+
+echo "=== STARTING WEB SERVER ==="
+cd $WEB_DIR 2>/dev/null || cd $BOT_DIR
+if [ -f "api_server.py" ]; then
+    nohup python3 api_server.py > web_server.log 2>&1 &
+    echo "✓ Started api_server.py"
+elif [ -f "app.py" ]; then
+    nohup python3 app.py > web_server.log 2>&1 &
+    echo "✓ Started app.py"
+fi
+sleep 3
+
+echo "=== TESTING WEB SERVER ==="
+curl -s http://localhost:5000/ | head -5 || echo "⚠ Web server check"
+
+echo "=== SETTING WEBHOOK ==="
+curl -s "https://api.telegram.org/bot8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo/setWebhook?url=http://72.62.2.181:5000/webhook"
+echo ""
+
+echo "=== STARTING TELEGRAM BOT ==="
+cd $BOT_DIR
+nohup python3 bot.py > bot.log 2>&1 &
+sleep 5
+
+echo "=== CHECKING STATUS ==="
+echo "Bot process:"
+ps aux | grep -v grep | grep bot.py || echo "✗ Bot NOT running"
+
+echo ""
+echo "Web process:"
+ps aux | grep -v grep | grep -E "(api_server|app.py)" || echo "✗ Web NOT running"
+
+echo ""
+echo "Port 5000:"
+netstat -tlnp 2>/dev/null | grep 5000 || ss -tlnp 2>/dev/null | grep 5000 || echo "✗ Port 5000 not in use"
+
+echo ""
+echo "=== BOT LOGS ==="
+tail -30 bot.log | grep -E "(started|Started|error|Error)" || tail -30 bot.log
+
+echo ""
+echo "=== TEST BOT TOKEN ==="
+curl -s "https://api.telegram.org/bot8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo/getMe"
+
+echo ""
+echo "=== WEBHOOK INFO ==="
+curl -s "https://api.telegram.org/bot8589911426:AAFLChEyrmBhO4mSDnDwIrmjbvumTvSpIbo/getWebhookInfo"
+
+echo ""
+echo "=============================================="
+echo "✅ FIX COMPLETE!"
+echo "=============================================="
+echo ""
+echo "📱 TEST IN TELEGRAM NOW:"
+echo "   https://t.me/Myhitz_bot"
+echo "   Send: /start"
+echo ""
+echo "🌐 WEB SERVER:"
+echo "   http://72.62.2.181:5000/"
+echo ""
+echo "If bot still doesn't respond:"
+echo "   tail -f $BOT_DIR/bot.log"
+echo ""
+
+================================================================================
+END OF SCRIPT - COPY EVERYTHING ABOVE
+================================================================================
+
+INSTRUCTIONS:
+
+1. Open PowerShell on your Windows PC
+2. Run: ssh root@72.62.2.181
+3. Enter password: ,MIMIhapa123@#
+4. COPY the entire script above (from "# Step 2:" to "END OF SCRIPT")
+5. PASTE it into the SSH terminal
+6. Press Enter
+7. Wait for it to complete
+8. Test your bot: https://t.me/Myhitz_bot
+
+================================================================================

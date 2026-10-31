@@ -1,0 +1,185 @@
+================================================================================
+                    TELEGRAM BOT - VPS DEPLOYMENT GUIDE
+================================================================================
+
+VPS CONNECTION DETAILS:
+-----------------------
+Host (IP):     72.62.2.181
+Username:      root
+Password:      ,MIMIhapa123@#
+Target Dir:    /opt/telegram-bot
+
+================================================================================
+METHOD 1: Using WinSCP (RECOMMENDED - EASIEST)
+================================================================================
+
+1. Download WinSCP from: https://winscp.net/eng/download.php
+
+2. Open WinSCP and enter:
+   - File protocol: SFTP
+   - Host name: 72.62.2.181
+   - Port number: 22
+   - Username: root
+   - Password: ,MIMIhapa123@#
+
+3. Click "Login" (accept host key if prompted)
+
+4. In the RIGHT panel (remote VPS), navigate to /opt/
+   Create a new folder named "telegram-bot" if it doesn't exist
+
+5. In the LEFT panel (local), navigate to this bot folder
+
+6. Select ALL files and folders, then drag them to the RIGHT panel
+   (to /opt/telegram-bot/)
+
+7. Wait for upload to complete
+
+8. Open PuTTY (download from: https://www.putty.org/)
+   - Host Name: 72.62.2.181
+   - Port: 22
+   - Connection type: SSH
+   - Click "Open"
+
+9. Login with:
+   - Login: root
+   - Password: ,MIMIhapa123@# (won't show as you type)
+
+10. Run these commands:
+    cd /opt/telegram-bot
+    chmod +x setup_vps.sh
+    ./setup_vps.sh
+    
+    Wait for installation to complete...
+    
+    systemctl start telegram-bot
+    systemctl status telegram-bot
+
+11. View logs:
+    journalctl -u telegram-bot -f
+
+================================================================================
+METHOD 2: Using Git (if you have a repository)
+================================================================================
+
+On VPS (via SSH):
+
+cd /opt/telegram-bot
+git clone <your-repo-url> .
+pip3 install -r requirements.txt
+chmod +x start.sh
+cp telegram-bot.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable telegram-bot
+systemctl start telegram-bot
+systemctl status telegram-bot
+
+================================================================================
+METHOD 3: Direct SCP from another Linux server
+================================================================================
+
+From your Linux machine:
+
+scp -r * root@72.62.2.181:/opt/telegram-bot/
+
+Then SSH in and run setup as shown above
+
+================================================================================
+VERIFICATION
+================================================================================
+
+After deployment, verify the bot is running:
+
+1. Check service status:
+   systemctl status telegram-bot
+
+2. View logs:
+   journalctl -u telegram-bot -f
+
+3. Test bot in Telegram:
+   - Open Telegram
+   - Search for your bot
+   - Send /start command
+   - Bot should respond!
+
+4. Check if bot process is running:
+   ps aux | grep bot.py
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: Bot won't start
+Solution: 
+   - Check config.json exists: ls -la /opt/telegram-bot/config.json
+   - Test manually: cd /opt/telegram-bot && python3 bot.py
+   - Check logs: journalctl -u telegram-bot -f
+
+Problem: Permission denied
+Solution:
+   chmod 755 /opt/telegram-bot/*.sh
+   chmod 600 /opt/telegram-bot/config.json
+
+Problem: Missing dependencies
+Solution:
+   cd /opt/telegram-bot
+   pip3 install -r requirements.txt
+
+Problem: Bot crashes on startup
+Solution:
+   - Check Python version: python3 --version (need 3.8+)
+   - Check if port 22 is open on firewall
+   - Verify config.json has correct values
+
+================================================================================
+USEFUL COMMANDS
+================================================================================
+
+Start bot:      systemctl start telegram-bot
+Stop bot:       systemctl stop telegram-bot
+Restart bot:    systemctl restart telegram-bot
+Check status:   systemctl status telegram-bot
+View logs:      journalctl -u telegram-bot -f
+Enable auto:    systemctl enable telegram-bot
+Disable auto:   systemctl disable telegram-bot
+
+================================================================================
+SECURITY NOTES
+================================================================================
+
+1. Change your server password after first login
+2. Setup SSH keys and disable password authentication
+3. Configure firewall (ufw):
+   ufw allow 22/tcp
+   ufw enable
+   
+4. Regular updates:
+   apt update && apt upgrade -y
+
+5. Backup important files:
+   - config.json
+   - users.json
+   - premium.json
+   - All .json data files
+
+================================================================================
+                           SUPPORT & MAINTENANCE
+================================================================================
+
+Monitor bot health:
+   - Check logs daily: journalctl -u telegram-bot --since today
+   - Monitor disk space: df -h
+   - Check memory: free -h
+   - Monitor CPU: top
+
+Backup strategy:
+   - Create daily backups of /opt/telegram-bot/*.json
+   - Store backups off-server
+   - Test restore procedure
+
+Updates:
+   - Stop bot: systemctl stop telegram-bot
+   - Upload new files
+   - Restart: systemctl start telegram-bot
+   - Check logs for errors
+
+================================================================================

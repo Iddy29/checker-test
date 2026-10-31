@@ -1,4 +1,5 @@
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import USER_AGENT as BROWSER_UA
 import datetime
 import re
 import random
@@ -9,7 +10,7 @@ import json
 import jwt
 import string
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+UA = BROWSER_UA   # the browser this gate speaks as
 
 FIRST_NAMES = ["James", "Mary", "John", "Patricia", "Robert", "Jennifer", "Michael", "Linda", "David", "Elizabeth"]
 LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez"]

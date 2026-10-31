@@ -1,4 +1,5 @@
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import ANDROID_UA
 import random
 import string
 import time
@@ -16,7 +17,7 @@ PAYPAL_GQL = "https://www.paypal.com/graphql"
 
 PROXY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "proxy.txt")
 
-UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
+UA = ANDROID_UA   # the phone this gate speaks as
 
 
 def _get_global_proxy():

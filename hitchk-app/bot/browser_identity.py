@@ -36,11 +36,21 @@ IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", f"chrome{CHROME_VERSION}").s
 # solves the captcha, which has to say the same thing.
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+
+# A gate that says it is a phone gets the handshake of a phone.  A
+# phone name on a computer's handshake is a tell in itself.
+ANDROID_IMPERSONATE = os.environ.get("BROWSER_ANDROID_IMPERSONATE",
+                                      "chrome131_android").strip() or "chrome131_android"
+ANDROID_UA = ("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
 SEC_CH_UA = '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"'
 SEC_CH_UA_MOBILE = "?0"
 SEC_CH_UA_PLATFORM = '"macOS"'
 ACCEPT_LANGUAGE = "en-US,en;q=0.9"
 ACCEPT_ENCODING = "gzip, deflate, br, zstd"
+
+# The same name, the way the callers ask for it.
+BROWSER_UA = USER_AGENT
 
 # The page a browser opens.
 PAGE_ACCEPT = ("text/html,application/xhtml+xml,application/xml;q=0.9,"

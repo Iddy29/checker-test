@@ -1,4 +1,5 @@
-import httpx
+import browser_http as httpx   # the browser client
+from browser_identity import ANDROID_UA
 import asyncio
 import time
 import random
@@ -10,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
+UA = ANDROID_UA   # the phone this gate speaks as
 SEC_HEADERS = {
     "sec-ch-ua": '"Chromium";v="138", "Not/A)Brand";v="24"',
     "sec-ch-ua-mobile": "?1",
