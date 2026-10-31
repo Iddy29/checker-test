@@ -355,7 +355,7 @@ async def shopify_api_check_1_2(cc, mm, yy, cvv, site=None, proxy=None, user_id=
     then a real one and never "no products".
     """
     last = None
-    for low, high in ((1.95, 2.05), (SHOPIFY_MIN_PRICE, SHOPIFY_MAX_PRICE), (0.50, 2.00)):
+    for low, high in ((SHOPIFY_MIN_PRICE, SHOPIFY_MAX_PRICE), (0.50, 2.00)):
         result = await call_shopify_api(
             cc, mm, yy, cvv, site=site, proxy=proxy,
             timeout=kwargs.get("timeout") or SHOPIFY_API_TIMEOUT,

