@@ -50,6 +50,53 @@ if (q) { navigator.permissions.query = (p) => (
       : q.call(navigator.permissions, p)); }
 Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
 Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+
+// The screen.  A browser that says it is a computer with one screen
+// of a size nobody has is easy to pick out.  Each one is set on its
+// own, because one that will not go through must not stop the rest.
+const _sizes = [[1920, 1080, 24], [1536, 864, 24], [1440, 900, 24], [1366, 768, 24]];
+const _size = _sizes[Math.floor(Math.random() * _sizes.length)];
+const _set = (obj, name, value) => {
+  try { Object.defineProperty(obj, name, {get: () => value, configurable: true}); }
+  catch (e) {}
+};
+_set(window, 'innerWidth', _size[0] - 16);
+_set(window, 'innerHeight', _size[1] - 74);
+_set(window, 'outerWidth', _size[0]);
+_set(window, 'outerHeight', _size[1]);
+_set(window, 'screenX', 0);
+_set(window, 'screenY', 0);
+_set(window, 'screenLeft', 0);
+_set(window, 'screenTop', 0);
+_set(window, 'devicePixelRatio', 1);
+_set(navigator, 'deviceMemory', 8);
+_set(navigator, 'maxTouchPoints', 0);
+_set(navigator, 'pdfViewerEnabled', true);
+_set(navigator, 'webdriver', undefined);
+const _screen = window.screen;
+if (_screen) {
+  _set(_screen, 'width', _size[0]);
+  _set(_screen, 'height', _size[1]);
+  _set(_screen, 'availWidth', _size[0]);
+  _set(_screen, 'availHeight', _size[1] - 24);
+  _set(_screen, 'colorDepth', _size[2]);
+  _set(_screen, 'pixelDepth', _size[2]);
+}
+// a computer with one screen has no screens to choose from
+try {
+  const _mm = window.matchMedia.bind(window);
+  window.matchMedia = (q) => {
+    try {
+      const r = _mm(q);
+      if (q && /display/.test(q)) { r.matches = false; }
+      return r;
+    } catch (e) {
+      return {matches: false, media: q, addListener() {}, removeListener() {},
+              addEventListener() {}, removeEventListener() {},
+              dispatchEvent() { return false; }};
+    }
+  };
+} catch (e) {}
 """
 
 # the token the page hands over
@@ -278,7 +325,8 @@ async def _get_browser(launch):
     ctx = None
     try:
         ctx = await _PW.chromium.launch_persistent_context(
-            _profile_dir(), channel="chrome", bypass_csp=True, **launch)
+            _profile_dir(), channel="chrome", bypass_csp=True,
+            **page_options, **launch)
     except Exception as e:
         logger.debug("the saved profile browser did not start: %s", e)
         # a browser that was killed leaves its lock behind, and the next
@@ -286,14 +334,12 @@ async def _get_browser(launch):
         _clear_the_lock()
         try:
             ctx = await _PW.chromium.launch_persistent_context(
-                _profile_dir(), channel="chrome", bypass_csp=True, **launch)
+                _profile_dir(), channel="chrome", bypass_csp=True,
+                **page_options, **launch)
         except Exception as e2:
             logger.debug("the saved profile browser did not start again: %s", e2)
             browser = await _PW.chromium.launch(**launch)
-            ctx = await browser.new_context(
-                bypass_csp=True,
-                locale="en-US", timezone_id="America/Chicago",
-                viewport={"width": 1366, "height": 900})
+            ctx = await browser.new_context(bypass_csp=True, **page_options)
     _BROWSER = ctx
     _BROWSER_AT = time.time()
     _BROWSER_PROXY = wanted
@@ -586,6 +632,14 @@ async def _solve_in_a_process(page_url, timeout=60, proxy=None, extra_js=None,
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
                  "--disable-blink-features=AutomationControlled",
                  "--window-size=1366,900"],
+    }
+    # The clock and the size the page in the browser has.  A browser
+    # whose clock does not match the country it claims to be in is easy
+    # to pick out, and so is one whose screen is a size nobody has.
+    page_options = {
+        "locale": "en-US",
+        "timezone_id": "America/Chicago",
+        "viewport": {"width": 1366, "height": 900},
     }
     pw_proxy = _playwright_proxy(proxy)
     if pw_proxy:
