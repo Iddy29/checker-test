@@ -173,7 +173,23 @@ def get_user_proxy_with_raw(user_id):
     formatted = _raw_to_formatted(raw)
     return formatted, raw
 
-def auto_remove_dead_proxy(user_id, raw_proxy: str) -> bool:
+# How often an address has failed.  One slow address is not a dead
+# address: the address is only dropped after it fails a few times, or a
+# run takes the whole list away and every card goes out naked.
+_proxy_fail_count: dict[tuple, int] = {}
+PROXY_FAILS_BEFORE_DROP = 3
+
+
+def _proxy_failed(user_id, raw_proxy) -> int:
+    """Count the failure and say whether the address has had enough."""
+    if not user_id or not raw_proxy:
+        return 0
+    key = (str(user_id), str(raw_proxy))
+    _proxy_fail_count[key] = _proxy_fail_count.get(key, 0) + 1
+    return _proxy_fail_count[key]
+
+
+def auto_remove_dead_proxy(user_id: str, raw_proxy: str) -> bool:
     """Remove a proxy that caused a timeout. Returns True if no proxies remain."""
     if not raw_proxy:
         return False
@@ -486,8 +502,15 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
                     # A broken proxy must never decide the card.  The
                     # check is redone directly, and the proxy is dropped
                     # so the next card does not use it either.
-                    if proxy and _looks_like_proxy_failure(result):
-                        auto_remove_dead_proxy(user_id, raw_proxy)
+                    # The shopify gates keep their addresses.  The
+                    # validator has a book of the addresses that answer
+                    # and it leaves out the ones that do not, and the
+                    # direct way is the one the shops put a challenge in
+                    # front of.
+                    is_shopify = "shopify" in gate_info.get("func_path", "").lower()
+                    if proxy and not is_shopify and _looks_like_proxy_failure(result):
+                        if _proxy_failed(user_id, raw_proxy) >= PROXY_FAILS_BEFORE_DROP:
+                            auto_remove_dead_proxy(user_id, raw_proxy)
                         kwargs.pop("proxy", None)
                         kwargs.pop("user_proxy", None)
                         result = await asyncio.wait_for(
@@ -533,6 +556,8 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
             "max retries exceeded", "remotedisconnected", "connection reset",
         ))
         if is_dead:
+            if _proxy_failed(user_id, raw_proxy) < PROXY_FAILS_BEFORE_DROP:
+                return result
             all_dead = auto_remove_dead_proxy(user_id, raw_proxy)
             if all_dead:
                 return "Error - Proxy dead: all your proxies were removed. Go to Settings to add working proxies or check without proxy."

