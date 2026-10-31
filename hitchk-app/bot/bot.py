@@ -1025,7 +1025,7 @@ GATEWAY_DISPLAY_NAMES = {
     "stc": "Stripe Charge $0.50",
     "stc2": "Stripe Charge $1",
     "st2": "Stripe Charge $2",
-    "sq": "Charge $2",
+    "sq": "Square Charge $2",
     "Stripe CO": "Stripe Checkout",
 }
 

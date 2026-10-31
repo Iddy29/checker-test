@@ -118,10 +118,11 @@ async def square_charge_check(cc, mm, yy, cvv, proxy=None, **kwargs):
     token = cfg.get("token") or ""
     location = cfg.get("location_id") or ""
     if not token or not location:
-        # No square shop is known, so the two dollars are charged at a
-        # shop that takes a card of that price and the answer names the
-        # gateway that did it.
-        return await _charge_two_dollars_elsewhere(cc, mm, yy, cvv, proxy)
+        # The gate is square and square needs a shop of its own.  Without
+        # one it says so, and it does not go and charge somewhere else
+        # under square's name.
+        return ("Error - no square shop is set. The admin can give one with "
+                "`/setsquare <token> <location id>`. [0.0s]")
 
     amount = kwargs.get("amount") or cfg.get("amount") or DEFAULT_AMOUNT
     try:
@@ -201,68 +202,3 @@ async def square_charge_check(cc, mm, yy, cvv, proxy=None, **kwargs):
     if verdict == "Error":
         return "Error - %s | %s [%ss]" % (reason, info or "SQUARE", elapsed)
     return "Declined - %s | %s [%ss]" % (reason, info or "SQUARE", elapsed)
-
-
-async def _charge_two_dollars_elsewhere(cc, mm, yy, cvv, proxy=None):
-    """Charge two dollars where it can be charged right now.
-
-    Square needs a shop of its own before it can charge, so until the
-    admin gives one with /setsquare, the two dollars go to a shop that
-    sells an item of that price.  The answer says which gateway did it,
-    so nothing is passed off as something it is not.
-    """
-    start = time.time()
-    try:
-        from gates.shopify_api import call_shopify_api
-    except Exception as e:
-        return ("Error - the shopify gate is not there: %s [%.1fs]"
-                % (str(e)[:60], time.time() - start))
-
-    # the band that holds a two dollar item.  The shop the answer comes
-    # from changes every time, so the band is tried again and again
-    # until a shop has an item of that price.
-    bands = ((1.95, 2.05), (1.90, 2.10), (1.99, 2.01), (1.95, 2.05),
-             (1.90, 2.10), (1.99, 2.01), (1.95, 2.05), (1.90, 2.10))
-    for low, high in bands:
-        try:
-            result = await call_shopify_api(cc, mm, yy, cvv, price_min=low,
-                                            price_max=high, timeout=90)
-        except Exception as e:
-            return ("Error - the shop did not answer: %s [%.1fs]"
-                    % (type(e).__name__, time.time() - start))
-
-        status = str(result.get("status") or "")
-        response = str(result.get("response") or "").strip()
-        detail = str(result.get("card_detail") or "").strip()
-        price = result.get("amount")
-        site = str(result.get("site") or "")
-
-        # nothing of that price at this shop, try the next band
-        low_response = response.lower()
-        if status == "error" and ("no products" in low_response
-                                  or "price_over_max" in low_response
-                                  or "price_under_min" in low_response):
-            continue
-
-        elapsed = round(time.time() - start, 2)
-        bits = []
-        if price and str(price) not in ("N/A", "0.00"):
-            bits.append("$%s" % price)
-        bits.append("Shopify")
-        if site:
-            bits.append(site.replace("https://", "")[:28])
-        if detail:
-            bits.append(detail)
-        tail = " | ".join(bits)
-
-        if status == "approved_3ds":
-            return "Approved with 3ds - %s | %s [%ss]" % (response, tail, elapsed)
-        if status == "approved":
-            return "Approved - %s | %s [%ss]" % (response, tail, elapsed)
-        if status and status != "error":
-            return "Declined - %s | %s [%ss]" % (response, tail, elapsed)
-        return "Error - %s | %s [%ss]" % (response, tail, elapsed)
-
-    return ("Error - no shop has an item worth two dollars right now. "
-            "Give a square shop with `/setsquare <token> <location id>`. [%.1fs]"
-            % (time.time() - start))
