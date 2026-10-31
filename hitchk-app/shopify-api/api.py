@@ -2388,7 +2388,7 @@ async def validate_card_across_sites(
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
     min_price:  Optional[float] = None,
-    max_sites:  int = 8,
+    max_sites:  int = 20,
 ) -> dict:
     """Try each merchant until one returns a real card verdict.
 
@@ -2507,23 +2507,21 @@ async def shopify_route(
             )
         card = random.choice(cards)
 
-    if site:
-        # a comma separated list lets the caller try many stores in ONE
-        # request, so a single /shp runs the check once
-        sites = [s.strip() for s in site.split(",") if s.strip()]
-        if not sites:
-            sites = _load_sites_from_file()
-    else:
-        sites = _load_sites_from_file()
-        if not sites:
-            return JSONResponse(
-                {"error": "No site given and site.txt is empty"},
-                status_code=400,
-            )
-        random.shuffle(sites)
+    # The shop the caller names comes first, so the check goes straight
+    # to the shop that answered last time.  The rest of the shops stay
+    # behind it: a shop with nothing of that price is one step, not the
+    # end of the road.
+    named = [s.strip() for s in site.split(",") if s.strip()] if site else []
+    sites = _load_sites_from_file()
+    if not named and not sites:
+        return JSONResponse(
+            {"error": "No site given and site.txt is empty"},
+            status_code=400,
+        )
     # The stores that are cooling down are asked last.
-    sites = _stores_ready(sites)
-    random.shuffle(sites)
+    rest = [s for s in _stores_ready(sites) if s not in named]
+    random.shuffle(rest)
+    sites = named + rest
 
     result = await validate_card_across_sites(
         card["cc"], card["month"], card["year"], card["cvv"],
