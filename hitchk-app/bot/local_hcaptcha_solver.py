@@ -192,7 +192,7 @@ HCAPTCHA_WIDGET = """
                 const s = document.createElement('script');
                 s.id = '__lc_api';
                 s.src = rqdata
-                    ? 'https://js.hcaptcha.com/1/api.js?render=explicit&enterprise.js'
+                    ? 'https://js.hcaptcha.com/1/api.js?enterprise.js'
                     : 'https://js.hcaptcha.com/1/api.js?render=explicit';
                 s.async = true;
                 s.defer = true;
@@ -200,18 +200,27 @@ HCAPTCHA_WIDGET = """
             }
             return 'loading';
         }
-        if (window.__lc_widget) {
-            // the widget is up, so let it go
-            if (!window.__lc_started) {
-                window.__lc_started = true;
-                try {
-                    // the async flag is what makes execute hand back a
-                    // promise, and without it the result is lost
-                    const p = window.hcaptcha.execute(window.__lc_widget, {async: true});
-                    if (p && p.then) {
-                        p.then(keep).catch((e) => { window.__lc_error = 'execute: ' + e; });
-                    }
-                } catch (e) { window.__lc_error = 'execute threw: ' + e; }
+        if (rqdata) {
+            // The enterprise captcha, the way stripe asks for it: the
+            // site key and the request data go in one call, and the
+            // answer comes back by itself.  There is no box to click.
+            // A captcha of our own asking for the same site key is a
+            // different captcha, and it is answered with a picture.
+            if (window.__lc_started) {
+                return 'the widget is up';
+            }
+            window.__lc_started = true;
+            try {
+                const p = window.hcaptcha.execute(sitekey, {
+                    enterprisePayload: { rqdata: rqdata },
+                    async: true
+                });
+                if (p && p.then) {
+                    p.then(keep).catch((e) => { window.__lc_error = 'execute: ' + e; });
+                }
+            } catch (e) {
+                window.__lc_error = 'execute threw: ' + e;
+                return 'execute threw: ' + e;
             }
             return 'the widget is up';
         }
@@ -884,6 +893,128 @@ async def _keep_the_working_ones(attempts):
     logger.info("the addresses that answer: %s of %s",
                 len(alive), len(attempts))
     return alive or attempts[:1]
+
+
+async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
+                             timeout=60):
+    """The answer, asked for inside the frame the page put it in.
+
+    Stripe does not put its captcha on the page the buyer is on: it
+    puts it in an invisible frame from its own content network, and the
+    captcha is told the host of that frame.  A captcha asked for on the
+    page is a different captcha, and it is answered with a picture
+    instead of an answer.
+
+    So the page is opened, the frame is found, and the answer is asked
+    for inside it, with the key and the request data the page came
+    with.
+    """
+    global LAST_REASON, LAST_EKEY
+    LAST_REASON = ""
+    LAST_EKEY = ""
+
+    try:
+        from gates.stripe_captcha import (ASK_THE_CAPTCHA, READ_THE_ANSWER,
+                                          WATCH_THE_CAPTCHA, frame_host)
+    except Exception as e:
+        logger.info("the stripe captcha helper is missing: %s", e)
+        return None
+
+    from playwright.async_api import async_playwright
+
+    launch = {
+        "headless": not bool(os.environ.get("DISPLAY")),
+        "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+                 "--disable-blink-features=AutomationControlled",
+                 "--window-size=1366,900"],
+    }
+    pw_proxy = _playwright_proxy(proxy)
+    if pw_proxy:
+        launch["proxy"] = pw_proxy
+
+    browser = None
+    pw = None
+    try:
+        pw = await async_playwright().start()
+        try:
+            ctx = await pw.chromium.launch_persistent_context(
+                _profile_dir(), channel="chrome", bypass_csp=True,
+                **PAGE_OPTIONS, **launch)
+        except Exception:
+            _clear_the_lock()
+            b2 = await pw.chromium.launch(**launch)
+            ctx = await b2.new_context(bypass_csp=True, **PAGE_OPTIONS)
+        await ctx.add_init_script(STEALTH)
+        # the hook is on every frame, so what stripe's own captcha is
+        # asked for is known
+        await ctx.add_init_script(WATCH_THE_CAPTCHA)
+        page = await ctx.new_page()
+        if apply_browser_identity is not None:
+            await apply_browser_identity(page, client_hints_metadata())
+        await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+
+        # The captcha is put up by stripe's own code, a few seconds
+        # after the page opens, and the frame it lands in is replaced
+        # while it loads.  So every frame is asked, again and again,
+        # until one of them holds the captcha.
+        frame = None
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            for candidate in page.frames:
+                try:
+                    if not await candidate.evaluate("!!window.hcaptcha"):
+                        continue
+                except Exception:
+                    continue
+                frame = candidate
+                break
+            if frame is not None:
+                break
+            await page.wait_for_timeout(600)
+        if frame is None:
+            LAST_REASON = "the captcha never loaded on the page"
+            logger.info("the captcha never loaded on the page")
+            return None
+        try:
+            host = frame_host(frame.url) or ""
+        except Exception:
+            host = ""
+
+        try:
+            seen = await frame.evaluate("JSON.stringify(window.__lcSeen || [])")
+            logger.info("what stripe's own captcha was asked for: %s", str(seen)[:300])
+        except Exception:
+            pass
+        said = await frame.evaluate(ASK_THE_CAPTCHA, [sitekey, rqdata or "", host])
+        logger.info("the captcha in the frame says: %s (the host is %s)", said, host or "?")
+
+        deadline = time.time() + max(20, min(timeout, 90))
+        while time.time() < deadline:
+            await page.wait_for_timeout(800)
+            answer = await frame.evaluate(READ_THE_ANSWER)
+            token = answer.get("token") or ""
+            if token:
+                LAST_EKEY = answer.get("ekey") or ""
+                logger.info("the captcha in the frame gave the answer")
+                return token
+        LAST_REASON = "the captcha in the frame gave no answer"
+        logger.info("the captcha in the frame gave no answer")
+        return None
+    except Exception as e:
+        LAST_REASON = "%s: %s" % (type(e).__name__, str(e)[:80])
+        logger.info("the captcha in the frame failed: %s", e)
+        return None
+    finally:
+        try:
+            if browser is not None:
+                await browser.close()
+        except Exception:
+            pass
+        try:
+            if pw is not None:
+                await pw.stop()
+        except Exception:
+            pass
 
 
 async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,

