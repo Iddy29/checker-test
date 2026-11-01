@@ -354,6 +354,21 @@ def _the_intent_in_the_frames(page):
     return None
 
 
+def _the_kind_of_the_action(action):
+    """What the card is being asked for.
+
+    The answer of stripe says what is wanted in two ways: plainly, or
+    inside the part that says the stripe script is to do it.  The one
+    inside is the one that matters, because the captcha of the intent
+    is asked for that way.
+    """
+    action = action or {}
+    inside = (action.get("use_stripe_sdk") or {}).get("type") or ""
+    if inside:
+        return inside
+    return action.get("type") or ""
+
+
 def _classify(intent):
     """What stripe's answer says about the card."""
     status = intent.get("status") or ""
@@ -364,10 +379,9 @@ def _classify(intent):
     if status == "processing":
         return "approved", "Processing"
     if status == "requires_action":
-        action = intent.get("next_action") or {}
-        kind = action.get("type") or ""
-        if not kind:
-            kind = (action.get("use_stripe_sdk") or {}).get("type") or ""
+        kind = _the_kind_of_the_action(intent.get("next_action") or {})
+        if kind == "intent_confirmation_challenge":
+            return "live", "hCaptcha Challenge Required"
         if "three_d_secure" in kind or "3ds" in kind:
             return "approved_3ds", "3DS required"
         return "live", "3DS required"
@@ -451,7 +465,7 @@ def _the_intent_in_the_wire(seen):
     return best
 
 
-async def _answer_the_intents_captcha(page, intent, pk, wait=25):
+async def _answer_the_intents_captcha(page, intent, pk, wait=30):
     """The answer for the captcha the payment intent is waiting for.
 
     That captcha is in a frame of stripe's own, and the address of that
@@ -485,6 +499,16 @@ async def _answer_the_intents_captcha(page, intent, pk, wait=25):
                 await frame.wait_for_timeout(700)
                 tok = await frame.evaluate("window.__tok || ''")
                 if not tok:
+                    # The captcha puts up a box that has to be
+                    # clicked, the way a visitor clicks it, and a
+                    # Verify button that asks for the answer.
+                    try:
+                        from local_hcaptcha_solver import (_click_the_box,
+                                                          _click_the_verify)
+                        await _click_the_box(page)
+                        await _click_the_verify(page)
+                    except Exception:
+                        pass
                     continue
                 logger.info("the intent's captcha gave the answer (%d chars)", len(tok))
                 await _hand_the_answer_over(intent, pk, tok)
@@ -679,22 +703,30 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         async with BrowserClient(**client_kwargs) as client:
             while time.time() < deadline:
                 await page.wait_for_timeout(500)
-                # The captcha of the payment intent puts up a box that
-                # has to be ticked.  Stripe's own script does the rest
-                # of it once the box is ticked.
-                for frame in page.frames:
-                    url = frame.url or ""
-                    if "hcaptcha.com/captcha" not in url:
-                        continue
-                    if "frame=checkbox" not in url and "frame=challenge" not in url:
-                        continue
-                    try:
-                        did = await frame.evaluate(TICK_THE_BOX)
-                        if did == "ticked":
-                            ticked += 1
-                            logger.info("the captcha's box was ticked (%d)", ticked)
-                    except Exception:
-                        pass
+                # The captcha puts up a box that has to be clicked, the
+                # way a visitor clicks it, and a Verify button that
+                # asks for the answer.
+                try:
+                    from local_hcaptcha_solver import (_click_the_box,
+                                                      _click_the_verify,
+                                                      _image_challenge_up)
+                    if await _click_the_box(page):
+                        ticked += 1
+                        logger.info("the captcha's box was clicked (%d)", ticked)
+                    await _click_the_verify(page)
+                    # A picture challenge needs eyes, and there are
+                    # none here, so there is no point in waiting for it.
+                    if await _image_challenge_up(page):
+                        logger.info("the captcha wants pictures, "
+                                    "which cannot be answered here")
+                        intent = {"intent_id": "", "client_secret": "",
+                                  "read": {"status": "requires_payment_method",
+                                           "last_payment_error": {
+                                               "code": "captcha_picture_challenge",
+                                               "message": "hCaptcha picture challenge"}}}
+                        break
+                except Exception:
+                    pass
 
                 # Stripe's own answer says what happened, and it says it
                 # as soon as it knows, so the wire is looked at first.
@@ -702,18 +734,19 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                 if from_the_wire:
                     state = from_the_wire.get("status") or ""
                     action = from_the_wire.get("next_action") or {}
-                    kind = action.get("type") or ""
-                    if not kind:
-                        kind = (action.get("use_stripe_sdk") or {}).get("type") or ""
+                    kind = _the_kind_of_the_action(action)
                     if state not in ("requires_action", "requires_source_action"):
                         # the card is done: it was taken, or refused
                         intent = {"intent_id": "", "client_secret": "",
                                   "read": from_the_wire}
                         break
                     if kind == "intent_confirmation_challenge":
-                        # the captcha of the intent is still to be
-                        # answered, so it is worth waiting for
-                        pass
+                        # The captcha of the intent is still to be
+                        # answered, so it is worth waiting for.
+                        found = _the_intent_in_the_frames(page)
+                        if found:
+                            intent = found
+                            await _answer_the_intents_captcha(page, intent, pk)
                     else:
                         logger.info("the card is at the bank's door: %s", kind)
                         intent = {"intent_id": "", "client_secret": "",
@@ -724,6 +757,7 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                     intent = _the_intent_in_the_frames(page)
                     if intent:
                         logger.info("stripe's frame is about %s", intent["intent_id"])
+                        await _answer_the_intents_captcha(page, intent, pk)
                 if intent:
                     read = await _read_the_intent(client, pk, intent["intent_id"],
                                                   intent["client_secret"])
@@ -738,9 +772,7 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                         # answer about the card, so there is nothing to
                         # wait for.
                         action = read.get("next_action") or {}
-                        kind = action.get("type") or ""
-                        if not kind:
-                            kind = (action.get("use_stripe_sdk") or {}).get("type") or ""
+                        kind = _the_kind_of_the_action(action)
                         if kind == "intent_confirmation_challenge":
                             # The captcha of the intent is still to be
                             # answered.  It is asked for in the frame

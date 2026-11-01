@@ -2479,6 +2479,9 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
     # The other way round answers the page's captcha and hands it to
     # the payment intent, which is a different captcha, and the intent
     # refuses it.
+    #
+    # When the page will not take the card, the other way round is
+    # tried, so that a card is never left without an answer.
     if os.environ.get("STRIPE_NATIVE", "1") != "0":
         try:
             from gates.stripe_native import native_check
@@ -2488,13 +2491,8 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
             if status and status != "error":
                 logger.info("the card went through the page: %s | %s", status, msg)
                 return status, msg, card_info, elapsed, None
-            logger.info("the page did not take the card: %s | %s", status, msg)
-            # the page is finished, or it would not open, so the other
-            # way round is the only one left
-            if "finished" in str(msg).lower():
-                logger.info("the session is finished, the other way round is tried")
-            else:
-                return status, msg, card_info, elapsed, None
+            logger.info("the page did not take the card: %s | %s, "
+                        "the other way round is tried", status, msg)
         except Exception as e:
             logger.warning("the card could not go through the page: %s", e)
 

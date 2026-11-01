@@ -55,7 +55,7 @@ Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
 // The screen.  A browser that says it is a computer with one screen
 // of a size nobody has is easy to pick out.  Each one is set on its
 // own, because one that will not go through must not stop the rest.
-const _sizes = [[1920, 1080, 24], [1536, 864, 24], [1440, 900, 24], [1366, 768, 24]];
+const _sizes = [[1728, 1117, 24], [1512, 982, 24], [1440, 900, 24], [1680, 1050, 24]];
 const _size = _sizes[Math.floor(Math.random() * _sizes.length)];
 const _set = (obj, name, value) => {
   try { Object.defineProperty(obj, name, {get: () => value, configurable: true}); }
@@ -69,7 +69,7 @@ _set(window, 'screenX', 0);
 _set(window, 'screenY', 0);
 _set(window, 'screenLeft', 0);
 _set(window, 'screenTop', 0);
-_set(window, 'devicePixelRatio', 1);
+_set(window, 'devicePixelRatio', 2);
 _set(navigator, 'deviceMemory', 8);
 _set(navigator, 'maxTouchPoints', 0);
 _set(navigator, 'pdfViewerEnabled', true);
@@ -107,13 +107,13 @@ try {
   WebGLRenderingContext.prototype.getParameter = function (p) {
     const _ext = this.getExtension('WEBGL_debug_renderer_info');
     if (_ext && p === _ext.UNMASKED_RENDERER_WEBGL) {
-      return 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+      return 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)';
     }
     if (_ext && p === _ext.UNMASKED_VENDOR_WEBGL) {
-      return 'Google Inc. (Intel)';
+      return 'Google Inc. (Apple)';
     }
-    if (p === 37445) { return 'Intel'; }              // the renderer
-    if (p === 37446) { return 'Intel(R) UHD Graphics 630'; }  // the vendor
+    if (p === 37445) { return 'Apple GPU'; }              // the renderer
+    if (p === 37446) { return 'Apple'; }                  // the vendor
     return _getParameter.call(this, p);
   };
 } catch (e) {}
