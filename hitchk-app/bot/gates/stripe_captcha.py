@@ -27,27 +27,21 @@ STRIPE_CAPTCHA_HOST = "b.stripecdn.com"
 # The code that asks for the answer inside the frame.  The captcha
 # hands it over by itself: there is no box to click.
 ASK_THE_CAPTCHA = """
-(args) => {
-    const [sitekey, rqdata, host] = args;
-    const keep = (t) => {
-        if (t && typeof t === 'object') {
-            window.__lcToken = t.response || '';
-            window.__lcEkey = t.ekey || '';
-        } else {
-            window.__lcToken = t || '';
-        }
-    };
-    try {
-        if (!window.hcaptcha) { return 'no captcha here'; }
-        const opts = { async: true };
-        if (rqdata) {
-            opts.enterprisePayload = { rqdata: rqdata };
-        }
-        // The captcha has to be put up before it can be asked for an
-        // answer.  It is put up on the host it is told, which is the
-        // host of the frame it is in.
-        let id = null;
+    (args) => {
+        const [sitekey, rqdata, host] = args;
+        const keep = (t) => {
+            if (t && typeof t === 'object') {
+                window.__lcToken = t.response || '';
+                window.__lcEkey = t.ekey || '';
+            } else {
+                window.__lcToken = t || '';
+            }
+        };
         try {
+            if (!window.hcaptcha) { return 'no captcha here'; }
+            // The captcha has to be put up before it can be asked for an
+            // answer.  It is put up on the host it is told, which is the
+            // host of the frame it is in.
             const box = document.createElement('div');
             box.style.position = 'fixed';
             box.style.left = '0px';
@@ -57,29 +51,64 @@ ASK_THE_CAPTCHA = """
             box.style.opacity = '0.01';
             box.style.zIndex = '2147483647';
             document.body.appendChild(box);
-            const renderOpts = {
+            const opts = {
                 sitekey: sitekey,
+                size: 'invisible',
                 callback: keep,
                 'error-callback': (e) => { window.__lcError = String(e); }
             };
-            if (rqdata) {
-                renderOpts.enterprisePayload = { rqdata: rqdata };
+            let id = null;
+            try {
+                id = window.hcaptcha.render(box, opts);
+            } catch (e) {
+                window.__lcError = 'the render failed: ' + e;
+                return 'the render failed: ' + e;
             }
-            id = window.hcaptcha.render(box, renderOpts);
+            window.__lcId = id;
+
+            // The request data goes in its own place when the answer is
+            // asked for, and not inside the widget: this is the way
+            // stripe's own script asks for it, and a request data put
+            // somewhere else makes an answer that stripe will not take.
+            let p = null;
+            try {
+                p = window.hcaptcha.execute(id, { async: true, rqdata: rqdata });
+            } catch (e) {
+                window.__lcError = 'execute threw: ' + e;
+            }
+            if (p && p.then) {
+                p.then(keep).catch((e) => {
+                    window.__lcError = String(e);
+                    // the other way of asking, for when the first one
+                    // is not the one this captcha takes
+                    try {
+                        const p2 = window.hcaptcha.execute(id, {
+                            async: true,
+                            enterprisePayload: { rqdata: rqdata }
+                        });
+                        if (p2 && p2.then) {
+                            p2.then(keep).catch((e2) => { window.__lcError = String(e2); });
+                        }
+                    } catch (e2) { }
+                });
+                return 'asked';
+            }
+            try {
+                const p2 = window.hcaptcha.execute(id, {
+                    async: true,
+                    enterprisePayload: { rqdata: rqdata }
+                });
+                if (p2 && p2.then) {
+                    p2.then(keep).catch((e2) => { window.__lcError = String(e2); });
+                    return 'asked';
+                }
+            } catch (e) { }
+            return 'execute gave nothing';
         } catch (e) {
-            window.__lcError = 'the render failed: ' + e;
-            return 'the render failed: ' + e;
+            window.__lcError = String(e);
+            return 'threw: ' + e;
         }
-        window.__lcId = id;
-        const p = window.hcaptcha.execute(id, opts);
-        if (!p || !p.then) { return 'execute gave nothing'; }
-        p.then(keep).catch((e) => { window.__lcError = String(e); });
-        return 'asked';
-    } catch (e) {
-        window.__lcError = String(e);
-        return 'threw: ' + e;
     }
-}
 """
 
 # The code that reads the answer out of the frame.
@@ -141,6 +170,9 @@ def frame_host(frame_url):
 WATCH_THE_CAPTCHA = """
 (() => {
   const seen = [];
+  const keys = {};      // the widget id -> the key it was put up with
+  const tokens = {};    // the key -> the answer stripe's own captcha gave
+  const rqdata = {};    // the key -> the request data stripe gave it
   const hook = (h) => {
     if (!h || h.__lcWatched) { return; }
     try {
@@ -149,12 +181,35 @@ WATCH_THE_CAPTCHA = """
       const execute = h.execute.bind(h);
       h.render = function (sk, opts) {
         const id = render(sk, opts);
+        const key = (opts && opts.sitekey) || sk || '';
         seen.push({how: 'render', sitekey: sk, id: id, opts: opts || {}});
+        try { keys[id] = key; } catch (e) { }
         return id;
       };
       h.execute = function (a, opts) {
         seen.push({how: 'execute', what: a, opts: opts || {}});
-        return execute(a, opts);
+        // The request data stripe itself gave the captcha is kept, and
+        // so is the answer stripe's own captcha gives.  That answer is
+        // about the request data that is on the page now, which is the
+        // one stripe is waiting for.
+        let key = '';
+        try { key = keys[a] || ''; } catch (e) { }
+        try {
+          const rq = (opts && opts.rqdata)
+            || ((opts && opts.enterprisePayload && opts.enterprisePayload.rqdata) || '');
+          if (rq) { rqdata[key] = rq; }
+        } catch (e) { }
+        const p = execute(a, opts);
+        try {
+          if (p && p.then) {
+            p.then((t) => {
+              try {
+                tokens[key] = (t && t.response) ? t.response : (t || '');
+              } catch (e) { }
+            }).catch(() => { });
+          }
+        } catch (e) { }
+        return p;
       };
     } catch (e) { }
   };
@@ -164,6 +219,8 @@ WATCH_THE_CAPTCHA = """
   }, 50);
   setTimeout(() => clearInterval(timer), 20000);
   window.__lcSeen = seen;
+  window.__lcTokens = tokens;
+  window.__lcRqdata = rqdata;
 })();
 """
 

@@ -6,6 +6,7 @@ real browser can read it out.  That costs a browser start, but no key,
 no credit and nothing to leak.
 """
 import asyncio
+import json
 import logging
 import os
 import re
@@ -145,6 +146,12 @@ EKEY_JS = """
 
 # the last ekey the solver got, for the callers that need it
 LAST_EKEY = ""
+
+# the answer stripe's own captcha gave, and the request data it gave
+# the captcha.  That answer is about the request data that is on the
+# page now, which is the one stripe is waiting for.
+LAST_STRIPE_TOKEN = ""
+LAST_STRIPE_RQDATA = ""
 
 # reCAPTCHA v3 hands the token to a callback, so catch it on the way
 RECAPTCHA_HOOK = """
@@ -909,9 +916,11 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
     for inside it, with the key and the request data the page came
     with.
     """
-    global LAST_REASON, LAST_EKEY
+    global LAST_REASON, LAST_EKEY, LAST_STRIPE_TOKEN, LAST_STRIPE_RQDATA
     LAST_REASON = ""
     LAST_EKEY = ""
+    LAST_STRIPE_TOKEN = ""
+    LAST_STRIPE_RQDATA = ""
 
     try:
         from gates.stripe_captcha import (ASK_THE_CAPTCHA, READ_THE_ANSWER,
@@ -985,12 +994,39 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
             logger.info("what stripe's own captcha was asked for: %s", str(seen)[:300])
         except Exception:
             pass
+
+        # Stripe's own captcha is put up and asked for by stripe's own
+        # script, with the request data that belongs to the page now.
+        # The answer it gives is the answer for that request data, so
+        # it is the answer stripe is waiting for.
+        try:
+            stripe_rq = (await frame.evaluate(
+                "(window.__lcRqdata && window.__lcRqdata[%s]) || ''"
+                % json.dumps(sitekey or ""))) or ""
+            if stripe_rq:
+                LAST_STRIPE_RQDATA = stripe_rq
+                logger.info("the request data stripe gave its captcha: %s",
+                            stripe_rq[:30])
+        except Exception:
+            pass
+
         said = await frame.evaluate(ASK_THE_CAPTCHA, [sitekey, rqdata or "", host])
         logger.info("the captcha in the frame says: %s (the host is %s)", said, host or "?")
 
         deadline = time.time() + max(15, min(timeout, 45))
         while time.time() < deadline:
             await page.wait_for_timeout(800)
+            try:
+                stripe_token = (await frame.evaluate(
+                    "(window.__lcTokens && window.__lcTokens[%s]) || ''"
+                    % json.dumps(sitekey or ""))) or ""
+                if stripe_token:
+                    LAST_STRIPE_TOKEN = stripe_token
+                    logger.info("stripe's own captcha gave the answer (%d chars)",
+                                len(stripe_token))
+                    return stripe_token
+            except Exception:
+                pass
             answer = await frame.evaluate(READ_THE_ANSWER)
             token = answer.get("token") or ""
             if token:

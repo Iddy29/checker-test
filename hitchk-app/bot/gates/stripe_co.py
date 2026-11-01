@@ -1365,6 +1365,26 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                         captcha_ekey = LAST_EKEY or ""
                     except Exception:
                         captcha_ekey = ""
+                    # The request data that was read a moment ago is not
+                    # the one stripe is waiting for: it is made new for
+                    # every read, so the one that was read is already
+                    # old by the time the answer is handed over.  The
+                    # request data that stripe's own captcha was given
+                    # is the one that belongs to the page now, and the
+                    # answer stripe's own captcha gave is the answer
+                    # for it.  So both are taken from there.
+                    try:
+                        from local_hcaptcha_solver import (LAST_STRIPE_RQDATA,
+                                                          LAST_STRIPE_TOKEN)
+                        if LAST_STRIPE_RQDATA and LAST_STRIPE_RQDATA != page_rq:
+                            logger.info("the request data on the page is now a new one")
+                            page_rq = LAST_STRIPE_RQDATA
+                        if LAST_STRIPE_TOKEN:
+                            logger.info("stripe's own captcha gave the answer, "
+                                        "and it is the one for that request data")
+                            captcha_token = LAST_STRIPE_TOKEN
+                    except Exception as e:
+                        logger.info("the request data on the page could not be read: %s", e)
                 except Exception as e:
                     logger.info(f"the captcha solve failed: {e}")
                 if not captcha_token:
