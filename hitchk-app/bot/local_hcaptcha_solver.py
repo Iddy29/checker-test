@@ -147,6 +147,26 @@ EKEY_JS = """
 # the last ekey the solver got, for the callers that need it
 LAST_EKEY = ""
 
+# The box that hCaptcha puts up when it wants to be sure of the person.
+# It is in a frame of hCaptcha's own, and the frame says which kind it
+# is: the one that says "checkbox" is the one to tick.
+TICK_THE_BOX = """
+() => {
+    const el = document.querySelector('#checkbox');
+    if (!el) { return 'no box'; }
+    try { el.click(); return 'ticked'; } catch (e) { return 'the tick failed: ' + e; }
+}
+"""
+
+
+def _unquote(value):
+    """A part of an address, the way a browser reads it."""
+    try:
+        from urllib.parse import unquote
+        return unquote(value)
+    except Exception:
+        return value
+
 # the answer stripe's own captcha gave, and the request data it gave
 # the captcha.  That answer is about the request data that is on the
 # page now, which is the one stripe is waiting for.
@@ -903,7 +923,7 @@ async def _keep_the_working_ones(attempts):
 
 
 async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
-                             timeout=60):
+                             timeout=60, want=None):
     """The answer, asked for inside the frame the page put it in.
 
     Stripe does not put its captcha on the page the buyer is on: it
@@ -915,6 +935,12 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
     So the page is opened, the frame is found, and the answer is asked
     for inside it, with the key and the request data the page came
     with.
+
+    The page holds two captchas and they are not the same one.  The
+    one that belongs to the payment intent is in a frame of its own,
+    and its address carries the key, the request data and the address
+    the answer is handed to.  When that key is asked for, that frame is
+    the one to ask in, and the box it puts up is ticked.
     """
     global LAST_REASON, LAST_EKEY, LAST_STRIPE_TOKEN, LAST_STRIPE_RQDATA
     LAST_REASON = ""
@@ -966,24 +992,59 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
         # after the page opens, and the frame it lands in is replaced
         # while it loads.  So every frame is asked, again and again,
         # until one of them holds the captcha.
+        #
+        # The one that belongs to the payment intent is in a frame of
+        # its own, and that frame is the one to ask in when that key is
+        # wanted.
         frame = None
+        intent_frame = None
         deadline = time.time() + 25
         while time.time() < deadline:
             for candidate in page.frames:
+                url = candidate.url or ""
+                if "hcaptcha-inner" in url:
+                    intent_frame = candidate
+                    continue
                 try:
                     if not await candidate.evaluate("!!window.hcaptcha"):
                         continue
                 except Exception:
                     continue
-                frame = candidate
-                break
-            if frame is not None:
+                if frame is None:
+                    frame = candidate
+            if frame is not None or intent_frame is not None:
                 break
             await page.wait_for_timeout(600)
-        if frame is None:
-            LAST_REASON = "the captcha never loaded on the page"
-            logger.info("the captcha never loaded on the page")
-            return None
+
+        if want == "intent" and intent_frame is not None:
+            frame = intent_frame
+            logger.info("the frame that holds the intent's captcha: %s",
+                        (frame.url or "")[:70])
+            # that frame's own address says which key and which request
+            # data the challenge is about, and they are the ones that
+            # have to be asked for
+            try:
+                tail = (frame.url or "").split("#", 1)[-1]
+                for part in tail.split("&"):
+                    if "=" not in part:
+                        continue
+                    name, value = part.split("=", 1)
+                    value = _unquote(value)
+                    if name == "sitekey" and value:
+                        sitekey = value
+                    elif name == "rqdata" and value:
+                        rqdata = value
+                logger.info("the intent's captcha is about the key %s",
+                            (sitekey or "?")[:24])
+            except Exception as e:
+                logger.info("the intent's captcha could not be read: %s", e)
+        elif frame is None:
+            if intent_frame is not None:
+                frame = intent_frame
+            else:
+                LAST_REASON = "the captcha never loaded on the page"
+                logger.info("the captcha never loaded on the page")
+                return None
         try:
             host = frame_host(frame.url) or ""
         except Exception:
@@ -1014,8 +1075,22 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
         logger.info("the captcha in the frame says: %s (the host is %s)", said, host or "?")
 
         deadline = time.time() + max(15, min(timeout, 45))
+        ticked = 0
         while time.time() < deadline:
             await page.wait_for_timeout(800)
+            # the captcha of the payment intent puts up a box that has
+            # to be ticked, so it is ticked when it shows
+            for candidate in page.frames:
+                url = candidate.url or ""
+                if "hcaptcha.com/captcha" not in url or "frame=checkbox" not in url:
+                    continue
+                try:
+                    did = await candidate.evaluate(TICK_THE_BOX)
+                    if did == "ticked":
+                        ticked += 1
+                        logger.info("the captcha's box was ticked (%d)", ticked)
+                except Exception:
+                    pass
             try:
                 stripe_token = (await frame.evaluate(
                     "(window.__lcTokens && window.__lcTokens[%s]) || ''"

