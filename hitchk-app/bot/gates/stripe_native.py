@@ -29,7 +29,7 @@ logger = logging.getLogger("stripe_native")
 
 # How long the page is given to finish.  The captcha is about ten
 # seconds, the bank is given the rest.
-THE_TIME_TO_WAIT = 100
+THE_TIME_TO_WAIT = 70
 
 # The things that are put into the page.
 THE_COUNTRY = "US"
@@ -126,6 +126,37 @@ SET_A_BOX = """
     el.dispatchEvent(new Event('blur', {bubbles: true}));
     return el.value;
 })
+"""
+
+# The state is a list of its own, and it is set the way the country is.
+SET_THE_STATE = """
+(() => {
+    const s = document.getElementById('billingAdministrativeArea');
+    if (!s) { return 'no state'; }
+    s.disabled = false;
+    s.focus();
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(s, '%s');
+    s.dispatchEvent(new Event('input', {bubbles: true}));
+    s.dispatchEvent(new Event('change', {bubbles: true}));
+    s.blur();
+    return s.value;
+})()
+"""
+
+# The tax line of the page.  When it says the tax has to be applied
+# by hand, the address is not complete and the page will not take the
+# card.
+THE_TAX = """
+(() => {
+    const out = [];
+    for (const e of document.querySelectorAll('*')) {
+        if (e.children.length) { continue; }
+        const t = (e.textContent || '').trim();
+        if (/^(Apply Tax|Enter address to calculate)$/i.test(t)) { out.push(t); }
+    }
+    return out.join(' | ');
+})()
 """
 
 OPEN_THE_CARD_PART = """
@@ -361,6 +392,77 @@ def _the_intent_in_the_wire(seen):
     return best
 
 
+async def _answer_the_intents_captcha(page, intent, pk, wait=25):
+    """The answer for the captcha the payment intent is waiting for.
+
+    That captcha is in a frame of stripe's own, and the address of that
+    frame carries the key, the request data and the address the answer
+    is to be handed to.  So the answer is asked for right there, with
+    those, and handed to the one the frame names.
+    """
+    for frame in page.frames:
+        if THE_INTENT_FRAME not in (frame.url or ""):
+            continue
+        try:
+            has = await frame.evaluate("!!window.hcaptcha")
+            if not has:
+                # the frame has the address of the challenge but not
+                # the captcha itself, so the captcha is brought in
+                await frame.evaluate("""(() => {
+                    const s = document.createElement('script');
+                    s.src = 'https://js.hcaptcha.com/1/api.js?enterprise.js';
+                    s.async = true; s.defer = true;
+                    document.head.appendChild(s);
+                })()""")
+                await frame.wait_for_timeout(3000)
+                has = await frame.evaluate("!!window.hcaptcha")
+            logger.info("the intent's frame has a captcha: %s", has)
+            said = await frame.evaluate(ASK_IN_THE_FRAME, [
+                intent.get("site_key") or "", intent.get("rqdata") or ""])
+            logger.info("the intent's captcha was asked for: %s", said)
+
+            give = time.time() + wait
+            while time.time() < give:
+                await frame.wait_for_timeout(700)
+                tok = await frame.evaluate("window.__tok || ''")
+                if not tok:
+                    continue
+                logger.info("the intent's captcha gave the answer (%d chars)", len(tok))
+                await _hand_the_answer_over(intent, pk, tok)
+                return True
+            err = await frame.evaluate("window.__err || ''")
+            if err:
+                logger.info("the intent's captcha said: %s", str(err)[:100])
+        except Exception as e:
+            logger.info("the intent's captcha could not be answered: %s", e)
+        return False
+    return False
+
+
+async def _hand_the_answer_over(intent, pk, token):
+    """The answer, handed to the address the frame named."""
+    verify = intent.get("verify_url") or ""
+    if not verify:
+        return None
+    from browser_identity import BrowserClient, api_headers
+    try:
+        async with BrowserClient(timeout=20) as client:
+            r = await client.post(
+                "https://api.stripe.com" + verify,
+                data={"client_secret": intent.get("client_secret") or "",
+                      "key": pk,
+                      "captcha_vendor_name": "hcaptcha",
+                      "challenge_response_token": token},
+                headers=api_headers(origin="https://js.stripe.com",
+                                    referer="https://js.stripe.com/"),
+                timeout=15)
+            logger.info("the answer was handed over: HTTP %s", r.status_code)
+            return r
+    except Exception as e:
+        logger.info("the answer could not be handed over: %s", e)
+        return None
+
+
 async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     """The card in the real checkout, in a real browser.
 
@@ -468,14 +570,15 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
             await page.evaluate(SET_THE_COUNTRY % THE_COUNTRY)
         except Exception:
             pass
+        await page.wait_for_timeout(1000)
         # The country list lies over the boxes below it, so the mouse
         # cannot reach them.  The focus is put on each box from the
         # script and the words are typed, which is what a person does
         # and the page takes.
-        for name, value in (("billingName", "%s %s" % (first, last)),
-                            ("billingAddressLine1", _street()),
+        for name, value in (("billingAddressLine1", _street()),
                             ("billingLocality", city),
-                            ("billingPostalCode", postal)):
+                            ("billingPostalCode", postal),
+                            ("billingName", "%s %s" % (first, last))):
             try:
                 await page.evaluate(FOCUS_A_BOX, name)
                 await page.keyboard.press("Control+a")
@@ -483,9 +586,16 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                 await page.keyboard.press("Tab")
             except Exception as e:
                 logger.info("the %s box did not take the words: %s", name, e)
-        # The tax has to be worked out before the page will take the
-        # card, and that takes a moment.
+        # The tax cannot be worked out without the address, and without
+        # the tax the page will not take the card at all.  Some places
+        # want the state as well.
         await page.wait_for_timeout(2500)
+        try:
+            if "Apply Tax" in (await page.evaluate(THE_TAX)):
+                await page.evaluate(SET_THE_STATE % state)
+                await page.wait_for_timeout(2500)
+        except Exception:
+            pass
 
         for name, value in (("cardNumber", cc),
                             ("cardExpiry", "%s/%s" % (mm.zfill(2), yy[-2:])),
@@ -533,43 +643,6 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                     intent = _the_intent_in_the_frames(page)
                     if intent:
                         logger.info("stripe's frame is about %s", intent["intent_id"])
-                        # The captcha of the intent is in a frame of its
-                        # own, and that frame's address carries the key
-                        # and the request data to ask with.  So the
-                        # answer is asked for right there.
-                        for frame in page.frames:
-                            if THE_INTENT_FRAME not in (frame.url or ""):
-                                continue
-                            try:
-                                said = await frame.evaluate(ASK_IN_THE_FRAME, [
-                                    intent["site_key"], intent["rqdata"]])
-                                logger.info("the intent's captcha was asked for: %s", said)
-                                # wait for the answer and hand it over
-                                give = time.time() + 20
-                                while time.time() < give:
-                                    await frame.wait_for_timeout(700)
-                                    tok = await frame.evaluate("window.__tok || ''")
-                                    if not tok:
-                                        continue
-                                    logger.info("the intent's captcha gave the "
-                                                "answer (%d chars)", len(tok))
-                                    if intent.get("verify_url"):
-                                        async with BrowserClient(**client_kwargs) as c2:
-                                            vr = await c2.post(
-                                                "https://api.stripe.com" + intent["verify_url"],
-                                                data={"client_secret": intent["client_secret"],
-                                                      "key": pk,
-                                                      "captcha_vendor_name": "hcaptcha",
-                                                      "challenge_response_token": tok},
-                                                headers={"origin": "https://js.stripe.com",
-                                                         "referer": "https://js.stripe.com/"},
-                                                timeout=15)
-                                            logger.info("the answer was handed over: "
-                                                        "HTTP %s", vr.status_code)
-                                    break
-                            except Exception as e:
-                                logger.info("the intent's captcha could not be asked for: %s", e)
-                            break
                 if intent:
                     read = await _read_the_intent(client, pk, intent["intent_id"],
                                                   intent["client_secret"])
@@ -588,9 +661,13 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                         if not kind:
                             kind = (action.get("use_stripe_sdk") or {}).get("type") or ""
                         if kind == "intent_confirmation_challenge":
-                            # the captcha of the intent is still to be
-                            # answered, so it is worth waiting for
-                            pass
+                            # The captcha of the intent is still to be
+                            # answered.  It is asked for in the frame
+                            # that holds it, with the key and the
+                            # request data that the frame's own address
+                            # carries, and the answer is handed to the
+                            # address the frame names.
+                            await _answer_the_intents_captcha(page, intent, pk)
                         else:
                             logger.info("the card is at the bank's door: %s", kind)
                             intent["read"] = read
