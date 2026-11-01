@@ -1257,13 +1257,21 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                 logger.info(f"  PP bypass failed: {e}")
             return None
 
-        # Fire both in parallel
-        results = await asyncio.gather(_try_minimal_confirm(), _try_pp_bypass())
-        for r in results:
-            if r is not None:
-                return r
+        # When the intent wants a captcha, the captcha is asked for
+        # first.  The other two attempts make a new payment attempt,
+        # and a new attempt is a new challenge: solving the captcha
+        # after them solves the challenge of an attempt that is no
+        # longer there, and the answer is refused.
+        captcha_first = (sdk_type == "intent_confirmation_challenge")
 
-        # Now proceed to hCaptcha / 3DS2 / redirect strategies
+        if not captcha_first:
+            # Fire both in parallel
+            results = await asyncio.gather(_try_minimal_confirm(), _try_pp_bypass())
+            for r in results:
+                if r is not None:
+                    return r
+
+            # Now proceed to hCaptcha / 3DS2 / redirect strategies
 
         if sdk_type == "intent_confirmation_challenge":
             import json as _json
@@ -1322,6 +1330,11 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                     # it in.  So the answer is asked for there, with
                     # those, and not with the ones the intent carries:
                     # those are for a different captcha, on another host.
+                    # The key and the request data that come with the
+                    # page are the pair the captcha on that page is
+                    # about.  The ones the intent carries belong to
+                    # another captcha, and the answer for that one is
+                    # not the answer stripe is waiting for.
                     page_key = site_key
                     page_rq = rqdata
                     try:
@@ -1330,17 +1343,23 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                         if found:
                             page_key = found.get("site_key") or page_key
                             page_rq = found.get("rqdata") or page_rq
+                        logger.info("the captcha is asked with the key %s",
+                                    (page_key or "?")[:24])
                     except Exception as e:
                         logger.info("the page's own captcha could not be read: %s", e)
-                    # The pair that came with the page is the pair the
-                    # captcha on that page is about.
-                    page_key = (session_info or {}).get("page_site_key") or page_key
-                    page_rq = (session_info or {}).get("page_rqdata") or page_rq
 
                     from local_hcaptcha_solver import solve_in_the_frame
+                    # The address matters: the captcha is quick on a
+                    # plain address and slow on some of the ones we
+                    # have.  So the plain address is tried first, and
+                    # the one the request came from after it.
                     captcha_token = await solve_in_the_frame(
-                        captcha_page, page_key, rqdata=page_rq, proxy=proxy,
-                        timeout=90)
+                        captcha_page, page_key, rqdata=page_rq,
+                        proxy=None, timeout=45)
+                    if not captcha_token and proxy:
+                        captcha_token = await solve_in_the_frame(
+                            captcha_page, page_key, rqdata=page_rq,
+                            proxy=proxy, timeout=45)
                     try:
                         from local_hcaptcha_solver import LAST_EKEY
                         captcha_ekey = LAST_EKEY or ""
@@ -1394,6 +1413,15 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                     logger.info("  the captcha was refused: %s", err_msg or vr_json)
                 except Exception as e:
                     logger.info(f"  the captcha verify failed: {e}")
+
+                if captcha_first:
+                    # The captcha is not the way this one goes.  The
+                    # other two ways are tried now, and they are quick.
+                    logger.info("The captcha did not take, trying the other ways")
+                    results = await asyncio.gather(_try_minimal_confirm(), _try_pp_bypass())
+                    for r in results:
+                        if r is not None:
+                            return r
 
                 # The confirm again, this time with the token
                 if session_id:

@@ -958,7 +958,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
         # while it loads.  So every frame is asked, again and again,
         # until one of them holds the captcha.
         frame = None
-        deadline = time.time() + 60
+        deadline = time.time() + 25
         while time.time() < deadline:
             for candidate in page.frames:
                 try:
@@ -988,7 +988,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
         said = await frame.evaluate(ASK_THE_CAPTCHA, [sitekey, rqdata or "", host])
         logger.info("the captcha in the frame says: %s (the host is %s)", said, host or "?")
 
-        deadline = time.time() + max(20, min(timeout, 90))
+        deadline = time.time() + max(15, min(timeout, 45))
         while time.time() < deadline:
             await page.wait_for_timeout(800)
             answer = await frame.evaluate(READ_THE_ANSWER)
