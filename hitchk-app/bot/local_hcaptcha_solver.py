@@ -97,6 +97,25 @@ try {
     }
   };
 } catch (e) {}
+
+// The graphics card.  A machine with no graphics card draws with the
+// software renderer, and the software renderer is one of the things a
+// headless browser is known by.  So the card is named.
+try {
+  const _getParameter = WebGLRenderingContext.prototype.getParameter;
+  WebGLRenderingContext.prototype.getParameter = function (p) {
+    const _ext = this.getExtension('WEBGL_debug_renderer_info');
+    if (_ext && p === _ext.UNMASKED_RENDERER_WEBGL) {
+      return 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    }
+    if (_ext && p === _ext.UNMASKED_VENDOR_WEBGL) {
+      return 'Google Inc. (Intel)';
+    }
+    if (p === 37445) { return 'Intel'; }              // the renderer
+    if (p === 37446) { return 'Intel(R) UHD Graphics 630'; }  // the vendor
+    return _getParameter.call(this, p);
+  };
+} catch (e) {}
 """
 
 # the token the page hands over
@@ -210,10 +229,12 @@ HCAPTCHA_WIDGET = """
             'error-callback': (e) => { window.__lc_error = String(e); }
         };
         if (rqdata) {
-            // the enterprise captcha is the invisible one, the way
-            // stripe does it
+            // The enterprise captcha is the invisible one, the way
+            // stripe does it.  The request data goes in its own place:
+            // an ordinary captcha asked with it is answered with a
+            // picture instead of the box.
             opts.size = 'invisible';
-            opts.rqdata = rqdata;
+            opts.enterprisePayload = { rqdata: rqdata };
         }
         try {
             window.__lc_widget = window.hcaptcha.render(box, opts);
@@ -326,7 +347,7 @@ async def _get_browser(launch):
     try:
         ctx = await _PW.chromium.launch_persistent_context(
             _profile_dir(), channel="chrome", bypass_csp=True,
-            **page_options, **launch)
+            **PAGE_OPTIONS, **launch)
     except Exception as e:
         logger.debug("the saved profile browser did not start: %s", e)
         # a browser that was killed leaves its lock behind, and the next
@@ -335,11 +356,11 @@ async def _get_browser(launch):
         try:
             ctx = await _PW.chromium.launch_persistent_context(
                 _profile_dir(), channel="chrome", bypass_csp=True,
-                **page_options, **launch)
+                **PAGE_OPTIONS, **launch)
         except Exception as e2:
             logger.debug("the saved profile browser did not start again: %s", e2)
             browser = await _PW.chromium.launch(**launch)
-            ctx = await browser.new_context(bypass_csp=True, **page_options)
+            ctx = await browser.new_context(bypass_csp=True, **PAGE_OPTIONS)
     _BROWSER = ctx
     _BROWSER_AT = time.time()
     _BROWSER_PROXY = wanted
@@ -364,6 +385,16 @@ async def _close_browser_if_idle():
         except Exception:
             pass
         _PW = None
+
+
+# The clock and the size the page in the browser has.  A browser whose
+# clock does not match the country it claims to be in is easy to pick
+# out, and so is one whose screen is a size nobody has.
+PAGE_OPTIONS = {
+    "locale": "en-US",
+    "timezone_id": "America/Chicago",
+    "viewport": {"width": 1366, "height": 900},
+}
 
 
 def _profile_dir():
@@ -633,14 +664,6 @@ async def _solve_in_a_process(page_url, timeout=60, proxy=None, extra_js=None,
                  "--disable-blink-features=AutomationControlled",
                  "--window-size=1366,900"],
     }
-    # The clock and the size the page in the browser has.  A browser
-    # whose clock does not match the country it claims to be in is easy
-    # to pick out, and so is one whose screen is a size nobody has.
-    page_options = {
-        "locale": "en-US",
-        "timezone_id": "America/Chicago",
-        "viewport": {"width": 1366, "height": 900},
-    }
     pw_proxy = _playwright_proxy(proxy)
     if pw_proxy:
         launch["proxy"] = pw_proxy
@@ -757,21 +780,51 @@ def _budget(default=60):
         return default
 
 
+# How many addresses one solve tries.  Every address costs a browser
+# of its own, and the card has only so much time.
+MAX_ADDRESSES_PER_SOLVE = int(os.environ.get("CAPTCHA_ADDRESSES", "4") or 4)
+
+# The addresses that answered the last time, and when that was.  A run
+# asks for the same addresses over and over, so the answer is
+# remembered instead of being asked for again.
+_ALIVE_UNTIL = 0.0
+_ALIVE_LIST = []
+
+
 async def _keep_the_working_ones(attempts):
-    """The addresses that answer, and only those."""
-    global _bad_proxies
+    """The addresses that answer, and only those.
+
+    The addresses are asked all at once, because one that takes its
+    time holds up the whole run.  The answer is remembered for a while,
+    so the next card does not pay for it again.
+    """
+    global _bad_proxies, _ALIVE_UNTIL, _ALIVE_LIST
     if len(attempts) < 2:
         return attempts
+
+    now = time.time()
+    if _ALIVE_LIST and now < _ALIVE_UNTIL:
+        known = set(_ALIVE_LIST)
+        alive = [px for px in attempts if px in known]
+        if alive:
+            logger.info("the addresses that answer: %s of %s (known)",
+                        len(alive), len(attempts))
+            return alive
+
     import httpx
-    alive = []
-    for px in attempts:
-        if px in _bad_proxies:
-            continue
+
+    async def ask(px):
+        """Ask the address if it is there.
+
+        Three answers: it answered, it is not there, or it was slow.
+        A slow one is not marked dead: it may well answer the next
+        time, and an address that is wrongly put aside is one the
+        captcha never gets to try.
+        """
         pw = _playwright_proxy(px)
         if not pw:
             # the direct address always answers
-            alive.append(px)
-            continue
+            return px, True
         url = pw.get("server", "")
         if url.startswith("http://"):
             url = url[7:]
@@ -779,14 +832,40 @@ async def _keep_the_working_ones(attempts):
         if pw.get("username"):
             auth = "%s:%s@" % (pw.get("username"), pw.get("password"))
         try:
-            r = httpx.get("https://api.ipify.org", timeout=12,
-                          proxy="http://%s%s" % (auth, url))
-            if r.status_code == 200:
-                alive.append(px)
-            else:
-                _bad_proxies.add(px)
+            r = await asyncio.to_thread(
+                httpx.get, "https://api.ipify.org", timeout=20,
+                proxy="http://%s%s" % (auth, url))
+            return px, (r.status_code == 200)
+        except httpx.ConnectError:
+            return px, False
+        except httpx.ConnectTimeout:
+            return px, False
         except Exception:
+            return px, None
+
+    # a few at a time.  These addresses share a host, so only a couple
+    # of them answer at once: too many at once and they all time out.
+    gate = asyncio.Semaphore(4)
+
+    async def ask_one(px):
+        async with gate:
+            return await ask(px)
+
+    answers = await asyncio.gather(*[ask_one(px) for px in attempts],
+                                   return_exceptions=True)
+    alive = []
+    for answer in answers:
+        if not isinstance(answer, tuple):
+            continue
+        px, ok = answer
+        if ok is True:
+            alive.append(px)
+        elif ok is False:
             _bad_proxies.add(px)
+        # a slow one is left alone
+
+    _ALIVE_LIST = list(alive)
+    _ALIVE_UNTIL = time.time() + 600
     logger.info("the addresses that answer: %s of %s",
                 len(alive), len(attempts))
     return alive or attempts[:1]
@@ -817,11 +896,26 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
     # waste its time on the ones that are dead
     attempts = await _keep_the_working_ones(attempts)
 
+    # The whole solve has to fit in the time the card has.  Every
+    # address costs a browser of its own, so only a few are tried, and
+    # the time that is left is what each one gets.
+    deadline = time.time() + timeout
+    left = len(attempts)
+    if left > MAX_ADDRESSES_PER_SOLVE:
+        left = MAX_ADDRESSES_PER_SOLVE
+        attempts = attempts[:left]
+
     last = ""
     for i, px in enumerate(attempts):
+        left = deadline - time.time()
+        if left <= 10:
+            logger.info("the local hCaptcha solver ran out of time")
+            break
+        # the last address gets what is left, the others a share of it
+        share = max(20, int(left / max(1, len(attempts) - i)))
         try:
             token = await _solve_in_browser(
-                pageurl, timeout=timeout, proxy=px,
+                pageurl, timeout=min(share, 90), proxy=px,
                 widget_js=HCAPTCHA_WIDGET, widget_arg=sitekey, widget_arg2=rqdata)
         except Exception as e:
             logger.info("the local hCaptcha solver failed: %s", e)
@@ -839,7 +933,15 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
             _bad_proxies.add(px)
             logger.info("the picture came up on %s, trying another address",
                         (px.split(":")[0] if px else "the direct one"))
+        elif "no token came" in last or "not there to click" in last:
+            # the box was there and the answer never came.  Another
+            # address is worth a try: the answer is often refused
+            # because too many captchas came from the same one.
+            logger.info("no token came on %s, trying another address",
+                        (px.split(":")[0] if px else "the direct one"))
         else:
+            # the page itself is wrong, so another address will not
+            # help either
             break
     logger.info("the local hCaptcha solver found no token: %s",
                 last or "no reason given")
