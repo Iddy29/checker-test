@@ -41,8 +41,8 @@ THE_CITIES = [
     ("Anchorage", "AK", "99501"), ("Fairbanks", "AK", "99701"), ("Juneau", "AK", "99801"),
 ]
 THE_STREETS = [
-    ("Main St", "Oak Ave", "Elm St", "Park Blvd", "Cedar Ln", "Maple Dr",
-     "Washington St", "Lake Ave", "Hill Rd", "Valley Way", "Pine St", "River Rd"),
+    "Main St", "Oak Ave", "Elm St", "Park Blvd", "Cedar Ln", "Maple Dr",
+    "Washington St", "Lake Ave", "Hill Rd", "Valley Way", "Pine St", "River Rd",
 ]
 
 
@@ -60,6 +60,20 @@ def _street():
     number = random.randint(10, 9999)
     name = random.choice(THE_STREETS)
     return "%d %s" % (number, name)
+
+
+# The focus is put on a box from the script, and the words are typed.
+# The country list lies over the boxes below it, so the mouse cannot
+# reach them, but the keyboard goes where the focus is.
+FOCUS_A_BOX = """
+((name) => {
+    const el = document.querySelector('input[name="' + name + '"]');
+    if (!el) { return 'none'; }
+    el.focus();
+    if (el.select) { el.select(); }
+    return 'focused';
+})
+"""
 
 
 def the_key_of(link):
@@ -88,15 +102,19 @@ SET_THE_COUNTRY = """
     const s = document.getElementById('billingCountry');
     if (!s) { return 'no country'; }
     s.disabled = false;
-    s.value = '%s';
-    s.dispatchEvent(new Event('change', {bubbles: true}));
+    s.focus();
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(s, '%s');
     s.dispatchEvent(new Event('input', {bubbles: true}));
+    s.dispatchEvent(new Event('change', {bubbles: true}));
+    s.blur();
     return s.value;
 })()
 """
 
 # The other boxes of the form are set the same way, so the page knows
-# what is in them.
+# what is in them.  The tax cannot be worked out without the address,
+# and without the tax the page will not take the card at all.
 SET_A_BOX = """
 ((name, value) => {
     const el = document.querySelector('input[name="' + name + '"]');
@@ -132,6 +150,19 @@ PRESS_PAY = """
 })()
 """
 
+# What the page says when it will not take the card.  The page says it
+# in a box of its own, and the words are what the card's problem is.
+WHAT_THE_PAGE_SAYS = """
+(() => {
+    const out = [];
+    for (const e of document.querySelectorAll('[role=alert],[aria-live],[class*=Error],[class*=error]')) {
+        const t = (e.textContent || '').trim();
+        if (t && t.length < 300 && out.indexOf(t) < 0) { out.push(t); }
+    }
+    return out.slice(0, 8);
+})()
+"""
+
 # The box that hCaptcha puts up when it wants to be sure.  It is in a
 # frame of hCaptcha's own, and the frame says which kind it is.
 TICK_THE_BOX = """
@@ -139,6 +170,29 @@ TICK_THE_BOX = """
     const el = document.querySelector('#checkbox');
     if (!el) { return 'no box'; }
     try { el.click(); return 'ticked'; } catch (e) { return 'the tick failed: ' + e; }
+}
+"""
+
+# The answer is asked for in the frame that holds the captcha, with the
+# key and the request data that the frame's own address carries.
+ASK_IN_THE_FRAME = """
+(args) => {
+    const [sitekey, rqdata] = args;
+    window.__tok = ''; window.__err = '';
+    const keep = (t) => {
+        window.__tok = (t && t.response) ? t.response : (t || '');
+    };
+    try {
+        if (!window.hcaptcha) { return 'no captcha here'; }
+        const box = document.createElement('div');
+        box.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;z-index:2147483647;';
+        document.body.appendChild(box);
+        const id = window.hcaptcha.render(box, {sitekey: sitekey, size: 'invisible', callback: keep,
+            'error-callback': (e) => { window.__err = String(e); }});
+        const p = window.hcaptcha.execute(id, {async: true, rqdata: rqdata});
+        if (p && p.then) { p.then(keep).catch((e) => { window.__err = 'execute: ' + e; }); }
+        return 'asked';
+    } catch (e) { window.__err = String(e); return 'threw: ' + e; }
 }
 """
 
@@ -414,14 +468,24 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
             await page.evaluate(SET_THE_COUNTRY % THE_COUNTRY)
         except Exception:
             pass
+        # The country list lies over the boxes below it, so the mouse
+        # cannot reach them.  The focus is put on each box from the
+        # script and the words are typed, which is what a person does
+        # and the page takes.
         for name, value in (("billingName", "%s %s" % (first, last)),
                             ("billingAddressLine1", _street()),
                             ("billingLocality", city),
                             ("billingPostalCode", postal)):
             try:
-                await page.evaluate(SET_A_BOX, [name, value])
-            except Exception:
-                pass
+                await page.evaluate(FOCUS_A_BOX, name)
+                await page.keyboard.press("Control+a")
+                await page.keyboard.type(value, delay=25)
+                await page.keyboard.press("Tab")
+            except Exception as e:
+                logger.info("the %s box did not take the words: %s", name, e)
+        # The tax has to be worked out before the page will take the
+        # card, and that takes a moment.
+        await page.wait_for_timeout(2500)
 
         for name, value in (("cardNumber", cc),
                             ("cardExpiry", "%s/%s" % (mm.zfill(2), yy[-2:])),
@@ -447,10 +511,15 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         intent = None
         async with BrowserClient(**client_kwargs) as client:
             while time.time() < deadline:
-                await page.wait_for_timeout(800)
+                await page.wait_for_timeout(500)
+                # The captcha of the payment intent puts up a box that
+                # has to be ticked.  Stripe's own script does the rest
+                # of it once the box is ticked.
                 for frame in page.frames:
                     url = frame.url or ""
-                    if "hcaptcha.com/captcha" not in url or "frame=checkbox" not in url:
+                    if "hcaptcha.com/captcha" not in url:
+                        continue
+                    if "frame=checkbox" not in url and "frame=challenge" not in url:
                         continue
                     try:
                         did = await frame.evaluate(TICK_THE_BOX)
@@ -464,6 +533,43 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                     intent = _the_intent_in_the_frames(page)
                     if intent:
                         logger.info("stripe's frame is about %s", intent["intent_id"])
+                        # The captcha of the intent is in a frame of its
+                        # own, and that frame's address carries the key
+                        # and the request data to ask with.  So the
+                        # answer is asked for right there.
+                        for frame in page.frames:
+                            if THE_INTENT_FRAME not in (frame.url or ""):
+                                continue
+                            try:
+                                said = await frame.evaluate(ASK_IN_THE_FRAME, [
+                                    intent["site_key"], intent["rqdata"]])
+                                logger.info("the intent's captcha was asked for: %s", said)
+                                # wait for the answer and hand it over
+                                give = time.time() + 20
+                                while time.time() < give:
+                                    await frame.wait_for_timeout(700)
+                                    tok = await frame.evaluate("window.__tok || ''")
+                                    if not tok:
+                                        continue
+                                    logger.info("the intent's captcha gave the "
+                                                "answer (%d chars)", len(tok))
+                                    if intent.get("verify_url"):
+                                        async with BrowserClient(**client_kwargs) as c2:
+                                            vr = await c2.post(
+                                                "https://api.stripe.com" + intent["verify_url"],
+                                                data={"client_secret": intent["client_secret"],
+                                                      "key": pk,
+                                                      "captcha_vendor_name": "hcaptcha",
+                                                      "challenge_response_token": tok},
+                                                headers={"origin": "https://js.stripe.com",
+                                                         "referer": "https://js.stripe.com/"},
+                                                timeout=15)
+                                            logger.info("the answer was handed over: "
+                                                        "HTTP %s", vr.status_code)
+                                    break
+                            except Exception as e:
+                                logger.info("the intent's captcha could not be asked for: %s", e)
+                            break
                 if intent:
                     read = await _read_the_intent(client, pk, intent["intent_id"],
                                                   intent["client_secret"])
@@ -472,6 +578,22 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                         intent["read"] = read
                         state = read.get("status") or ""
                         if state not in ("requires_action", "requires_source_action"):
+                            break
+                        # The card is at the bank's door and the bank is
+                        # asking for the second factor.  That is an
+                        # answer about the card, so there is nothing to
+                        # wait for.
+                        action = read.get("next_action") or {}
+                        kind = action.get("type") or ""
+                        if not kind:
+                            kind = (action.get("use_stripe_sdk") or {}).get("type") or ""
+                        if kind == "intent_confirmation_challenge":
+                            # the captcha of the intent is still to be
+                            # answered, so it is worth waiting for
+                            pass
+                        else:
+                            logger.info("the card is at the bank's door: %s", kind)
+                            intent["read"] = read
                             break
                 else:
                     # stripe's own answer says what happened, and it
@@ -483,6 +605,26 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                             intent = {"intent_id": "", "client_secret": "",
                                       "read": from_the_wire}
                             break
+                    # the page can also say no, in words, without
+                    # stripe ever being asked.  When it does, there is
+                    # nothing to wait for.
+                    try:
+                        said = await page.evaluate(WHAT_THE_PAGE_SAYS)
+                    except Exception:
+                        said = []
+                    for text in said or []:
+                        low = str(text).lower()
+                        if "required" in low or "invalid" in low or "enter" in low:
+                            logger.info("the page will not take the card: %s",
+                                        str(text)[:80])
+                            intent = {"intent_id": "", "client_secret": "",
+                                      "read": {"status": "requires_payment_method",
+                                               "last_payment_error": {
+                                                   "code": "form_not_filled",
+                                                   "message": str(text)[:90]}}}
+                            break
+                    if intent:
+                        break
 
             if not intent:
                 logger.info("stripe never said which intent it was about")

@@ -923,7 +923,7 @@ async def _keep_the_working_ones(attempts):
 
 
 async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
-                             timeout=60, want=None):
+                             timeout=60, want=None, page=None):
     """The answer, asked for inside the frame the page put it in.
 
     Stripe does not put its captcha on the page the buyer is on: it
@@ -969,23 +969,31 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
 
     browser = None
     pw = None
+    own_browser = False
     try:
-        pw = await async_playwright().start()
-        try:
-            ctx = await pw.chromium.launch_persistent_context(
-                _profile_dir(), channel="chrome", bypass_csp=True,
-                **PAGE_OPTIONS, **launch)
-        except Exception:
-            _clear_the_lock()
-            b2 = await pw.chromium.launch(**launch)
-            ctx = await b2.new_context(bypass_csp=True, **PAGE_OPTIONS)
-        await ctx.add_init_script(STEALTH)
-        # the hook is on every frame, so what stripe's own captcha is
-        # asked for is known
-        await ctx.add_init_script(WATCH_THE_CAPTCHA)
-        page = await ctx.new_page()
-        if apply_browser_identity is not None:
-            await apply_browser_identity(page, client_hints_metadata())
+        if page is not None:
+            # The browser is already open, so the answer is asked for
+            # in it and the page is only opened again.  That is much
+            # quicker than starting a browser for every card.
+            ctx = page.context
+        else:
+            own_browser = True
+            pw = await async_playwright().start()
+            try:
+                ctx = await pw.chromium.launch_persistent_context(
+                    _profile_dir(), channel="chrome", bypass_csp=True,
+                    **PAGE_OPTIONS, **launch)
+            except Exception:
+                _clear_the_lock()
+                b2 = await pw.chromium.launch(**launch)
+                ctx = await b2.new_context(bypass_csp=True, **PAGE_OPTIONS)
+            await ctx.add_init_script(STEALTH)
+            # the hook is on every frame, so what stripe's own captcha is
+            # asked for is known
+            await ctx.add_init_script(WATCH_THE_CAPTCHA)
+            page = await ctx.new_page()
+            if apply_browser_identity is not None:
+                await apply_browser_identity(page, client_hints_metadata())
         await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
 
         # The captcha is put up by stripe's own code, a few seconds
@@ -1012,9 +1020,14 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
                     continue
                 if frame is None:
                     frame = candidate
-            if frame is not None or intent_frame is not None:
+            # when the intent's captcha is wanted, its own frame is
+            # the one that is needed, and nothing else will do
+            if want == "intent":
+                if intent_frame is not None:
+                    break
+            elif frame is not None:
                 break
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(250)
 
         if want == "intent" and intent_frame is not None:
             frame = intent_frame
