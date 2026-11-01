@@ -16,6 +16,13 @@ with the key and the request data that came with the page.
 # one is found by looking for the captcha itself and not by the host.
 STRIPE_CAPTCHA_FRAME = "HCaptchaInvisible"
 
+# The frame that holds the captcha of the payment intent.  It is a
+# different frame from the one above: the one above is stripe's own
+# captcha for the page, and this one is the challenge the payment
+# intent is waiting for.  They have different keys, and an answer for
+# one is not an answer for the other.
+STRIPE_INTENT_FRAME = "hcaptcha-inner"
+
 # The frame stripe's script sits in.  It is the one that says which host
 # the captcha is for.
 STRIPE_CAPTCHA_SHELL = "hcaptcha-invisible"
@@ -151,6 +158,50 @@ def host_of_the_page(frame):
         return urlparse(frame.url or "").netloc
     except Exception:
         return ""
+
+
+def intent_challenge(page):
+    """The key, the request data and the address of the challenge that
+    the payment intent is waiting for.
+
+    Stripe puts the challenge of the payment intent in a frame of its
+    own, and the address of that frame carries everything about it: the
+    key, the request data, and the address the answer is handed to.
+    That frame is on stripe's own site, and the challenge belongs to
+    that frame and not to the page.
+
+    The captcha of the page is a different captcha, with a different
+    key, and an answer for it is refused by the payment intent.
+    """
+    from urllib.parse import unquote
+
+    for frame in page.frames:
+        url = frame.url or ""
+        if STRIPE_INTENT_FRAME not in url:
+            continue
+        tail = url.split("#", 1)[-1]
+        found = {}
+        for part in tail.split("&"):
+            if "=" not in part:
+                continue
+            name, value = part.split("=", 1)
+            found[name] = unquote(value)
+        site_key = found.get("sitekey") or ""
+        rqdata = found.get("rqdata") or ""
+        if not site_key or not rqdata:
+            continue
+        verify = found.get("verifyUrl") or ""
+        if verify and not verify.startswith("/"):
+            verify = "/" + verify
+        return {
+            "frame": frame,
+            "site_key": site_key,
+            "rqdata": rqdata,
+            "verify_url": verify,
+            "intent_id": found.get("intentId") or "",
+            "client_secret": found.get("clientSecret") or "",
+        }
+    return None
 
 
 def frame_host(frame_url):

@@ -2457,6 +2457,26 @@ async def _check_intent_status(client, pk, client_secret, pm_id, intent_type):
 async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, proxy=None):
     start = time.time()
 
+    # The card is put into the real page, in a real browser, and stripe's
+    # own script takes it the whole way: it puts up its captcha, it
+    # hands the answer over, and it takes the card through the bank.
+    # The other way round answers the page's captcha and hands it to
+    # the payment intent, which is a different captcha, and the intent
+    # refuses it.
+    if os.environ.get("STRIPE_NATIVE", "1") != "0":
+        try:
+            from gates.stripe_native import native_check
+            status, msg, card_info, _took = await native_check(
+                cc, mm, yy, cvv, checkout_url, proxy=proxy)
+            elapsed = round(time.time() - start, 2)
+            if status and status != "error":
+                logger.info("the card went through the page: %s | %s", status, msg)
+                return status, msg, card_info, elapsed, None
+            logger.info("the page did not take the card: %s | %s", status, msg)
+            return status, msg, card_info, elapsed, None
+        except Exception as e:
+            logger.warning("the card could not go through the page: %s", e)
+
     client_kwargs = {
         "timeout": 15,
         "follow_redirects": True,
