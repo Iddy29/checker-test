@@ -904,7 +904,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 except Exception as e:
                     logger.warning(f"Failed to fetch full PI: {e}")
             logger.info(f"PI requires 3DS, attempting bypass...")
-            bypass_result = await _attempt_3ds_bypass(client, pk, pi, "payment_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv, proxy=proxy)
+            bypass_result = await _attempt_3ds_bypass(client, pk, pi, "payment_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv, proxy=proxy, session_info=session_info)
             if bypass_result:
                 return bypass_result
             _pi_sdk_type = pi.get("next_action", {}).get("use_stripe_sdk", {}).get("type", "")
@@ -980,7 +980,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
                 except Exception as e:
                     logger.warning(f"Failed to fetch full SI: {e}")
             logger.info(f"SI requires 3DS, attempting bypass...")
-            bypass_result = await _attempt_3ds_bypass(client, pk, si, "setup_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv, proxy=proxy)
+            bypass_result = await _attempt_3ds_bypass(client, pk, si, "setup_intent", stripe_js_version, is_checkout=True, session_id=session_id, amount=amount, cc=cc, mm=mm, yy=yy, cvv=cvv, proxy=proxy, session_info=session_info)
             if bypass_result:
                 return bypass_result
             _si_sdk = si.get("next_action", {}).get("use_stripe_sdk", {})
@@ -1039,7 +1039,7 @@ async def _confirm_via_payment_pages(client, pk, session_id, pm_id, amount=None,
     return "declined", "Unknown response"
 
 
-async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_version=None, is_checkout=False, session_id=None, amount=None, cc=None, mm=None, yy=None, cvv=None, proxy=None):
+async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_version=None, is_checkout=False, session_id=None, amount=None, cc=None, mm=None, yy=None, cvv=None, proxy=None, session_info=None):
     cs = intent_data.get("client_secret", "")
     intent_id = intent_data.get("id", "")
     pm = intent_data.get("payment_method") or intent_data.get("source")
@@ -1292,10 +1292,16 @@ async def _attempt_3ds_bypass(client, pk, intent_data, intent_type, stripe_js_ve
                 # the page a person would open, with the part after the
                 # # on it: without it the page is not a whole page and
                 # stripe puts up the picture challenge instead of the box
+                # The page a person would open, with the part after the
+                # # on it: without it the page is not a whole page and
+                # the captcha answers with a picture instead of the box.
                 captcha_page = (session_info or {}).get("whole_url", "") or ""
-                if not captcha_page:
+                if not captcha_page and session_id:
                     captcha_page = (f"https://checkout.stripe.com/c/pay/{session_id}"
-                                    f"?client_secret={cs}" if session_id else "")
+                                    f"?client_secret={cs}")
+                if not captcha_page:
+                    logger.info("there is no page to solve the captcha on")
+                    return "live", "hCaptcha Challenge Required (no page)" 
                 captcha_ekey = ""
                 try:
                     from captcha_solver import solve_hcaptcha_enterprise

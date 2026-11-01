@@ -215,6 +215,33 @@ HCAPTCHA_WIDGET = """
             }
             return 'the widget is up';
         }
+        const opts = {
+            callback: keep,
+            'error-callback': (e) => { window.__lc_error = String(e); }
+        };
+        if (rqdata) {
+            // The enterprise captcha has no box on the page: it is asked
+            // for with the site key itself, and the request data goes
+            // in its own place.  An ordinary captcha asked with the
+            // request data is answered with a picture instead of the
+            // answer.
+            opts.enterprisePayload = { rqdata: rqdata };
+            try {
+                window.__lc_widget = window.hcaptcha.render(sitekey, opts);
+            } catch (e) {
+                window.__lc_widget = null;
+                window.__lc_error = 'the render failed: ' + e;
+                return 'the render failed: ' + e;
+            }
+            window.__lc_started = true;
+            try {
+                const p = window.hcaptcha.execute(window.__lc_widget, {async: true});
+                if (p && p.then) {
+                    p.then(keep).catch((e) => { window.__lc_error = 'execute: ' + e; });
+                }
+            } catch (e) { window.__lc_error = 'execute threw: ' + e; }
+            return 'the widget is up';
+        }
         const box = document.createElement('div');
         box.className = 'h-captcha';
         box.dataset.sitekey = sitekey;
@@ -223,19 +250,7 @@ HCAPTCHA_WIDGET = """
         box.style.top = '10px';
         box.style.zIndex = '2147483647';
         document.body.appendChild(box);
-        const opts = {
-            sitekey: sitekey,
-            callback: keep,
-            'error-callback': (e) => { window.__lc_error = String(e); }
-        };
-        if (rqdata) {
-            // The enterprise captcha is the invisible one, the way
-            // stripe does it.  The request data goes in its own place:
-            // an ordinary captcha asked with it is answered with a
-            // picture instead of the box.
-            opts.size = 'invisible';
-            opts.enterprisePayload = { rqdata: rqdata };
-        }
+        opts.sitekey = sitekey;
         try {
             window.__lc_widget = window.hcaptcha.render(box, opts);
         } catch (e) {
@@ -888,10 +903,13 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
 
     attempts = []
     if proxy:
+        # The answer belongs to the address that asked for it, so the
+        # address the caller named is the only one that is asked.
         attempts.append(proxy)
-    for p in _working_proxies():
-        if p not in attempts:
-            attempts.append(p)
+    else:
+        for p in _working_proxies():
+            if p not in attempts:
+                attempts.append(p)
     # the addresses that work are found first, so the run does not
     # waste its time on the ones that are dead
     attempts = await _keep_the_working_ones(attempts)
