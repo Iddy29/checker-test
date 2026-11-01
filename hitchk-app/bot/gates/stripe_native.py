@@ -262,6 +262,65 @@ def _clear_the_lock():
         pass
 
 
+# The browser of the checkout is kept open between the cards.  Starting
+# a browser takes about twenty seconds, and that is more than the whole
+# rest of the work.
+_THE_BROWSER = {"ctx": None, "pw": None, "proxy": None}
+
+
+async def _the_browser(launch, page_options, stealth):
+    """The browser of the checkout, opened once and kept."""
+    from playwright.async_api import async_playwright
+
+    wanted = launch.get("proxy")
+    wanted = wanted.get("server") if isinstance(wanted, dict) else wanted
+    ctx = _THE_BROWSER.get("ctx")
+    if ctx is not None:
+        if wanted == _THE_BROWSER.get("proxy"):
+            try:
+                return ctx
+            except Exception:
+                pass
+        try:
+            await ctx.close()
+        except Exception:
+            pass
+        _THE_BROWSER["ctx"] = None
+
+    pw = await async_playwright().start()
+    try:
+        ctx = await pw.chromium.launch_persistent_context(
+            _the_profile(), channel="chrome", bypass_csp=True,
+            **page_options, **launch)
+    except Exception:
+        _clear_the_lock()
+        browser = await pw.chromium.launch(**launch)
+        ctx = await browser.new_context(bypass_csp=True, **page_options)
+    await ctx.add_init_script(stealth)
+    _THE_BROWSER["ctx"] = ctx
+    _THE_BROWSER["pw"] = pw
+    _THE_BROWSER["proxy"] = wanted
+    return ctx
+
+
+async def _close_the_browser():
+    """The browser of the checkout, shut."""
+    ctx = _THE_BROWSER.get("ctx")
+    pw = _THE_BROWSER.get("pw")
+    _THE_BROWSER["ctx"] = None
+    _THE_BROWSER["pw"] = None
+    try:
+        if ctx is not None:
+            await ctx.close()
+    except Exception:
+        pass
+    try:
+        if pw is not None:
+            await pw.stop()
+    except Exception:
+        pass
+
+
 def _the_intent_in_the_frames(page):
     """The intent stripe's own frame is about, if it is there.
 
@@ -505,18 +564,9 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
 
     pw = None
     ctx = None
+    page = None
     try:
-        pw = await async_playwright().start()
-        try:
-            ctx = await pw.chromium.launch_persistent_context(
-                _the_profile(), channel="chrome", bypass_csp=True,
-                **PAGE_OPTIONS, **launch)
-        except Exception:
-            _clear_the_lock()
-            browser = await pw.chromium.launch(**launch)
-            ctx = await browser.new_context(bypass_csp=True, **PAGE_OPTIONS)
-        await ctx.add_init_script(STEALTH)
-
+        ctx = await _the_browser(launch, PAGE_OPTIONS, STEALTH)
         page = await ctx.new_page()
         if apply_browser_identity is not None:
             await apply_browser_identity(page, client_hints_metadata())
@@ -535,8 +585,12 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         page.on("response", _on_response)
 
         logger.info("the checkout is opened: %s", checkout_url[:90])
-        await page.goto(checkout_url, wait_until="domcontentloaded", timeout=45000)
-        await page.wait_for_timeout(4000)
+        try:
+            await page.goto(checkout_url, wait_until="domcontentloaded", timeout=25000)
+        except Exception as e:
+            logger.info("the page did not open in time: %s", str(e)[:60])
+            return "error", "The page did not open", "", time.time() - started
+        await page.wait_for_timeout(2500)
 
         # a page that is already finished says so, and there is nothing
         # to be done there
@@ -639,6 +693,30 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                     except Exception:
                         pass
 
+                # Stripe's own answer says what happened, and it says it
+                # as soon as it knows, so the wire is looked at first.
+                from_the_wire = _the_intent_in_the_wire(seen)
+                if from_the_wire:
+                    state = from_the_wire.get("status") or ""
+                    action = from_the_wire.get("next_action") or {}
+                    kind = action.get("type") or ""
+                    if not kind:
+                        kind = (action.get("use_stripe_sdk") or {}).get("type") or ""
+                    if state not in ("requires_action", "requires_source_action"):
+                        # the card is done: it was taken, or refused
+                        intent = {"intent_id": "", "client_secret": "",
+                                  "read": from_the_wire}
+                        break
+                    if kind == "intent_confirmation_challenge":
+                        # the captcha of the intent is still to be
+                        # answered, so it is worth waiting for
+                        pass
+                    else:
+                        logger.info("the card is at the bank's door: %s", kind)
+                        intent = {"intent_id": "", "client_secret": "",
+                                  "read": from_the_wire}
+                        break
+
                 if intent is None:
                     intent = _the_intent_in_the_frames(page)
                     if intent:
@@ -673,15 +751,6 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                             intent["read"] = read
                             break
                 else:
-                    # stripe's own answer says what happened, and it
-                    # says it as soon as it knows
-                    from_the_wire = _the_intent_in_the_wire(seen)
-                    if from_the_wire:
-                        state = from_the_wire.get("status") or ""
-                        if state not in ("requires_action", "requires_source_action"):
-                            intent = {"intent_id": "", "client_secret": "",
-                                      "read": from_the_wire}
-                            break
                     # the page can also say no, in words, without
                     # stripe ever being asked.  When it does, there is
                     # nothing to wait for.
@@ -731,13 +800,10 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         logger.warning("the checkout in the browser failed: %s", e)
         return "error", str(e)[:60], "", time.time() - started
     finally:
+        # The browser is kept for the next card, but the page of this
+        # card is closed so the next one starts clean.
         try:
-            if ctx is not None:
-                await ctx.close()
-        except Exception:
-            pass
-        try:
-            if pw is not None:
-                await pw.stop()
+            if page is not None and not page.is_closed():
+                await page.close()
         except Exception:
             pass
