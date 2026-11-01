@@ -585,10 +585,13 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         page.on("response", _on_response)
 
         logger.info("the checkout is opened: %s", checkout_url[:90])
+        # The page's own script keeps the load going, so the load is
+        # waited for as far as the first answer comes back, and the
+        # page is given a moment after that.
         try:
-            await page.goto(checkout_url, wait_until="domcontentloaded", timeout=25000)
+            await page.goto(checkout_url, wait_until="commit", timeout=20000)
         except Exception as e:
-            logger.info("the page did not open in time: %s", str(e)[:60])
+            logger.info("the page did not answer in time: %s", str(e)[:60])
             return "error", "The page did not open", "", time.time() - started
         await page.wait_for_timeout(2500)
 
