@@ -1,5 +1,8 @@
 from telethon import TelegramClient, events, Button
-from telethon.tl.types import KeyboardButtonCallback
+try:
+    from telethon.tl.types import KeyboardButtonCallback
+except ImportError:
+    pass  # KeyboardButtonCallback removed in newer Telethon, not used anyway
 import requests, random, datetime, json, os, re, asyncio, time
 import string
 import hashlib
@@ -8,6 +11,27 @@ import aiofiles
 from urllib.parse import urlparse
 import sys
 import tempfile
+
+# The gates are in one folder and the helpers they need are in
+# another, and the python does not know where either of them is.  So the
+# places are worked out here and put on the path, once, before anything
+# is asked for.
+def _where_the_gates_are():
+    import os as _os
+    import sys as _sys
+
+    here = _os.path.dirname(_os.path.abspath(__file__))
+    for up in (here, _os.path.dirname(here), _os.path.join(here, "hitchk-app")):
+        for name in ("bot", "hitchk-app/bot", "hitchk-app", ""):
+            path = _os.path.join(up, name) if name else up
+            if _os.path.exists(_os.path.join(path, "gates")):
+                if path not in _sys.path:
+                    _sys.path.insert(0, path)
+                break
+
+
+_where_the_gates_are()
+
 from response_mask import mask_response
 
 from gateways import (
@@ -1303,8 +1327,9 @@ def _cleanup_stale_session():
 
 _cleanup_stale_session()
 
+from telethon.sessions import StringSession
 client = TelegramClient(
-    SESSION_NAME,
+    StringSession(),
     API_ID,
     API_HASH,
     connection_retries=10,
@@ -8029,6 +8054,12 @@ try:
     CO_CARD_TIMEOUT = int(os.environ.get("CO_CARD_TIMEOUT", "") or 150)
 except Exception:
     CO_CARD_TIMEOUT = 150
+
+
+# How long a card is given.  The card goes into the real page, so the
+# page has to open, the captcha has to be answered, and the bank has to
+# answer.  A minute is not enough for that.
+CO_CARD_TIMEOUT = 150
 
 
 async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):
