@@ -23,6 +23,31 @@ _bot_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _bot_dir not in _sys.path:
     _sys.path.insert(0, _bot_dir)
 
+
+
+def _where_the_helpers_are():
+    """Put the folder with the helpers on the path.
+
+    The gate is in one folder and the helpers it needs are in
+    another, and the python does not know where either of them is.  So
+    the place is worked out here and put on the path, once.
+    """
+    import os
+    import sys
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in (here, os.path.dirname(here), os.path.dirname(os.path.dirname(here))):
+        for name in ("bot", "hitchk-app/bot", "hitchk-app"):
+            path = os.path.join(up, name)
+            if os.path.exists(os.path.join(path, "browser_identity.py")):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
+                return path
+    return here
+
+
+_where_the_helpers_are()
+
 from browser_identity import (BrowserClient, api_headers, navigation_headers,
                               USER_AGENT as UA)
 

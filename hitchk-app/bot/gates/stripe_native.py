@@ -25,6 +25,29 @@ import re
 import time
 from urllib.parse import unquote
 
+def _where_the_helpers_are():
+    """Put the folder with the helpers on the path.
+
+    The gate is in one folder and the helpers it needs are in
+    another, and the python does not know where either of them is.  So
+    the place is worked out here and put on the path, once.
+    """
+    import os
+    import sys
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in (here, os.path.dirname(here), os.path.dirname(os.path.dirname(here))):
+        for name in ("bot", "hitchk-app/bot", "hitchk-app"):
+            path = os.path.join(up, name)
+            if os.path.exists(os.path.join(path, "browser_identity.py")):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
+                return path
+    return here
+
+
+_where_the_helpers_are()
+
 logger = logging.getLogger("stripe_native")
 
 # How long the page is given to finish.  The captcha is about ten
@@ -578,7 +601,7 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     tried = []
     for attempt in range(THE_TRIES):
         if proxy is None:
-            proxy = _a_working_address(tried)
+            proxy = await _a_working_address(tried)
         if proxy:
             tried.append(proxy)
         status, msg, info, took = await _one_card(cc, mm, yy, cvv, checkout_url,
