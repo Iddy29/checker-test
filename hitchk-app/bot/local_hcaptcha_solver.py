@@ -397,7 +397,7 @@ async def _get_browser(launch):
     ctx = None
     try:
         ctx = await _PW.chromium.launch_persistent_context(
-            _profile_dir(), channel="chrome", bypass_csp=True,
+            _profile_dir(), **_the_browser(), bypass_csp=True,
             **PAGE_OPTIONS, **launch)
     except Exception as e:
         logger.debug("the saved profile browser did not start: %s", e)
@@ -406,7 +406,7 @@ async def _get_browser(launch):
         _clear_the_lock()
         try:
             ctx = await _PW.chromium.launch_persistent_context(
-                _profile_dir(), channel="chrome", bypass_csp=True,
+                _profile_dir(), **_the_browser(), bypass_csp=True,
                 **PAGE_OPTIONS, **launch)
         except Exception as e2:
             logger.debug("the saved profile browser did not start again: %s", e2)
@@ -456,6 +456,25 @@ def _profile_dir():
     except Exception:
         return "/tmp"
     return path
+
+
+def _the_browser():
+    """The browser of the version the request library pretends to be.
+
+    The browser that answers the captcha has to be the same version as
+    the request that carries the answer.  So the browser of that exact
+    version is used, when it is on the machine.
+    """
+    try:
+        from browser_identity import CHROME_VERSION
+    except Exception:
+        CHROME_VERSION = ""
+    if CHROME_VERSION:
+        for path in ("/opt/chrome-%s/chrome" % CHROME_VERSION,
+                     "/opt/chrome/chrome"):
+            if os.path.exists(path):
+                return {"channel": "chrome", "executable_path": path}
+    return {"channel": "chrome"}
 
 
 # The proxies that are worth trying, and the file they are in.
@@ -981,7 +1000,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
             pw = await async_playwright().start()
             try:
                 ctx = await pw.chromium.launch_persistent_context(
-                    _profile_dir(), channel="chrome", bypass_csp=True,
+                    _profile_dir(), **_the_browser(), bypass_csp=True,
                     **PAGE_OPTIONS, **launch)
             except Exception:
                 _clear_the_lock()

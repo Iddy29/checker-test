@@ -555,6 +555,26 @@ async def _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version=
     return pm_id, None, card_info
 
 
+# The screen the browser says it has.  The fingerprint the bank is
+# given has to say the same thing.
+_BROWSER_SCREEN_WIDTH = 1680
+_BROWSER_SCREEN_HEIGHT = 1050
+_BROWSER_COLOR_DEPTH = 24
+
+
+def _the_browser_screen():
+    """The screen the browser says it has, read from the browser."""
+    global _BROWSER_SCREEN_WIDTH, _BROWSER_SCREEN_HEIGHT, _BROWSER_COLOR_DEPTH
+    try:
+        from browser_identity import PAGE_SCREEN
+        if PAGE_SCREEN:
+            _BROWSER_SCREEN_WIDTH = PAGE_SCREEN[0]
+            _BROWSER_SCREEN_HEIGHT = PAGE_SCREEN[1]
+            _BROWSER_COLOR_DEPTH = PAGE_SCREEN[2]
+    except Exception:
+        pass
+
+
 def _classify_confirm_error(error_data, intent_type="payment"):
     code = error_data.get("code", "")
     decline = error_data.get("decline_code", "")
@@ -1854,14 +1874,17 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
     })
 
     for var_idx, var_data in enumerate(auth_variations):
+        # The fingerprint the bank is given has to be the fingerprint
+        # of the browser that answered the captcha.  A made up screen on
+        # a made up system is refused.
         browser_data = json.dumps({
             **var_data,
-            "browserJavaEnabled": False,
+            "browserJavaEnabled": True,
             "browserJavascriptEnabled": True,
             "browserLanguage": "en-US",
-            "browserColorDepth": "24",
-            "browserScreenHeight": "1080",
-            "browserScreenWidth": "1920",
+            "browserColorDepth": str(_BROWSER_COLOR_DEPTH),
+            "browserScreenHeight": str(_BROWSER_SCREEN_HEIGHT),
+            "browserScreenWidth": str(_BROWSER_SCREEN_WIDTH),
             "browserTZ": tz_offset,
             "browserUserAgent": UA,
         })

@@ -20,14 +20,61 @@ solves the captcha is told the same name.
 
 import logging
 import os
+import re
+import subprocess
 
 logger = logging.getLogger("browser_identity")
+
+
+def _the_chrome_the_library_knows():
+    """The newest Chrome the request library can pretend to be.
+
+    The library sends the handshake and the headers itself, so those
+    have to be the version of a browser that really exists.  The newest
+    one it knows is the best: it is the one a person on this machine
+    would really be using.
+    """
+    try:
+        from curl_cffi.requests.impersonate import BrowserType
+        found = []
+        for item in BrowserType:
+            value = getattr(item, "value", "")
+            found.append(value)
+    except Exception:
+        found = []
+    numbers = []
+    for value in found:
+        matched = re.match(r"chrome(\d+)$", value)
+        if matched:
+            numbers.append(int(matched.group(1)))
+    if not numbers:
+        return "136"
+    return str(max(numbers))
+
+
+def _the_chrome_that_is_here():
+    """The version of the browser that is really on this machine.
+
+    The browser that solves the captcha has to say the same thing as
+    the request that carries the answer.  A browser of one version
+    saying it is another is a tell, and the captcha answers such a
+    browser with pictures.
+
+    But the browser has to be a version the library can also pretend to
+    be, so the newest one the library knows is used and the browser is
+    told to be that one.
+    """
+    said = os.environ.get("BROWSER_CHROME_VERSION", "").strip()
+    if said:
+        return said
+    return _the_chrome_the_library_knows()
+
 
 # The Chrome that can be impersonated.  The name, the client hints and
 # the handshake have to be the same version: a mix of two is worse
 # than any single one.
-CHROME_VERSION = os.environ.get("BROWSER_CHROME_VERSION", "136").strip() or "136"
-IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", f"chrome{CHROME_VERSION}").strip() \
+CHROME_VERSION = _the_chrome_that_is_here()
+IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", "").strip() \
     or f"chrome{CHROME_VERSION}"
 
 # The name the browser gives and the client hints that go with it.  The
@@ -35,7 +82,7 @@ IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", f"chrome{CHROME_VERSION}").s
 # to the same browser.  They are written out here for the browser that
 # solves the captcha, which has to say the same thing.
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+              f"(KHTML, like Gecko) Chrome/{CHROME_VERSION}.0.0.0 Safari/537.36")
 
 # A gate that says it is a phone gets the handshake of a phone.  A
 # phone name on a computer's handshake is a tell in itself.
@@ -43,11 +90,17 @@ ANDROID_IMPERSONATE = os.environ.get("BROWSER_ANDROID_IMPERSONATE",
                                       "chrome131_android").strip() or "chrome131_android"
 ANDROID_UA = ("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
-SEC_CH_UA = '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"'
+SEC_CH_UA = (f'"Chromium";v="{CHROME_VERSION}", "Google Chrome";v="{CHROME_VERSION}", '
+              '"Not.A/Brand";v="99"')
 SEC_CH_UA_MOBILE = "?0"
 SEC_CH_UA_PLATFORM = '"macOS"'
 ACCEPT_LANGUAGE = "en-US,en;q=0.9"
 ACCEPT_ENCODING = "gzip, deflate, br, zstd"
+
+# The screen the browser says it has: the width, the height and the
+# colour depth.  The fingerprint the bank is given has to say the same
+# thing, or the bank sees two different computers.
+PAGE_SCREEN = (1680, 1050, 24)
 
 # The same name, the way the callers ask for it.
 BROWSER_UA = USER_AGENT

