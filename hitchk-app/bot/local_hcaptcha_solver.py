@@ -55,8 +55,11 @@ Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
 // The screen.  A browser that says it is a computer with one screen
 // of a size nobody has is easy to pick out.  Each one is set on its
 // own, because one that will not go through must not stop the rest.
-const _sizes = [[1728, 1117, 24], [1512, 982, 24], [1440, 900, 24], [1680, 1050, 24]];
-const _size = _sizes[Math.floor(Math.random() * _sizes.length)];
+//
+// The size is the one the fingerprint says too: the browser and the
+// request that carries the answer have to be the same computer.
+const _sizes = [[1728, 1117, 24]];
+const _size = _sizes[0];
 const _set = (obj, name, value) => {
   try { Object.defineProperty(obj, name, {get: () => value, configurable: true}); }
   catch (e) {}

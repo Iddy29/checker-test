@@ -272,7 +272,7 @@ def _clear_the_lock():
 _THE_BROWSER = {"ctx": None, "pw": None, "proxy": None}
 
 
-def _the_browser():
+def _which_browser():
     """The browser of the version the request library pretends to be.
 
     The browser that answers the captcha has to be the same version as
@@ -308,7 +308,7 @@ async def _the_browser_open(launch, page_options, stealth):
     pw = await async_playwright().start()
     try:
         ctx = await pw.chromium.launch_persistent_context(
-            _the_profile(), **_the_browser(), bypass_csp=True,
+            _the_profile(), **_which_browser(), bypass_csp=True,
             **page_options, **launch)
     except Exception:
         _clear_the_lock()
@@ -575,7 +575,12 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     # the card comes from.  So when the card is asked for pictures, it
     # is tried again on another address, and the addresses are not the
     # same one twice running.
+    tried = []
     for attempt in range(THE_TRIES):
+        if proxy is None:
+            proxy = _a_working_address(tried)
+        if proxy:
+            tried.append(proxy)
         status, msg, info, took = await _one_card(cc, mm, yy, cvv, checkout_url,
                                                   proxy, timeout)
         if status != "error" or "pictures" not in str(msg).lower():
@@ -588,24 +593,47 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     return status, msg, info, took
 
 
+async def _a_working_address(tried):
+    """An address that answers, and that has not been used."""
+    try:
+        from gates.stripe_co import _get_proxy, _the_address_answers, PROXY_FILE
+        import os as _os
+        if not _os.path.exists(PROXY_FILE):
+            return None
+        with open(PROXY_FILE, encoding="utf-8", errors="replace") as f:
+            lines = [l.strip() for l in f if l.strip()]
+        random.shuffle(lines)
+        for line in lines:
+            if line in tried:
+                continue
+            if not await _the_address_answers(line):
+                continue
+            from gates.stripe_co import _the_address
+            whole, _ = _the_address(line)
+            if whole:
+                return whole
+    except Exception as e:
+        logger.info("the addresses could not be looked at: %s", e)
+    return None
+
+
 def _another_address(used):
     """An address that is not the one just used."""
     try:
-        with open("/root/hitchecker/bot/proxy.txt", encoding="utf-8",
-                  errors="replace") as f:
-            lines = [l.strip() for l in f if l.strip()]
-        if not lines:
+        from gates.stripe_co import _get_proxy, PROXY_FILE
+        import os as _os
+        if not _os.path.exists(PROXY_FILE):
             return None
+        with open(PROXY_FILE, encoding="utf-8", errors="replace") as f:
+            lines = [l.strip() for l in f if l.strip()]
         random.shuffle(lines)
         for line in lines:
             if used and line in used:
                 continue
-            parts = line.split(":")
-            if len(parts) == 4:
-                host, port, user, pwd = parts
-                return "http://%s:%s@%s:%s" % (user, pwd, host, port)
-            if len(parts) == 2:
-                return "http://%s:%s" % (parts[0], parts[1])
+            from gates.stripe_co import _the_address
+            whole, _ = _the_address(line)
+            if whole:
+                return whole
     except Exception:
         pass
     return None
@@ -637,9 +665,32 @@ async def _one_card(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                  "--disable-blink-features=AutomationControlled",
                  "--window-size=1366,900"],
     }
-    pw_proxy = _playwright_proxy(proxy)
-    if pw_proxy:
-        launch["proxy"] = pw_proxy
+    # The browser takes the address in its own shape: the host and the
+    # port, with the word in a separate place.  It has to be the same
+    # address the request goes out by, or the captcha is answered by one
+    # computer and handed over by another.
+    if proxy:
+        browser_proxy = None
+        try:
+            from gates.stripe_co import _the_address
+            _whole, server = _the_address(proxy)
+            if server:
+                browser_proxy = {"server": server}
+                # the word has to be in its own place
+                if "@" in (proxy or "") and "://" in proxy:
+                    creds = proxy.split("://", 1)[-1].split("@", 1)[0]
+                    if ":" in creds:
+                        user, pwd = creds.split(":", 1)
+                        browser_proxy["username"] = user
+                        browser_proxy["password"] = pwd
+        except Exception:
+            browser_proxy = None
+        if not browser_proxy:
+            pw_proxy = _playwright_proxy(proxy)
+            if pw_proxy:
+                browser_proxy = pw_proxy
+        if browser_proxy:
+            launch["proxy"] = browser_proxy
 
     pk = the_key_of(checkout_url)
     client_kwargs = {"timeout": 15, "follow_redirects": True, "proxy": None}
@@ -650,7 +701,7 @@ async def _one_card(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     ctx = None
     page = None
     try:
-        ctx = await _the_browser(launch, PAGE_OPTIONS, STEALTH)
+        ctx = await _the_browser_open(launch, PAGE_OPTIONS, STEALTH)
         page = await ctx.new_page()
         if apply_browser_identity is not None:
             await apply_browser_identity(page, client_hints_metadata())

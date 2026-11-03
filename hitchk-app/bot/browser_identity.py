@@ -100,7 +100,7 @@ ACCEPT_ENCODING = "gzip, deflate, br, zstd"
 # The screen the browser says it has: the width, the height and the
 # colour depth.  The fingerprint the bank is given has to say the same
 # thing, or the bank sees two different computers.
-PAGE_SCREEN = (1680, 1050, 24)
+PAGE_SCREEN = (1728, 1117, 24)
 
 # The same name, the way the callers ask for it.
 BROWSER_UA = USER_AGENT

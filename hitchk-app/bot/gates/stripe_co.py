@@ -52,19 +52,107 @@ def _random_name():
     return random.choice(firsts), random.choice(lasts)
 
 
+def _the_address(raw):
+    """One address, in the form the library and the browser take.
+
+    The file holds the address in pieces: the host, the port, the user
+    and the word.  The library and the browser want it as one thing,
+    and the browser wants it as two.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    # already made into one thing: the host and the port are taken out
+    if "://" in raw:
+        rest = raw.split("://", 1)[-1]
+        if "@" in rest:
+            rest = rest.split("@", 1)[-1]
+        server = rest.split("/", 1)[0]
+        return raw, server
+    parts = raw.split(":")
+    if len(parts) == 4:
+        host, port, user, pwd = parts
+        return f"http://{user}:{pwd}@{host}:{port}", f"{host}:{port}"
+    if len(parts) == 2:
+        return f"http://{parts[0]}:{parts[1]}", f"{parts[0]}:{parts[1]}"
+    return None, None
+
+
+async def _the_address_answers(raw):
+    """Does this address answer?
+
+    The addresses are asked once, and the ones that answer are used
+    from then on.  An address that does not answer only makes the card
+    slow.
+    """
+    whole, _ = _the_address(raw)
+    if not whole:
+        return False
+    try:
+        from browser_identity import BrowserClient
+        async with BrowserClient(timeout=12, proxy=whole) as client:
+            r = await client.get("https://api.ipify.org", timeout=10)
+            for name in ("text", "content"):
+                got = getattr(r, name, None)
+                if got is None:
+                    continue
+                try:
+                    if callable(got):
+                        got = got()
+                    if isinstance(got, bytes):
+                        got = got.decode("utf-8", "replace")
+                    return bool(str(got).strip())
+                except Exception:
+                    continue
+    except Exception:
+        return False
+    return False
+
+
 def _get_proxy():
+    """An address from the file, for the library.
+
+    The addresses that answer are remembered, so the ones that are
+    slow or dead are not used again and again.
+    """
+    try:
+        if os.path.exists(PROXY_FILE):
+            with open(PROXY_FILE, "r") as f:
+                lines = [l.strip() for l in f if l.strip()]
+            if lines:
+                for raw in _the_ones_to_try(lines):
+                    whole, _ = _the_address(raw)
+                    if whole:
+                        return whole
+    except Exception:
+        pass
+    return None
+
+
+# The addresses that answered, and the ones that did not.
+_PROXY_GOOD = []
+_PROXY_BAD = set()
+
+
+def _the_ones_to_try(lines):
+    """The addresses to try, the ones that answered first."""
+    random.shuffle(lines)
+    good = [l for l in lines if l not in _PROXY_BAD]
+    bad = [l for l in lines if l in _PROXY_BAD]
+    return good + bad
+
+
+def _get_proxy_for_the_browser():
+    """An address from the file, for the browser."""
     try:
         if os.path.exists(PROXY_FILE):
             with open(PROXY_FILE, "r") as f:
                 lines = [l.strip() for l in f if l.strip()]
             if lines:
                 raw = random.choice(lines)
-                parts = raw.split(":")
-                if len(parts) == 4:
-                    host, port, user, pwd = parts
-                    return f"http://{user}:{pwd}@{host}:{port}"
-                elif len(parts) == 2:
-                    return f"http://{parts[0]}:{parts[1]}"
+                _whole, server = _the_address(raw)
+                if server:
+                    return {"server": server}
     except Exception:
         pass
     return None
@@ -573,6 +661,10 @@ def _the_browser_screen():
             _BROWSER_COLOR_DEPTH = PAGE_SCREEN[2]
     except Exception:
         pass
+
+
+# the screen the browser says it has, read once at the start
+_the_browser_screen()
 
 
 def _classify_confirm_error(error_data, intent_type="payment"):
