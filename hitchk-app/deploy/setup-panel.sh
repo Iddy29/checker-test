@@ -45,7 +45,7 @@ cat > "$APP/.env" <<'EOF'
 NODE_ENV=production
 PORT=8080
 DATABASE_URL=postgresql://checker:checkerpass@127.0.0.1:5432/checker
-BOT_DATA_DIR=/root/hitchecker/bot
+BOT_DATA_DIR=/root/hitchecker
 SESSION_SECRET=mrcyber_tz_secret_key_2026_permanent
 EOF
 chmod 600 "$APP/.env"
@@ -73,7 +73,7 @@ Environment=HOME=/root
 Environment=DATABASE_URL=postgresql://checker:checkerpass@127.0.0.1:5432/checker
 # The bot and the panel must read the same files, or a code made in
 # one is unknown in the other.
-Environment=BOT_DATA_DIR=/root/hitchecker/bot
+Environment=BOT_DATA_DIR=/root/hitchecker
 Environment=SESSION_SECRET=mrcyber_tz_secret_key_2026_permanent
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/bin/npx tsx server/index.ts
