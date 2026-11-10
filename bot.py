@@ -1,5 +1,10 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from telethon import TelegramClient, events, Button
-from telethon.tl.types import KeyboardButtonCallback
+try:
+    from telethon.tl.types import KeyboardButtonCallback
+except ImportError:
+    pass
 import requests, random, datetime, json, os, re, asyncio, time
 import string
 import hashlib
@@ -1309,15 +1314,16 @@ def _cleanup_stale_session():
 
 _cleanup_stale_session()
 
+from telethon.sessions import StringSession
 client = TelegramClient(
-    SESSION_NAME,
+    StringSession(),
     API_ID,
     API_HASH,
     connection_retries=10,
     auto_reconnect=True,
     timeout=120,
     request_retries=10,
-    flood_sleep_threshold=120,
+    flood_sleep_threshold=3600,
     proxy=None,
     use_ipv6=False
 )
@@ -5711,7 +5717,7 @@ async def _process_sk_keys(event, keys, first_name, user_id):
         f"\u23f3 Progress: `0/{total}`"
     )
 
-    CONCURRENT = 5
+    CONCURRENT = max(5, int(os.environ.get("MTXT_WORKERS", "100") or 100))
 
     async def check_one(sk):
         nonlocal checked

@@ -5,6 +5,7 @@ import random
 import json
 import time
 import threading
+import hashlib
 
 
 # ── Wall-clock budget ───────────────────────────────────────────────────────
@@ -141,16 +142,23 @@ def check_crunchyroll(user, password, proxy=None):
         },
     }
 
+    # The body is put together once and sent as it is.  The service
+    # signs the body: the hash of the body goes beside it, and without
+    # it the service answers "the request signature does not match",
+    # which says nothing about the account.
+    the_body = json.dumps(payload).encode("utf-8")
+
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         "Origin": sso,
         "Referer": f"{sso}/login",
+        "x-amz-content-sha256": hashlib.sha256(the_body).hexdigest(),
     }
 
     try:
-        resp = requests.post(login_url, data=json.dumps(payload), headers=headers,
+        resp = requests.post(login_url, data=the_body, headers=headers,
                              proxies=proxies_dict, timeout=_budget_slice(25))
     except Exception:
         raise Exception("network_error")
@@ -182,6 +190,19 @@ def check_crunchyroll(user, password, proxy=None):
         integration_error("Crunchyroll login endpoint is erroring", f"HTTP {resp.status_code}")
     if resp.status_code == 404:
         integration_error("Crunchyroll login endpoint is gone (404)", login_url)
+    if resp.status_code == 401:
+        # The service refused the credentials, and it did not say why.
+        # That is a verdict about the account, not a broken integration.
+        if err:
+            return {"status": "FAIL", "capture": {"note": err}}
+        return {"status": "FAIL", "capture": {}}
+    if resp.status_code == 403:
+        # The service refused the request itself.  When it says the
+        # signature does not match, the body was not signed the way the
+        # service wants it, and that is about the integration.
+        if "signature" in resp.text.lower():
+            integration_error("Crunchyroll refused the signed request", resp.text[:150])
+        raise Exception("rate_limited")
 
     access_token = body.get("accessToken") or body.get("access_token")
     refresh_token = body.get("refreshToken") or body.get("refresh_token")

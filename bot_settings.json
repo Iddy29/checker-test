@@ -1,0 +1,37 @@
+{
+  "mass_check_enabled": true,
+  "inline_mass_limit": 10,
+  "file_mass_limit": 300,
+  "gateway_settings": {
+    "an": {
+      "enabled": false
+    },
+    "rz": {
+      "enabled": false
+    },
+    "ppk": {
+      "enabled": false
+    },
+    "sq": {
+      "enabled": false,
+      "premium_only": false
+    },
+    "st2": {
+      "enabled": false
+    },
+    "sc2": {
+      "enabled": false
+    },
+    "stc": {
+      "enabled": true,
+      "premium_only": false
+    },
+    "stc2": {
+      "enabled": false
+    },
+    "adn": {
+      "enabled": false
+    }
+  },
+  "tool_settings": {}
+}

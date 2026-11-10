@@ -22,8 +22,17 @@ import logging
 logger = logging.getLogger("shopify_api")
 
 SHOPIFY_API_URL = os.environ.get("SHOPIFY_API_URL", "http://127.0.0.1:8081").rstrip("/")
+SHOPIFY_API_URL_2 = os.environ.get("SHOPIFY_API_URL_2", "http://127.0.0.1:8082").rstrip("/")
+_api_rr_counter = 0
+
+def _get_next_api_url():
+    global _api_rr_counter
+    _api_rr_counter += 1
+    if _api_rr_counter % 2 == 0:
+        return SHOPIFY_API_URL_2
+    return SHOPIFY_API_URL
 SHOPIFY_API_KEY = os.environ.get("SHOPIFY_API_KEY", "shopifyprod")
-SHOPIFY_API_TIMEOUT = float(os.environ.get("SHOPIFY_API_TIMEOUT", "130"))
+SHOPIFY_API_TIMEOUT = float(os.environ.get("SHOPIFY_API_TIMEOUT", "8"))
 
 # Site errors mean "this store didn't work" -- try the next one.
 SITE_ERROR_PREFIXES = (
@@ -135,7 +144,7 @@ def _reason_for(blob):
     return ""
 
 
-async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
+async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=8,
                            price_min=None, price_max=None):
     """Check a card against the local Shopify Validator API.
 
@@ -175,7 +184,7 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
         try:
             async with aiohttp.ClientSession() as sess:
                 async with sess.get(
-                    f"{SHOPIFY_API_URL}/shopify",
+                    f"{_get_next_api_url()}/shopify",
                     params=params,
                     timeout=aiohttp.ClientTimeout(total=timeout),
                 ) as resp:
@@ -185,15 +194,18 @@ async def call_shopify_api(cc, mm, yy, cvv, site=None, proxy=None, timeout=120,
             body = None
 
         throttled = False
+        site_error = False
         if isinstance(body, dict):
             code = str(body.get("Response", "") or "").strip()
             low = (code + " " + str(body.get("Message", "") or "")).lower()
             throttled = ("throttled" in low or "rate limit" in low
                          or "429" in low or "too many" in low
                          or "proxy_error" in low)
+            site_error = any(code.startswith(k) for k in SITE_ERROR_PREFIXES)
         if body is None and last_error:
             throttled = True
-        if not throttled or attempt >= 2:
+        should_retry = throttled or (site_error and not site)
+        if not should_retry or attempt >= 2:
             break
 
         # the next try leaves from another address
@@ -420,3 +432,56 @@ def _format_result(result):
         return _with_detail(f"{message} | ${price}")
 
     return _with_detail(message or response)
+
+
+async def call_shopify_api_mass(cards, site=None, proxy=None,
+                                price_min=None, price_max=None, timeout=None):
+    """Many cards - calls /shopify per card with retry."""
+    import aiohttp
+    import json as _json
+
+    cards = [str(c or "").strip() for c in (cards or []) if str(c or "").strip()]
+    if not cards:
+        return []
+    _timeout = float(timeout or 15)
+    _sem = asyncio.Semaphore(20)
+
+    _params_base = {"key": SHOPIFY_API_KEY}
+    if site:
+        _params_base["site"] = site
+    if proxy:
+        _params_base["proxy"] = proxy
+    if price_min is not None:
+        _params_base["min_price"] = str(price_min)
+    if price_max is not None:
+        _params_base["max_price"] = str(price_max)
+
+    # Shared session for all cards
+    _session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=_timeout),
+                                      headers={"Accept": "application/json"})
+
+    async def _check_one(card_str):
+        for attempt in range(3):
+            async with _sem:
+                try:
+                    _api_url = _get_next_api_url()
+                    params = {**_params_base, "cc": card_str}
+                    async with _session.get(f"{_api_url}/shopify", params=params) as resp:
+                        text = await resp.text()
+                    try:
+                        return _json.loads(text)
+                    except Exception:
+                        if attempt < 2:
+                            await asyncio.sleep(1)
+                            continue
+                        return {"Response": "UNKNOWN", "Message": f"JSON error: {text[:50]}"}
+                except Exception as e:
+                    if attempt < 2:
+                        await asyncio.sleep(1)
+                        continue
+                    return {"Response": "UNKNOWN", "Message": str(e)[:80]}
+        return {"Response": "UNKNOWN", "Message": "all retries failed"}
+
+    results = await asyncio.gather(*[_check_one(c) for c in cards])
+    await _session.close()
+    return list(results)

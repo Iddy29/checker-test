@@ -20,14 +20,61 @@ solves the captcha is told the same name.
 
 import logging
 import os
+import re
+import subprocess
 
 logger = logging.getLogger("browser_identity")
+
+
+def _the_chrome_the_library_knows():
+    """The newest Chrome the request library can pretend to be.
+
+    The library sends the handshake and the headers itself, so those
+    have to be the version of a browser that really exists.  The newest
+    one it knows is the best: it is the one a person on this machine
+    would really be using.
+    """
+    try:
+        from curl_cffi.requests.impersonate import BrowserType
+        found = []
+        for item in BrowserType:
+            value = getattr(item, "value", "")
+            found.append(value)
+    except Exception:
+        found = []
+    numbers = []
+    for value in found:
+        matched = re.match(r"chrome(\d+)$", value)
+        if matched:
+            numbers.append(int(matched.group(1)))
+    if not numbers:
+        return "136"
+    return str(max(numbers))
+
+
+def _the_chrome_that_is_here():
+    """The version of the browser that is really on this machine.
+
+    The browser that solves the captcha has to say the same thing as
+    the request that carries the answer.  A browser of one version
+    saying it is another is a tell, and the captcha answers such a
+    browser with pictures.
+
+    But the browser has to be a version the library can also pretend to
+    be, so the newest one the library knows is used and the browser is
+    told to be that one.
+    """
+    said = os.environ.get("BROWSER_CHROME_VERSION", "").strip()
+    if said:
+        return said
+    return _the_chrome_the_library_knows()
+
 
 # The Chrome that can be impersonated.  The name, the client hints and
 # the handshake have to be the same version: a mix of two is worse
 # than any single one.
-CHROME_VERSION = os.environ.get("BROWSER_CHROME_VERSION", "136").strip() or "136"
-IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", f"chrome{CHROME_VERSION}").strip() \
+CHROME_VERSION = _the_chrome_that_is_here()
+IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", "").strip() \
     or f"chrome{CHROME_VERSION}"
 
 # The name the browser gives and the client hints that go with it.  The
@@ -35,7 +82,7 @@ IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", f"chrome{CHROME_VERSION}").s
 # to the same browser.  They are written out here for the browser that
 # solves the captcha, which has to say the same thing.
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+              f"(KHTML, like Gecko) Chrome/{CHROME_VERSION}.0.0.0 Safari/537.36")
 
 # A gate that says it is a phone gets the handshake of a phone.  A
 # phone name on a computer's handshake is a tell in itself.
@@ -43,14 +90,128 @@ ANDROID_IMPERSONATE = os.environ.get("BROWSER_ANDROID_IMPERSONATE",
                                       "chrome131_android").strip() or "chrome131_android"
 ANDROID_UA = ("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
-SEC_CH_UA = '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"'
+SEC_CH_UA = (f'"Chromium";v="{CHROME_VERSION}", "Google Chrome";v="{CHROME_VERSION}", '
+              '"Not.A/Brand";v="99"')
 SEC_CH_UA_MOBILE = "?0"
 SEC_CH_UA_PLATFORM = '"macOS"'
 ACCEPT_LANGUAGE = "en-US,en;q=0.9"
 ACCEPT_ENCODING = "gzip, deflate, br, zstd"
 
+# The screen the browser says it has: the width, the height and the
+# colour depth.  The fingerprint the bank is given has to say the same
+# thing, or the bank sees two different computers.
+PAGE_SCREEN = (1728, 1117, 24)
+
 # The same name, the way the callers ask for it.
 BROWSER_UA = USER_AGENT
+
+
+class Fingerprint:
+    """The name of one browser, and everything that goes with it.
+
+    A card is sent with the name of a browser, and the name has to be
+    the same on the request and on the browser that answered the
+    captcha: the answer belongs to the browser that won it, so the
+    request that carries it has to come from that same browser and say
+    the same things about itself.
+
+    So the name, the hints, the language and the screen all belong
+    together here, and nobody may mix them.
+    """
+
+    def __init__(self, system, platform, language, screen, ua=None):
+        self.system = system
+        self.platform = platform
+        self.language = language
+        self.screen = screen
+        self.version = CHROME_VERSION
+        self.user_agent = ua or (
+            "Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/%s.0.0.0 Safari/537.36" % (system, self.version))
+        self.impersonate = IMPERSONATE
+
+    @property
+    def sec_ch_ua(self):
+        return ('"Chromium";v="%s", "Google Chrome";v="%s", "Not.A/Brand";v="99"'
+                % (self.version, self.version))
+
+    @property
+    def sec_ch_ua_platform(self):
+        return '"%s"' % self.platform
+
+    @property
+    def sec_ch_ua_mobile(self):
+        return "?0"
+
+    @property
+    def accept_language(self):
+        return self.language
+
+    def headers(self, accept=None):
+        """The headers that go with this name."""
+        out = {
+            "sec-ch-ua": self.sec_ch_ua,
+            "sec-ch-ua-mobile": self.sec_ch_ua_mobile,
+            "sec-ch-ua-platform": self.sec_ch_ua_platform,
+            "user-agent": self.user_agent,
+            "accept-encoding": ACCEPT_ENCODING,
+            "accept-language": self.accept_language,
+        }
+        if accept:
+            out["accept"] = accept
+        return out
+
+    def client_hints(self):
+        """The client hints this browser reports."""
+        return {
+            "brands": [
+                {"brand": "Chromium", "version": self.version},
+                {"brand": "Google Chrome", "version": self.version},
+                {"brand": "Not.A/Brand", "version": "99"},
+            ],
+            "fullVersion": "%s.0.0.0" % self.version,
+            "platform": self.platform,
+            "platformVersion": "10.0.0",
+            "architecture": "x86",
+            "model": "",
+            "mobile": False,
+        }
+
+    def wire(self):
+        """The name of the browser, in the words that travel."""
+        return {
+            "user_agent": self.user_agent,
+            "language": self.accept_language,
+            "hints": self.client_hints(),
+            "screen": list(self.screen),
+        }
+
+    def __repr__(self):
+        return "<a %s browser, %s>" % (self.platform, self.version)
+
+
+# The browsers a person may be using.  A card takes one of them, and
+# it is a new one for each card: the same browser all day and all night
+# is a tell in itself.
+_THE_FINGERPRINTS = (
+    ("Windows NT 10.0; Win64; x64", "Windows", "en-US,en;q=0.9",
+     (1920, 1080, 24)),
+    ("Macintosh; Intel Mac OS X 10_15_7", "macOS", "en-US,en;q=0.9",
+     (1728, 1117, 24)),
+    ("X11; Linux x86_64", "Linux", "en-GB,en;q=0.9",
+     (1920, 1080, 24)),
+    ("Macintosh; Intel Mac OS X 10_15_7", "macOS", "en-GB,en;q=0.9",
+     (1512, 982, 24)),
+    ("Windows NT 10.0; Win64; x64", "Windows", "en-CA,en;q=0.9,fr-CA;q=0.8",
+     (1536, 864, 24)),
+)
+
+
+def new_fingerprint():
+    """A new name for a browser, for a card of its own."""
+    import random
+    system, platform, language, screen = random.choice(_THE_FINGERPRINTS)
+    return Fingerprint(system, platform, language, screen)
 
 # The page a browser opens.
 PAGE_ACCEPT = ("text/html,application/xhtml+xml,application/xml;q=0.9,"
@@ -88,7 +249,10 @@ def client_hints_metadata():
     }
 
 
-def _common(accept):
+def _common(accept, fingerprint=None):
+    if fingerprint is not None:
+        out = fingerprint.headers(accept)
+        return out
     return {
         "sec-ch-ua": SEC_CH_UA,
         "sec-ch-ua-mobile": SEC_CH_UA_MOBILE,
@@ -98,9 +262,9 @@ def _common(accept):
     }
 
 
-def navigation_headers(accept=None, referer=None):
+def navigation_headers(accept=None, referer=None, fingerprint=None):
     """The headers a Chrome sends when it opens a page."""
-    headers = _common(accept or PAGE_ACCEPT)
+    headers = _common(accept or PAGE_ACCEPT, fingerprint)
     headers.update({
         "upgrade-insecure-requests": "1",
         "sec-fetch-site": "none",
@@ -108,7 +272,8 @@ def navigation_headers(accept=None, referer=None):
         "sec-fetch-user": "?1",
         "sec-fetch-dest": "document",
         "accept-encoding": ACCEPT_ENCODING,
-        "accept-language": ACCEPT_LANGUAGE,
+        "accept-language": (fingerprint.accept_language if fingerprint
+                            else ACCEPT_LANGUAGE),
         "priority": "u=0, i",
     })
     if referer:
@@ -118,14 +283,14 @@ def navigation_headers(accept=None, referer=None):
 
 def api_headers(origin=None, referer=None,
                 content_type="application/x-www-form-urlencoded",
-                accept="application/json"):
+                accept="application/json", fingerprint=None):
     """The headers a Chrome sends when it calls an api from a page.
 
     An api call is not a page: it is a fetch from the checkout page, so
     it says so, and it carries no "user" and no "upgrade" header,
     because those belong to a page.
     """
-    headers = _common(accept)
+    headers = _common(accept, fingerprint)
     if content_type:
         headers["content-type"] = content_type
     if origin:
@@ -137,13 +302,14 @@ def api_headers(origin=None, referer=None,
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-site",
         "accept-encoding": ACCEPT_ENCODING,
-        "accept-language": ACCEPT_LANGUAGE,
+        "accept-language": (fingerprint.accept_language if fingerprint
+                            else ACCEPT_LANGUAGE),
         "priority": "u=1, i",
     })
     return headers
 
 
-async def apply_browser_identity(page, metadata=None):
+async def apply_browser_identity(page, metadata=None, fingerprint=None):
     """Tell the browser which browser it is.
 
     The browser on the machine is a headless build of another version.
@@ -151,12 +317,33 @@ async def apply_browser_identity(page, metadata=None):
     it wins is good for the request that carries it.
     """
     try:
+        # The name of the browser may come as an object or as the
+        # words that travel over the wire.
+        said = fingerprint
+        if isinstance(said, dict):
+            said = None
+        ua = (said.user_agent if said is not None
+              else (fingerprint.get("user_agent") if isinstance(fingerprint, dict)
+                    else USER_AGENT))
+        language = (said.accept_language if said is not None
+                    else (fingerprint.get("language") if isinstance(fingerprint, dict)
+                          else ACCEPT_LANGUAGE))
+        hints = (metadata
+                 or (said.client_hints() if said is not None
+                     else (fingerprint.get("hints") if isinstance(fingerprint, dict)
+                           else client_hints_metadata())))
+        platform = "MacIntel"
+        if isinstance(fingerprint, dict):
+            platform = ("Win32" if fingerprint.get("hints", {}).get("platform")
+                        == "Windows" else "Linux")
+        elif said is not None:
+            platform = "MacIntel" if said.platform == "macOS" else "Win32"
         cdp = await page.context.new_cdp_session(page)
         await cdp.send("Emulation.setUserAgentOverride", {
-            "userAgent": USER_AGENT,
-            "acceptLanguage": ACCEPT_LANGUAGE,
-            "platform": "MacIntel",
-            "userAgentMetadata": metadata or client_hints_metadata(),
+            "userAgent": ua,
+            "acceptLanguage": language,
+            "platform": platform,
+            "userAgentMetadata": hints,
         })
         return True
     except Exception as e:
@@ -295,11 +482,14 @@ class BrowserClient:
     """
 
     def __init__(self, proxy=None, timeout=15, headers=None,
-                 follow_redirects=True, verify=True, trust_env=False, **_):
+                 follow_redirects=True, verify=True, trust_env=False,
+                 fingerprint=None, **_):
         from curl_cffi.requests import AsyncSession
 
+        self.fingerprint = fingerprint
         self._session = AsyncSession(
-            impersonate=IMPERSONATE,
+            impersonate=(fingerprint.impersonate if fingerprint
+                         else IMPERSONATE),
             proxy=proxy or None,
             timeout=timeout,
             max_redirects=20,
@@ -313,14 +503,17 @@ class BrowserClient:
         # left to the caller: a page says "document" and an api call
         # says "empty", and a header that belongs to the other one is a
         # tell.
-        merged = {
-            "sec-ch-ua": SEC_CH_UA,
-            "sec-ch-ua-mobile": SEC_CH_UA_MOBILE,
-            "sec-ch-ua-platform": SEC_CH_UA_PLATFORM,
-            "user-agent": USER_AGENT,
-            "accept-encoding": ACCEPT_ENCODING,
-            "accept-language": ACCEPT_LANGUAGE,
-        }
+        if self.fingerprint is not None:
+            merged = self.fingerprint.headers()
+        else:
+            merged = {
+                "sec-ch-ua": SEC_CH_UA,
+                "sec-ch-ua-mobile": SEC_CH_UA_MOBILE,
+                "sec-ch-ua-platform": SEC_CH_UA_PLATFORM,
+                "user-agent": USER_AGENT,
+                "accept-encoding": ACCEPT_ENCODING,
+                "accept-language": ACCEPT_LANGUAGE,
+            }
         merged.update(self.headers)
         if headers:
             merged.update(headers)

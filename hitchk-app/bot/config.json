@@ -11,8 +11,5 @@
   "TELEGRAM_CHANNEL_ID": "@TeachHit",
   "hitter_site_visible": true,
   "maintenance_mode": false,
-  "nopecha_api_key": "sub_1T9TwwCRwBwvt6pt34KpcnVZ",
-  "custom_captcha_token": "",
-  "custom_captcha_url": "https://gold-newt-367030.hostingersite.com/api.php",
   "logs_group_id": "-1003816358079"
 }

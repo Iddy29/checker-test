@@ -2062,8 +2062,8 @@ def _captcha_label(captcha_type):
 async def _try_solve_captcha_page(body, page_url):
     try:
         from captcha_solver import solve_captcha_on_page
-        from captcha_solver import NOPECHA_KEY, CAPTCHAAI_KEY
-        if not NOPECHA_KEY and not CAPTCHAAI_KEY:
+        from captcha_solver import has_local_solver
+        if not has_local_solver():
             return None
         import aiohttp as _aiohttp
         async with _aiohttp.ClientSession() as sess:
@@ -2122,13 +2122,13 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
                 return "error", f"Captcha Solving Failed - {label} token accepted but still blocked"
             else:
                 try:
-                    from captcha_solver import get_nopecha_key, get_captchaai_key
-                    no_key = not get_nopecha_key() and not get_captchaai_key()
+                    from captcha_solver import has_local_solver
+                    no_key = not has_local_solver()
                 except Exception:
                     no_key = True
                 if no_key:
                     logger.info(f"3DS1: {label} - no captcha solver key configured")
-                    return "error", f"Captcha Detected - No solver key set (add NopeCHA key in Settings)"
+                    return "error", f"Captcha Detected - the local solver is not available"
                 logger.info(f"3DS1: {label} could not be solved (API failed or timed out)")
                 return "error", f"Captcha Solving Failed - {label}"
 
@@ -2173,12 +2173,12 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
                         return await _poll_intent_status(client, pk, cs, intent_id, intent_type, f"3DS1 {label} Bypass")
                     return "error", f"Captcha Solving Failed - {label} token accepted but still blocked"
                 try:
-                    from captcha_solver import get_nopecha_key, get_captchaai_key
-                    no_key = not get_nopecha_key() and not get_captchaai_key()
+                    from captcha_solver import has_local_solver
+                    no_key = not has_local_solver()
                 except Exception:
                     no_key = True
                 if no_key:
-                    return "error", f"Captcha Detected - No solver key set (add NopeCHA key in Settings)"
+                    return "error", f"Captcha Detected - the local solver is not available"
                 return "error", f"Captcha Solving Failed - {label}"
 
     except Exception as e:

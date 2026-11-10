@@ -178,6 +178,26 @@ def _seconds(timeout, fallback=30.0):
         return fallback
 
 
+def _merge_headers(first, second):
+    """Two sets of headers, one header each.
+
+    The names are compared without regard to how they are written, so
+    a header that both sets name is one header, and the later set has
+    the last word on it.
+    """
+    out = {}
+    names = {}
+    for source in (first, second):
+        for key, value in (source or {}).items():
+            name = str(key).lower()
+            if name in names:
+                out[names[name]] = value
+            else:
+                names[name] = key
+                out[key] = value
+    return out
+
+
 def _is_phone(headers):
     """True when the caller says it is a phone."""
     for key in ("user-agent", "User-Agent", "USER-AGENT"):
@@ -242,20 +262,26 @@ class AsyncClient:
     # --------------------------------------------------------------- the
     # headers of the request, the way the browser would send them.
     def _headers(self, headers, method="GET"):
-        merged = dict(self.headers)
-        if headers:
-            merged.update(headers)
+        # A header says one thing, not two.  The caller's name and the
+        # browser's name are the same header, whichever way it is
+        # written, so the two are put together by name and not by
+        # spelling: a request that carried both "Content-Type" and
+        # "content-type" was refused by the server as an invalid
+        # header.
+        merged = _merge_headers(self.headers, headers)
         phone = _is_phone(merged)
+        filled = api_headers() if method == "POST" else navigation_headers()
         if not merged:
             # a request that names nothing still has to look like a
             # browser, so the kind of call decides the headers
-            merged = api_headers() if method == "POST" else navigation_headers()
+            merged = filled
         else:
             # the headers the caller gave are the ones that matter; the
-            # browser's own are filled in around them
-            filled = api_headers() if method == "POST" else navigation_headers()
+            # browser's own only fill in the gaps
+            have = {str(k).lower() for k in merged}
             for key, value in filled.items():
-                merged.setdefault(key, value)
+                if str(key).lower() not in have:
+                    merged[key] = value
         if phone:
             merged.setdefault("sec-ch-ua-mobile", "?1")
         return merged

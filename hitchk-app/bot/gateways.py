@@ -689,6 +689,9 @@ def classify_response(response_text):
         "price_over_max", "no_product", "api_auth_error",
         "cart_failed", "site_requires_login", "no_session_token",
         "no_attempt_token", "no_shopify_payments_gateway", "checkpointdenied",
+        # the processor gave up, which is a fault of the shop and says
+        # nothing about the card
+        "processing_error", "processor_error", "gateway_error",
     )
 
     if any(k in resp_lower for k in stripe_broken):

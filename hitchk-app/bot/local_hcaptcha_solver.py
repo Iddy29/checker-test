@@ -15,6 +15,22 @@ import time
 
 logger = logging.getLogger("local_captcha")
 
+# The solver says what it does in a file of its own.  The worker of
+# the browser runs apart from the bot, and what it says would
+# otherwise be lost: the words go nowhere when the pipe is thrown
+# away.
+_THE_LOG_FILE = os.environ.get("SOLVER_LOG_FILE") or "/tmp/lc_solver.log"
+try:
+    if not logger.handlers:
+        _h = logging.FileHandler(_THE_LOG_FILE, encoding="utf-8")
+        _h.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(_h)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+except Exception:
+    pass
+
 # The browser has to say the same name as the client that hands the
 # token in.  A token belongs to the browser that won it, so when the
 # two disagree the token is worth nothing.
@@ -55,8 +71,11 @@ Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
 // The screen.  A browser that says it is a computer with one screen
 // of a size nobody has is easy to pick out.  Each one is set on its
 // own, because one that will not go through must not stop the rest.
-const _sizes = [[1728, 1117, 24], [1512, 982, 24], [1440, 900, 24], [1680, 1050, 24]];
-const _size = _sizes[Math.floor(Math.random() * _sizes.length)];
+//
+// The size is the one the fingerprint says too: the browser and the
+// request that carries the answer have to be the same computer.
+const _sizes = [[1728, 1117, 24]];
+const _size = _sizes[0];
 const _set = (obj, name, value) => {
   try { Object.defineProperty(obj, name, {get: () => value, configurable: true}); }
   catch (e) {}
@@ -397,7 +416,7 @@ async def _get_browser(launch):
     ctx = None
     try:
         ctx = await _PW.chromium.launch_persistent_context(
-            _profile_dir(), channel="chrome", bypass_csp=True,
+            _profile_dir(), **_the_browser(), bypass_csp=True,
             **PAGE_OPTIONS, **launch)
     except Exception as e:
         logger.debug("the saved profile browser did not start: %s", e)
@@ -406,7 +425,7 @@ async def _get_browser(launch):
         _clear_the_lock()
         try:
             ctx = await _PW.chromium.launch_persistent_context(
-                _profile_dir(), channel="chrome", bypass_csp=True,
+                _profile_dir(), **_the_browser(), bypass_csp=True,
                 **PAGE_OPTIONS, **launch)
         except Exception as e2:
             logger.debug("the saved profile browser did not start again: %s", e2)
@@ -458,9 +477,47 @@ def _profile_dir():
     return path
 
 
+def _the_browser():
+    """The browser of the version the request library pretends to be.
+
+    The browser that answers the captcha has to be the same version as
+    the request that carries the answer.  So the browser of that exact
+    version is used, when it is on the machine.
+    """
+    try:
+        from browser_identity import CHROME_VERSION
+    except Exception:
+        CHROME_VERSION = ""
+    if CHROME_VERSION:
+        for path in ("/opt/chrome-%s/chrome" % CHROME_VERSION,
+                     "/opt/chrome/chrome"):
+            if os.path.exists(path):
+                return {"channel": "chrome", "executable_path": path}
+    return {"channel": "chrome"}
+
+
 # The proxies that are worth trying, and the file they are in.
 PROXY_FILE = "/root/hitchecker/bot/user_proxies.json"
+
+# The addresses the machine holds for itself.  The user file is for
+# the addresses a person paid for; this one is the pool of the
+# machine, and it is used when there is no user file.
+PROXY_POOL_FILE = "/root/hitchecker/proxy.txt"
 _bad_proxies = set()
+
+
+def _the_machines_pool():
+    """The addresses the machine holds for itself."""
+    out = []
+    try:
+        with open(PROXY_POOL_FILE, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                raw = line.strip()
+                if raw and not raw.startswith("#"):
+                    out.append(raw)
+    except Exception:
+        return []
+    return out
 
 
 def _working_proxies():
@@ -468,6 +525,9 @@ def _working_proxies():
 
     hCaptcha gives up on an address that has failed, so a proxy that
     does not work is not asked again.
+
+    The addresses a person paid for are used first, and the pool of
+    the machine after them, so there is always somewhere to ask from.
     """
     global _bad_proxies
     try:
@@ -475,7 +535,7 @@ def _working_proxies():
         with open(PROXY_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
-        return []
+        data = []
     out = []
     if isinstance(data, dict):
         for v in data.values():
@@ -485,6 +545,8 @@ def _working_proxies():
                 out.extend(v)
     elif isinstance(data, list):
         out = list(data)
+    if not out:
+        out = _the_machines_pool()
     return [p for p in out
             if isinstance(p, str) and p.count(":") >= 3 and p not in _bad_proxies]
 
@@ -639,22 +701,66 @@ async def _click_the_box(page):
 # what the last run ran into, so the log says which one it was
 LAST_REASON = ""
 
+# The pages that are open, by address.  A browser and a page take a
+# while to come up, and the answer of a captcha that is only a box
+# comes in about a second after the box is clicked.  So the page is
+# kept open between the cards and only the answer is worked out again:
+# the card does not wait for a browser to start.
+_THE_PAGE = {"url": "", "page": None}
+
+
+async def _a_page(ctx, url):
+    """The page for this address, opened once and kept.
+
+    Only one page is kept.  A machine with little memory must not fill
+    up with the pages of every address that came before, so the page of
+    the last address is closed when another address comes.
+    """
+    page = _THE_PAGE.get("page")
+    if page is not None:
+        try:
+            if not page.is_closed() and _THE_PAGE.get("url") == url:
+                return page
+            await page.close()
+        except Exception:
+            pass
+    page = await ctx.new_page()
+    _THE_PAGE["url"] = url
+    _THE_PAGE["page"] = page
+    return page
+
+
+class _BrowserNotUsable(Exception):
+    """The browser is in a state the card cannot be answered in.
+
+    It is used when the browser was left half changed: the answer would
+    come from a browser that is not the one the request comes from, so
+    the card is given back instead of answered wrongly.
+    """
+
 
 async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
-                            widget_js=None, widget_arg=None, widget_arg2=None):
+                            widget_js=None, widget_arg=None, widget_arg2=None,
+                            fingerprint=None):
     """The browser work, in a process of its own.
 
     When the browser dies the driver goes with it, and the driver takes
     the whole bot down with it.  So the browser is run apart, and the
     token comes back through a pipe.
+
+    The worker is kept between the cards.  A worker that is started for
+    every card starts a browser for every card, and the browser takes
+    a while to come up and the page takes a while to load.  So the
+    worker is given the cards one after the other, and the browser and
+    the page stay as they are.
     """
     import json
-    import subprocess
-    import sys
 
     job = {
         "page_url": page_url,
         "timeout": timeout,
+        "fingerprint": (fingerprint.wire() if hasattr(fingerprint, "wire")
+                        else fingerprint),
         "proxy": proxy,
         "extra_js": extra_js,
         "widget_js": widget_js,
@@ -662,35 +768,49 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
         "widget_arg2": widget_arg2,
     }
     me = os.path.abspath(__file__)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, me, "--worker",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except Exception as e:
-        logger.info("the browser worker did not start: %s", e)
-        return None
 
-    try:
-        out, _ = await asyncio.wait_for(
-            proc.communicate(json.dumps(job).encode("utf-8")),
-            timeout=timeout + 90,
-        )
-    except asyncio.TimeoutError:
-        logger.info("the browser worker took too long and was stopped")
+    # The worker holds one browser and one page, so only one card may
+    # be with it at a time.  Two cards writing to the same pipe would
+    # give each other the other's answer.
+    async with _THE_WORKER_LOCK:
+        proc = await _the_worker(me)
+        if proc is None:
+            return None
+
         try:
-            proc.kill()
-        except Exception:
-            pass
-        return None
-    except Exception as e:
-        logger.info("the browser worker failed: %s", e)
+            proc.stdin.write((json.dumps(job) + "\n").encode("utf-8"))
+            await proc.stdin.drain()
+            # The answer is one line of json.  Anything else the worker
+            # says on this pipe is read and put in the log, so the
+            # answer is still found.
+            line = b""
+            for _ in range(40):
+                one = await asyncio.wait_for(proc.stdout.readline(),
+                                             timeout=timeout + 90)
+                if not one:
+                    break
+                if one.strip().startswith(b"{"):
+                    line = one
+                    break
+                logger.info("the browser worker said: %s",
+                            one.decode("utf-8", "replace").strip()[:160])
+        except asyncio.TimeoutError:
+            logger.info("the browser worker took too long and was stopped")
+            await _the_worker_gone(proc)
+            return None
+        except Exception as e:
+            logger.info("the browser worker failed: %s", str(e)[:80])
+            await _the_worker_gone(proc)
+            return None
+
+    if not line:
+        logger.info("the browser worker died, and it ended with %s",
+                    proc.returncode)
+        await _the_worker_gone(proc)
         return None
 
     try:
-        answer = json.loads((out or b"{}").decode("utf-8", "replace"))
+        answer = json.loads(line.decode("utf-8", "replace"))
     except Exception:
         logger.info("the browser worker said nothing that could be read")
         return None
@@ -704,13 +824,381 @@ async def _solve_in_browser(page_url, timeout=60, proxy=None, extra_js=None,
     return token or None
 
 
+# The worker of the browser, and the browser it holds.
+_THE_WORKER = {"proc": None}
+
+# Where the words of the worker go.
+_THE_WORKER_LOG = os.environ.get("SOLVER_WORKER_LOG") or "/tmp/lc_worker.log"
+
+# One worker, one card at a time.
+_THE_WORKER_LOCK = asyncio.Lock()
+
+
+async def _the_worker(me):
+    """The worker that holds the browser, started when there is none."""
+    import sys
+
+    proc = _THE_WORKER.get("proc")
+    if proc is not None:
+        if proc.returncode is None:
+            return proc
+        _THE_WORKER["proc"] = None
+    # The worker says what it does on its error pipe, and the pipe is
+    # not thrown away: it goes into the log of the solver, so a word
+    # about a crash is not lost.
+    log = None
+    try:
+        log = open(_THE_WORKER_LOG, "ab", buffering=0)
+    except Exception:
+        log = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, me, "--worker",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=log if log is not None else asyncio.subprocess.DEVNULL,
+        )
+    except Exception as e:
+        logger.info("the browser worker did not start: %s", e)
+        if log is not None:
+            try:
+                log.close()
+            except Exception:
+                pass
+        return None
+    _THE_WORKER["proc"] = proc
+    return proc
+
+
+async def _the_worker_gone(proc):
+    """A worker that will not answer again is put away."""
+    if _THE_WORKER.get("proc") is proc:
+        _THE_WORKER["proc"] = None
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    logger.info("the browser worker was put away")
+
+
+# The answer that was on the page is thrown away, so an old answer can
+# never be handed out as if it were a new one.
+FORGET_JS = """
+() => {
+    try { window.__captchaToken = ''; } catch (e) {}
+    try { window.__captchaEkey = ''; } catch (e) {}
+    try { window.__lc_started = false; } catch (e) {}
+    try { window.__lc_grec_done = false; } catch (e) {}
+    try {
+        const el = document.querySelector(
+            'textarea[name="h-captcha-response"], input[name="cf-turnstile-response"]');
+        if (el) el.value = '';
+    } catch (e) {}
+    try { if (window.__lcTokens) { window.__lcTokens = {}; } } catch (e) {}
+    return true;
+}
+"""
+
+
+# The pictures of a challenge are read by a model, and the model is
+# asked through the key of Gemini.  Without the key the picture
+# challenge cannot be answered here and is left to a person.
+#
+# More than one model may be named, and the next one is tried when the
+# first one is busy: the busiest models answer with a word about the
+# demand, and that is not the pictures' fault.
+# The quick models are used first: they answer about a picture in less
+# than a second, where the others take ten seconds and more because
+# they think about it first.
+_THE_MODELS = [m.strip() for m in
+               (os.environ.get("GEMINI_MODEL")
+                or "gemini-flash-lite-latest,gemini-3.5-flash-lite").split(",")
+               if m.strip()]
+_THE_PICTURE = {"agent": None, "page": None}
+
+
+def _the_pictures_may_be_read():
+    """Whether the pictures of a challenge may be read here.
+
+    The pictures of a challenge are read only when it is said so, and
+    it is said so with SOLVE_PICTURES=1.  A challenge on a site that
+    is not ours is left to the people of that site.
+    """
+    #
+    # The pictures are not read here.  Reading them needs a model, and
+    # the model is somebody else's, and a card may not wait for a
+    # word to somebody else: the answer is worth more when it comes
+    # at once.  So the pictures are noticed, and the card is given its
+    # answer at once, and no word goes anywhere.
+    return False
+
+
+# The picture of a challenge is taken by the picture solver, and the
+# view of a challenge moves about all the time.  Playwright waits for
+# the thing to hold still before it takes the picture, and it never
+# holds still, so the picture is never taken and the waiting ends with
+# a word about a timeout.
+#
+# The movements are put to an end for the picture, and the waiting is
+# given a time of its own.
+def _the_still_picture():
+    try:
+        from playwright.async_api import Locator
+    except Exception:
+        return
+    if getattr(Locator, "_the_still_picture_is_set", False):
+        return
+    _the_own = Locator.screenshot
+
+    async def _the_screenshot(self, **kwargs):
+        kwargs.setdefault("animations", "disabled")
+        kwargs.setdefault("timeout", 15000)
+        kwargs.setdefault("scale", "css")
+        return await _the_own(self, **kwargs)
+
+    Locator.screenshot = _the_screenshot
+    Locator._the_still_picture_is_set = True
+
+
+# The answer of hCaptcha comes back and its body cannot be read then:
+# the browser has let go of it.  So the request is caught on the way
+# and the body is read there, where it is still there.
+#
+# It is not used: catching the answer broke the way hCaptcha asks for
+# the challenge, and the challenge never came.  It is here because the
+# word about it belongs with the code, and the day it is wanted it is
+# one line away.
+async def _the_answer_is_caught(page):
+    async def _the_catch(route):
+        try:
+            answer = await route.fetch()
+            body = await answer.text()
+            await route.fulfill(response=answer, body=body)
+        except Exception:
+            try:
+                await route.continue_()
+            except Exception:
+                pass
+    try:
+        await page.route("**/getcaptcha/**", _the_catch)
+    except Exception as e:
+        logger.info("the answer of hCaptcha cannot be caught: %s", str(e)[:80])
+
+
+def _the_picture_solver(page):
+    """The solver for the picture challenge, if there is one.
+
+    It is made as soon as the page is open, because it has to see the
+    answer coming back from hCaptcha: the pictures and the questions
+    come in that answer, and a solver that was made afterwards would
+    never see them.
+    """
+    key = os.environ.get("GEMINI_API_KEY") or ""
+    if not key:
+        return None
+    _the_still_picture()
+    if _THE_PICTURE.get("agent") is not None and _THE_PICTURE.get("page") is page:
+        return _THE_PICTURE.get("agent")
+    try:
+        from hcaptcha_challenger.agent import AgentV, AgentConfig
+        # The picture solver writes what it does to the standard
+        # output, and the answer comes back on the standard output of
+        # the worker.  The two would be mixed together and the answer
+        # could not be read, so the words are sent to the error pipe.
+        try:
+            from loguru import logger as _the_words
+            _the_words.remove()
+            _the_words.add(sys.stderr, level="INFO")
+        except Exception:
+            pass
+        first = _THE_MODELS[0] if _THE_MODELS else "gemini-flash-lite-latest"
+        config = AgentConfig(
+            GEMINI_API_KEY=key,
+            CHALLENGE_CLASSIFIER_MODEL=first,
+            IMAGE_CLASSIFIER_MODEL=first,
+            SPATIAL_POINT_REASONER_MODEL=first,
+            SPATIAL_PATH_REASONER_MODEL=first,
+            # The trying of one model after the other is done here,
+            # not inside, so that a busy model does not hold the card
+            # up for the whole time.
+            RETRY_ON_FAILURE=False,
+            # Reading the pictures takes a while: every picture is a
+            # word to a model and a word back, and a challenge has
+            # more than one picture.
+            EXECUTION_TIMEOUT=300,
+            RESPONSE_TIMEOUT=90,
+        )
+        agent = AgentV(page, config)
+    except Exception as e:
+        logger.info("the picture solver is not here: %s", str(e)[:90])
+        return None
+    _THE_PICTURE["agent"] = agent
+    _THE_PICTURE["page"] = page
+    logger.info("the picture solver is here, and reads the pictures with %s",
+                ", ".join(_THE_MODELS))
+    return agent
+
+
+async def _the_pictures_are_read(agent):
+    """The pictures are read, and one model after the other when the
+    first one is busy.
+
+    What came of it is said out loud: the model that was asked, and
+    what it answered.
+    """
+    for model in _THE_MODELS or ["gemini-flash-lite-latest"]:
+        for name in ("CHALLENGE_CLASSIFIER_MODEL", "IMAGE_CLASSIFIER_MODEL",
+                     "SPATIAL_POINT_REASONER_MODEL",
+                     "SPATIAL_PATH_REASONER_MODEL"):
+            try:
+                setattr(agent.config, name, model)
+            except Exception:
+                pass
+        start = time.time()
+        logger.info("the pictures are read with %s", model)
+        try:
+            signal = await asyncio.wait_for(agent.wait_for_challenge(),
+                                            timeout=150)
+            took = time.time() - start
+            logger.info("the pictures were read with %s: %s (%.2fs)", model,
+                        signal, took)
+            return True
+        except Exception as e:
+            took = time.time() - start
+            logger.info("the pictures could not be read with %s (%.2fs): %s",
+                        model, took, str(e)[:140])
+    return False
+
+
+async def _the_loop(page, widget_js, widget_arg, widget_arg2, deadline, state,
+                 agent=None):
+    """Work the answer out of the page that is open.
+
+    The loop is the same whether the page was just loaded or was
+    already there, so the answer can be worked out again without the
+    page being loaded a second time.
+    """
+    global LAST_REASON, LAST_EKEY
+    last_click = 0.0
+    started = time.time()
+    while time.time() < deadline:
+        token = await page.evaluate(TOKEN_JS)
+        if token:
+            try:
+                ekey = await page.evaluate(EKEY_JS)
+            except Exception:
+                ekey = ""
+            if ekey:
+                LAST_EKEY = ekey
+            return token
+        # the page may bring its own widget up, so only put one
+        # up when there is none
+        if widget_js and not state["widget_done"]:
+            try:
+                said = await page.evaluate(widget_js, [widget_arg, widget_arg2])
+                said = (said or "") if isinstance(said, str) else str(said or "")
+                # the widget says what it did, so the words are
+                # read: "loading" is not the same as being up
+                state["widget_done"] = ("the widget is up" in said
+                                        or "widget is up" in said)
+                if "loading" in said:
+                    state["widget_done"] = False
+                if "failed" in said or "outer" in said:
+                    LAST_REASON = said[:120]
+                    state["widget_done"] = True
+            except Exception as e:
+                logger.debug("the widget did not load: %s", e)
+        # The picture challenge is read by a model, if there is one.
+        # It is left to a person when there is not.
+        if await _image_challenge_up(page):
+            if state["picture_seen"]:
+                await page.wait_for_timeout(500)
+                continue
+            state["picture_seen"] = True
+            if agent is None:
+                logger.info("the hCaptcha picture challenge came up, "
+                            "and there is nobody here to read it, "
+                            "so the captcha is left alone")
+                return None
+            # what came with the challenge is said out loud, so it can
+            # be seen that the pictures were there
+            try:
+                payload = getattr(agent, "_captcha_payload", None)
+                n = len(getattr(payload, "tasklist", []) or [])
+                logger.info("the hCaptcha picture challenge came up with "
+                            "%d pictures", n)
+            except Exception:
+                pass
+            logger.info("the hCaptcha picture challenge came up, "
+                        "so the pictures are read")
+            if not await _the_pictures_are_read(agent):
+                logger.info("the pictures were not read, "
+                            "so the captcha is left alone")
+                return None
+            continue
+        # the checkbox the visitor would click
+        if time.time() - last_click > 3:
+            last_click = time.time()
+            try:
+                if await _click_the_box(page):
+                    state["box_ticked"] = True
+            except Exception as e:
+                logger.debug("the checkbox was not clickable: %s", e)
+            # and the verify button, which is what asks for the
+            # answer
+            try:
+                if await _click_the_verify(page):
+                    state["verify_clicked"] = True
+            except Exception as e:
+                logger.debug("the verify button was not clickable: %s", e)
+        # The answer is asked for again and again.  The waiting is
+        # short at first, because the answer comes about a second
+        # after the page is loaded, and half a second of waiting is
+        # half a second the card did not need to wait.
+        waited = time.time() - started
+        await page.wait_for_timeout(100 if waited < 8 else 500)
+    return None
+
+
+
+def _the_name_of_the_browser(words):
+    """The name of the browser, out of the words that came with the
+    work.  Nothing comes back when no name came with the work."""
+    if not words:
+        return None
+    try:
+        import json
+        said = json.loads(words) if isinstance(words, str) else words
+    except Exception:
+        return None
+    if not isinstance(said, dict):
+        return None
+    try:
+        from browser_identity import Fingerprint
+        hints = said.get("hints") or {}
+        platform = hints.get("platform") or "Linux"
+        system = {"Windows": "Windows NT 10.0; Win64; x64",
+                  "macOS": "Macintosh; Intel Mac OS X 10_15_7"}.get(
+                      platform, "X11; Linux x86_64")
+        language = said.get("language") or "en-US,en;q=0.9"
+        screen = tuple(said.get("screen") or (1920, 1080, 24))
+        return Fingerprint(system, platform, language, screen,
+                           ua=said.get("user_agent"))
+    except Exception:
+        return None
+
 async def _solve_in_a_process(page_url, timeout=60, proxy=None, extra_js=None,
-                              widget_js=None, widget_arg=None, widget_arg2=None):
+                              widget_js=None, widget_arg=None, widget_arg2=None,
+                              fingerprint=None):
     """Open the page in a real browser and read the token out of it."""
     global LAST_REASON
     LAST_REASON = ""
     launch = {
         "headless": not bool(os.environ.get("DISPLAY")),
+        # The widget of a captcha is an iframe of another site, so the
+        # site isolation is left on: turning it off, or limiting the
+        # browser to one renderer, makes the browser refuse that iframe
+        # and the widget never comes up.
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
                  "--disable-blink-features=AutomationControlled",
                  "--window-size=1366,900"],
@@ -729,87 +1217,87 @@ async def _solve_in_a_process(page_url, timeout=60, proxy=None, extra_js=None,
             await ctx.add_init_script(STEALTH)
             if extra_js:
                 await ctx.add_init_script(extra_js)
-            # a fresh page, so the scripts above are on it: the page
-            # that was open when the profile loaded has none of them
-            page = await ctx.new_page()
-            # the browser is told which browser it is, so the token it
-            # wins belongs to the browser the request comes from
+            # The page is kept open between the cards, so the scripts
+            # above are on it and the card does not wait for a browser
+            # to start.  The page that was open when the profile loaded
+            # has none of them, so it is not used.
+            page = await _a_page(ctx, page_url)
+            # The picture solver is made with the page, because it has
+            # to see the answer that brings the pictures.
+            agent = (_the_picture_solver(page)
+                     if _the_pictures_may_be_read() else None)
+
+            if agent is None and _the_pictures_may_be_read():
+                logger.info("the picture solver could not be made")
+            # The browser is told which browser it is, so the token it
+            # wins belongs to the browser the request comes from.
+            #
+            # It must not be able to hold the card up.  The page does
+            # not wait for it, and if it does not come back the solve
+            # goes on without it: without this, one slow call lost the
+            # whole card, and the browser worker was stopped at its
+            # limit with the captcha never even asked for.
             if apply_browser_identity is not None:
-                await apply_browser_identity(page, client_hints_metadata())
-            await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
-            await page.wait_for_timeout(1200)
+                try:
+                    await asyncio.wait_for(
+                        apply_browser_identity(page, fingerprint=fingerprint),
+                        timeout=15)
+                except Exception as e:
+                    # The browser was left half told what it is, so it
+                    # cannot be used: the answer would come from a
+                    # browser that is not the one the request comes
+                    # from.  The page is thrown away and the card is
+                    # given back, rather than answered wrongly.
+                    logger.info("the browser was not told which browser it "
+                                "is: %s", str(e)[:70])
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                    raise _BrowserNotUsable(
+                        "the browser was not told which browser it is")
+            # The page's own script keeps the load going, so waiting for
+            # the whole load to finish waits for the time out and no
+            # sooner.  The load is waited for as far as the first answer
+            # comes back, and the frame is looked for after that.
+            state = {"widget_done": False, "box_ticked": False,
+                     "verify_clicked": False, "picture_seen": False}
+
+            # The page is loaded again for every card.  Google's
+            # reCAPTCHA v3 answers once for a page and not again, so a
+            # page that has answered cannot answer a second time.  The
+            # browser is kept, though, and that is where the time goes:
+            # the browser takes about a second to come up, and the
+            # loading of the page is about a second and a half.
+
+            # The page's own script keeps the load going, so waiting for
+            # the whole load to finish waits for the time out and no
+            # sooner.  The load is waited for as far as the first answer
+            # comes back, and the frame is looked for after that.
+            await page.goto(page_url, wait_until="commit", timeout=45000)
+            # The load is not waited for: the answer is waited for, and
+            # the loop asks the page again and again.
+            await page.wait_for_timeout(100)
 
             deadline = time.time() + timeout
-            widget_done = False
-            last_click = 0.0
-            picture_seen = False
-            box_ticked = False
-            verify_clicked = False
-            while time.time() < deadline:
-                token = await page.evaluate(TOKEN_JS)
-                if token:
-                    try:
-                        ekey = await page.evaluate(EKEY_JS)
-                    except Exception:
-                        ekey = ""
-                    if ekey:
-                        global LAST_EKEY
-                        LAST_EKEY = ekey
-                    return token
-                # the page may bring its own widget up, so only put one
-                # up when there is none
-                if widget_js and not widget_done:
-                    try:
-                        said = await page.evaluate(
-                            widget_js, [widget_arg, widget_arg2])
-                        said = (said or "") if isinstance(said, str) else str(said or "")
-                        # the widget says what it did, so the words are
-                        # read: "loading" is not the same as being up
-                        widget_done = ("the widget is up" in said
-                                       or "widget is up" in said)
-                        if "loading" in said:
-                            widget_done = False
-                        if "failed" in said or "outer" in said:
-                            LAST_REASON = said[:120]
-                            widget_done = True
-                    except Exception as e:
-                        logger.debug("the widget did not load: %s", e)
-                # the picture challenge is not worth solving: it needs
-                # a person or a model that can see
-                if await _image_challenge_up(page):
-                    picture_seen = True
-                    logger.info("the hCaptcha picture challenge came up, "
-                                "so the captcha is left alone")
-                    break
-                # the checkbox the visitor would click
-                if time.time() - last_click > 3:
-                    last_click = time.time()
-                    try:
-                        if await _click_the_box(page):
-                            box_ticked = True
-                    except Exception as e:
-                        logger.debug("the checkbox was not clickable: %s", e)
-                    # and the verify button, which is what asks for the
-                    # answer
-                    try:
-                        if await _click_the_verify(page):
-                            verify_clicked = True
-                    except Exception as e:
-                        logger.debug("the verify button was not clickable: %s", e)
-                await page.wait_for_timeout(500)
+            token = await _the_loop(page, widget_js, widget_arg,
+                                    widget_arg2, deadline, state,
+                                    agent=agent)
+            if token:
+                return token
 
             # The reason is worked out from what really happened, and
             # what the captcha showed is written down with it.
             shown = await _what_it_showed(page)
-            if picture_seen:
+            if state["picture_seen"]:
                 LAST_REASON = ("the box was ticked, and hCaptcha answered with a "
                                "picture challenge")
-            elif verify_clicked and box_ticked:
+            elif state["verify_clicked"] and state["box_ticked"]:
                 LAST_REASON = ("the box was ticked and the verify was pressed, "
                                "but no token came")
-            elif verify_clicked:
+            elif state["verify_clicked"]:
                 LAST_REASON = "the verify was pressed, but no token came"
-            elif box_ticked:
+            elif state["box_ticked"]:
                 LAST_REASON = "the box was ticked, but no token came"
             elif shown:
                 LAST_REASON = f"the captcha showed: {shown}"
@@ -959,6 +1447,10 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
 
     launch = {
         "headless": not bool(os.environ.get("DISPLAY")),
+        # The widget of a captcha is an iframe of another site, so the
+        # site isolation is left on: turning it off, or limiting the
+        # browser to one renderer, makes the browser refuse that iframe
+        # and the widget never comes up.
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
                  "--disable-blink-features=AutomationControlled",
                  "--window-size=1366,900"],
@@ -981,7 +1473,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
             pw = await async_playwright().start()
             try:
                 ctx = await pw.chromium.launch_persistent_context(
-                    _profile_dir(), channel="chrome", bypass_csp=True,
+                    _profile_dir(), **_the_browser(), bypass_csp=True,
                     **PAGE_OPTIONS, **launch)
             except Exception:
                 _clear_the_lock()
@@ -994,7 +1486,12 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
             page = await ctx.new_page()
             if apply_browser_identity is not None:
                 await apply_browser_identity(page, client_hints_metadata())
-        await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+        # The page's own script keeps the load going, so waiting for
+        # the whole load to finish waits for the time out and no
+        # sooner.  The load is waited for as far as the first answer
+        # comes back, and the frame is looked for after that.
+        await page.goto(page_url, wait_until="commit", timeout=45000)
+        await page.wait_for_timeout(1200)
 
         # The captcha is put up by stripe's own code, a few seconds
         # after the page opens, and the frame it lands in is replaced
@@ -1006,7 +1503,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
         # wanted.
         frame = None
         intent_frame = None
-        deadline = time.time() + 25
+        deadline = time.time() + 18
         while time.time() < deadline:
             for candidate in page.frames:
                 url = candidate.url or ""
@@ -1087,7 +1584,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
         said = await frame.evaluate(ASK_THE_CAPTCHA, [sitekey, rqdata or "", host])
         logger.info("the captcha in the frame says: %s (the host is %s)", said, host or "?")
 
-        deadline = time.time() + max(15, min(timeout, 45))
+        deadline = time.time() + max(12, min(timeout, 30))
         ticked = 0
         while time.time() < deadline:
             await page.wait_for_timeout(800)
@@ -1142,7 +1639,7 @@ async def solve_in_the_frame(page_url, sitekey, rqdata=None, proxy=None,
 
 
 async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
-                               timeout=0):
+                               timeout=0, fingerprint=None):
     """An hCaptcha token, straight from a browser.
 
     The first try goes out the way the caller asked.  If the picture
@@ -1154,7 +1651,9 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
     if not pageurl:
         return None
     if not timeout:
-        timeout = _budget(60)
+        # Reading the pictures takes longer than clicking a box, and
+        # the card waits for it.
+        timeout = _budget(400 if _the_pictures_may_be_read() else 60)
 
     attempts = []
     if proxy:
@@ -1188,7 +1687,7 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
         share = max(20, int(left / max(1, len(attempts) - i)))
         try:
             token = await _solve_in_browser(
-                pageurl, timeout=min(share, 90), proxy=px,
+                pageurl, timeout=min(share, 90, fingerprint=fingerprint), proxy=px,
                 widget_js=HCAPTCHA_WIDGET, widget_arg=sitekey, widget_arg2=rqdata)
         except Exception as e:
             logger.info("the local hCaptcha solver failed: %s", e)
@@ -1221,7 +1720,8 @@ async def solve_hcaptcha_local(sitekey, pageurl, rqdata=None, proxy=None,
     return None
 
 
-async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=0):
+async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=0,
+                                  fingerprint=None):
     """A reCAPTCHA v3 token, straight from a browser."""
     if not pageurl:
         return None
@@ -1230,7 +1730,7 @@ async def solve_recaptcha_v3_local(sitekey, pageurl, proxy=None, timeout=0):
     try:
         token = await _solve_in_browser(
             pageurl, timeout=timeout, proxy=proxy, extra_js=RECAPTCHA_HOOK,
-            widget_js=RECAPTCHA_WIDGET, widget_arg=sitekey)
+            widget_js=RECAPTCHA_WIDGET, widget_arg=sitekey, fingerprint=fingerprint)
         if token:
             logger.info("the local reCAPTCHA solver got a token")
             return token
@@ -1254,6 +1754,7 @@ async def _worker(job):
         token = await _solve_in_a_process(
             job.get("page_url") or "",
             timeout=job.get("timeout") or 60,
+            fingerprint=_the_name_of_the_browser(job.get("fingerprint")),
             proxy=job.get("proxy"),
             extra_js=job.get("extra_js"),
             widget_js=job.get("widget_js"),
@@ -1262,6 +1763,14 @@ async def _worker(job):
         ) or ""
     except Exception as e:
         reason = "%s: %s" % (type(e).__name__, str(e)[:80])
+        # The whole of it is written down, for the log: a short word
+        # about it does not say where it went wrong.
+        try:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
+        except Exception:
+            pass
     if not reason:
         reason = LAST_REASON or ""
     ekey = LAST_EKEY or ""
@@ -1270,7 +1779,7 @@ async def _worker(job):
 
 
 async def solve_turnstile_local(sitekey, pageurl, proxy=None, timeout=0,
-                                  action=None, cdata=None):
+                                  action=None, cdata=None, fingerprint=None):
     """A Turnstile token, straight from a browser."""
     if not pageurl:
         return None
@@ -1278,7 +1787,7 @@ async def solve_turnstile_local(sitekey, pageurl, proxy=None, timeout=0,
         timeout = _budget(60)
     try:
         token = await _solve_in_browser(
-            pageurl, timeout=timeout, proxy=proxy)
+            pageurl, timeout=timeout, proxy=proxy, fingerprint=fingerprint)
         if token:
             logger.info("the local Turnstile solver got a token")
             return token
@@ -1293,15 +1802,29 @@ if __name__ == "__main__" and "--worker" in sys.argv:
     import sys
 
     async def _run():
-        try:
-            raw = sys.stdin.read()
-        except Exception:
-            raw = ""
-        try:
-            job = json.loads(raw)
-        except Exception:
-            job = {}
-        await _worker(job)
+        # The cards come one after the other on the same pipe, so the
+        # browser and the page stay as they are between them.
+        loop = asyncio.get_event_loop()
+        while True:
+            try:
+                raw = await loop.run_in_executor(None, sys.stdin.readline)
+            except Exception:
+                break
+            if not raw:
+                break
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                job = json.loads(raw)
+            except Exception:
+                job = {}
+            try:
+                await _worker(job)
+            except Exception:
+                pass
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
     try:
         asyncio.run(_run())

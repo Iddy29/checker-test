@@ -1,0 +1,13 @@
+{
+  "users": {
+    "1214399247": {
+      "balance": 0,
+      "totalEarned": 0,
+      "referredCount": 0,
+      "referredUsers": [],
+      "redeemedHistory": []
+    }
+  },
+  "usedBy": {},
+  "ipUsed": {}
+}

