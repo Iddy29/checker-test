@@ -2309,7 +2309,7 @@ async def shp_cmd(event):
         await status_msg.edit(f"\u274c Error: {type(e).__name__}: {str(e)[:120]}")
         return
 
-    resp = result.get("response", "Unknown")
+    resp = result.get("Response", "Unknown")
     elapsed = result.get("elapsed", 0)
     status = result.get("status", "error")
     # A shop that could not do the card is an error and not a refusal,
@@ -8382,7 +8382,7 @@ async def process_mtxt_cards(event, cards, sites):
                 return
 
             r_status = result.get("status", "error")
-            r_resp = result.get("response", "Unknown")
+            r_resp = result.get("Response", "Unknown")
             r_gateway = result.get("gateway", "Shopify Payments")
             r_amount = result.get("amount")
             r_site = result.get("site") or current_site
