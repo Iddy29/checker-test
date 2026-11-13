@@ -329,7 +329,7 @@ async def get_http_session():
             limit=50,
             limit_per_host=10,
             ttl_dns_cache=300,
-            keepalive_timeout=30,
+            keepalive_timeout=20,
             enable_cleanup_closed=True
         )
         _http_session = aiohttp.ClientSession(
@@ -6525,7 +6525,7 @@ async def _process_sk_keys(event, keys, first_name, user_id):
         f"\u23f3 Progress: `0/{total}`"
     )
 
-    CONCURRENT = 5
+    CONCURRENT = max(5, int(os.environ.get("MTXT_WORKERS", "50") or 50))
 
     async def check_one(sk):
         nonlocal checked
@@ -7299,12 +7299,12 @@ async def process_msh_cards(event, cards):
     from gates.shopify_native_gate import check_card_native
     # A card takes about six seconds in a shop, so a thousand cards in
     # a minute needs a hundred and seven of them in the air at once.
-    WORKERS = max(1, int(os.environ.get("MSH_WORKERS", "110") or 110))
+    WORKERS = max(1, int(os.environ.get("MSH_WORKERS", "150") or 150))
     # The cards are cut into groups, and each group is scanned on its
     # own.  The groups do not wait for one another, so the run takes as
     # long as the slowest group and not the sum of them all, and the
     # groups do not all go to the same shop at the same time.
-    GROUPS = max(1, int(os.environ.get("MSH_GROUPS", "16") or 16))
+    GROUPS = max(1, int(os.environ.get("MSH_GROUPS", "24") or 24))
     lanes = [[] for _ in range(GROUPS)]
     for i, one_card in enumerate(cards):
         lanes[i % GROUPS].append(one_card)
@@ -7853,8 +7853,8 @@ async def process_mtxt_cards_mass(event, cards, sites):
     total = len(cards)
     await register_mass_user(user_id)
 
-    BATCH = max(10, int(os.environ.get("MTXT_BATCH_SIZE", "100") or 100))
-    WORKERS = max(1, int(os.environ.get("MTXT_BATCH_WORKERS", "2") or 2))
+    BATCH = max(10, int(os.environ.get("MTXT_BATCH_SIZE", "50") or 50))
+    WORKERS = max(1, int(os.environ.get("MTXT_BATCH_WORKERS", "8") or 8))
     pool = ",".join(sites) if sites else ""
 
     stop_btn = [Button.inline("Stop", data=f"mtxt_stop_{user_id}".encode())]
@@ -7920,7 +7920,7 @@ async def process_mtxt_cards_mass(event, cards, sites):
         while batches_done < len(batches):
             try:
                 one_batch, out = await asyncio.wait_for(answers.get(),
-                                                         timeout=30)
+                                                         timeout=20)
             except asyncio.TimeoutError:
                 if user_id not in ACTIVE_MTXT_PROCESSES:
                     stop = True
