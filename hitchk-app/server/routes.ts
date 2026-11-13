@@ -2539,7 +2539,9 @@ function gateHealth(): Record<string, boolean> {
   const accountCheckRateLimit = new Map<string, number[]>();
   const MAX_ACCOUNT_CHECKS_PER_MINUTE = 60;
   let activeAccountChecks = 0;
-  const MAX_CONCURRENT_ACCOUNT_CHECKS = 3;
+  // The accounts are asked a few at a time, for each one takes about
+  // half a minute and three at a time is very slow.
+  const MAX_CONCURRENT_ACCOUNT_CHECKS = 20;
   const proxyRotationIndex = new Map<string, number>();
 
   app.get("/api/account-checkers/status", requireAuth, (_req, res) => {
@@ -2664,6 +2666,26 @@ function gateHealth(): Record<string, boolean> {
           const idx = proxyRotationIndex.get(userId) || 0;
           proxy = userProxies[idx % userProxies.length];
           proxyRotationIndex.set(userId, idx + 1);
+        }
+        if (!proxy) {
+          // The site turns away the asking that comes from the machine's
+          // own door, and it puts the account in a queue and forgets
+          // it.  So one of the places we have is used, and it is one
+          // that answered the last time it was asked.
+          try {
+            const fs = require("fs");
+            const path = require("path");
+            const placesFile = path.join(botDir, "gates", "fast_places.json");
+            const places = JSON.parse(fs.readFileSync(placesFile, "utf8"));
+            if (Array.isArray(places) && places.length > 0) {
+              const idx = proxyRotationIndex.get(userId + ":ours") || 0;
+              proxy = places[idx % places.length];
+              proxyRotationIndex.set(userId + ":ours", idx + 1);
+            }
+          } catch {
+            // without a place the check is made anyway, and the site may
+            // say no
+          }
         }
 
         const args = ["-u", checkerScript, checker, user, password];

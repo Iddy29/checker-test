@@ -81,6 +81,22 @@ IMPERSONATE = os.environ.get("BROWSER_IMPERSONATE", "").strip() \
 # library sends these itself, so the handshake and the headers belong
 # to the same browser.  They are written out here for the browser that
 # solves the captcha, which has to say the same thing.
+# A good user agent, for the times when there is not one to hand.
+#
+# A request that does not say which browser it is is a request that is
+# turned away at once, so when there is nothing else, this is what is
+# said.
+GOOD_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/%s.0.0.0 Safari/537.36" % CHROME_VERSION
+)
+
+
+def good_user_agent() -> str:
+    """A user agent that a browser would say today."""
+    return GOOD_USER_AGENT
+
+
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               f"(KHTML, like Gecko) Chrome/{CHROME_VERSION}.0.0.0 Safari/537.36")
 

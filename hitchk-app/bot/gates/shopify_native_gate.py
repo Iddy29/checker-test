@@ -1069,6 +1069,18 @@ def _the_next_place() -> Optional[str]:
     waiting for nothing.
     """
     places = _the_live_places()
+    # The places that answered quickly are used first, for a place that
+    # answers slowly makes the card wait for nothing.
+    fast = []
+    try:
+        _path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "fast_places.json")
+        with open(_path, "r", encoding="utf-8") as _f:
+            fast = [p for p in (json.load(_f) or []) if p]
+    except Exception:
+        fast = []
+    if fast:
+        places = fast + [p for p in places if p not in fast]
     if not places:
         places = _the_places()
     if not places:
@@ -1164,6 +1176,59 @@ async def check_the_places(places=None) -> dict:
             live.append(one[0])
     _remember_the_live_places(live)
     return {"asked": len(places), "live": len(live)}
+
+
+async def check_the_places_for_speed(places=None) -> dict:
+    """The places are asked, and the ones that answer quickly are kept.
+
+    A gate that is turned away by the shop wants a place that answers
+    in a moment, and a place that answers slowly makes the card wait
+    for nothing.
+    """
+    import time as _time
+    places = list(places or _the_places())
+    if not places:
+        return {"asked": 0, "fast": 0}
+    sem = asyncio.Semaphore(12)
+    fast = []
+
+    async def _one(place):
+        async with sem:
+            session = make_cffi_session(parse_proxy(place),
+                                        pick_browser_profile())
+            if session is None:
+                return place, None
+            started = _time.time()
+            try:
+                resp = await session.get("https://api.ipify.org?format=json",
+                                         timeout=8)
+                took = _time.time() - started
+                if resp.status_code == 200 and took <= 3.0:
+                    return place, took
+            except Exception:
+                pass
+            finally:
+                try:
+                    await session.close()
+                except Exception:
+                    pass
+            return place, None
+
+    results = await asyncio.gather(*[_one(p) for p in places],
+                                    return_exceptions=True)
+    for one in results:
+        if isinstance(one, Exception):
+            continue
+        if one[1] is not None:
+            fast.append(one[0])
+    try:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "fast_places.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(fast, f, indent=1)
+    except Exception as e:
+        logger.debug("the fast places were not written down: %s", e)
+    return {"asked": len(places), "fast": len(fast)}
 
 
 def _the_stores_the_fetcher_knows() -> dict:

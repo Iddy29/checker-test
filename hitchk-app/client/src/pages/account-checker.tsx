@@ -275,17 +275,30 @@ export default function AccountCheckerPage() {
 
     let hits = 0;
     let doneCount = 0;
-    for (let i = 0; i < combos.length; i++) {
-      if (stopRef.current) break;
+    // The accounts are asked a few at a time.  One after the other
+    // takes half a minute for every one of them, and the rest of the
+    // list waits and watches.
+    const PARALLEL = 10;
+    let next = 0;
+    const askOne = async () => {
+      while (true) {
+        if (stopRef.current) return;
+        const i = next++;
+        if (i >= combos.length) return;
+        const r = pendingResults[i];
+        setResults(prev => prev.map(x => x.id === r.id ? { ...x, status: "checking" } : x));
 
-      const r = pendingResults[i];
-      setResults(prev => prev.map(x => x.id === r.id ? { ...x, status: "checking" } : x));
-
-      const status = await checkSingle(selectedChecker, combos[i], r.id);
-      if (ACCOUNT_HIT_STATUSES.includes(status as AccountStatus)) hits++;
-      doneCount = i + 1;
-      setProgress({ done: doneCount, total: combos.length });
-    }
+        const status = await checkSingle(selectedChecker, combos[i], r.id);
+        if (ACCOUNT_HIT_STATUSES.includes(status as AccountStatus)) hits++;
+        doneCount = doneCount + 1;
+        setProgress({ done: doneCount, total: combos.length });
+      }
+    };
+    const askers = Array.from(
+      { length: Math.min(PARALLEL, combos.length) },
+      () => askOne()
+    );
+    await Promise.all(askers);
 
     if (stopRef.current) {
       setResults(prev => prev.map(r =>
@@ -333,6 +346,28 @@ export default function AccountCheckerPage() {
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: `Exported ${hits.length} result${hits.length > 1 ? "s" : ""}` });
+  };
+
+  // Every card that was checked is written down, with the answer it
+  // got, and not only the good ones: a run that found nothing good
+  // still says what came of it.
+  const exportResults = () => {
+    if (results.length === 0) {
+      toast({ title: "Nothing to export", variant: "destructive" });
+      return;
+    }
+    const lines = results.map(r => {
+      const caps = Object.entries(r.capture).filter(([, v]) => v && v !== "N/A").map(([k, v]) => `${k}=${v}`).join(" | ");
+      return `${r.combo} | ${displayStatus(r.status)}${caps ? ` | ${caps}` : ""}`;
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selectedChecker}_results_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: `Exported ${results.length} result${results.length > 1 ? "s" : ""}` });
   };
 
   const statusCounts = results.reduce((acc, r) => {
@@ -462,9 +497,9 @@ export default function AccountCheckerPage() {
                       variant="ghost"
                       size="sm"
                       className="h-7 lg:h-8 px-2 lg:px-3 transition-all duration-300"
-                      onClick={exportHits}
+                      onClick={exportResults}
                       data-testid="button-export-hits"
-                      title="Export hits"
+                      title="Export every result"
                     >
                       <Download className="w-3 h-3 lg:w-4 lg:h-4 mr-1" />
                       <span className="lg:text-sm">Export</span>

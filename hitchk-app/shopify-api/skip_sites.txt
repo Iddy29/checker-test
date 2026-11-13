@@ -1,0 +1,4 @@
+# The shops that are not asked at all.  One a line.  The name of the
+# shop is enough: the shop of that name is the same shop whatever door
+# it is asked through.
+wpxjeg-5e.myshopify.com

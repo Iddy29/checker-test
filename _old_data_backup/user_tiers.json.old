@@ -1,0 +1,42 @@
+{
+  "8439924012": {
+    "tier": "gold",
+    "assignedBy": "key_redeem",
+    "assignedAt": "2026-03-12T18:27:18.517Z",
+    "expiresAt": "2027-03-12T18:27:18.517Z",
+    "days": 365
+  },
+  "6864941250": {
+    "tier": "gold",
+    "assignedBy": "key_redeem",
+    "assignedAt": "2026-03-12T20:07:39.307272",
+    "expiresAt": "2027-01-06T20:07:39.307247",
+    "days": 300
+  },
+  "8461340799": {
+    "tier": "gold",
+    "assignedBy": "key_redeem",
+    "assignedAt": "2026-03-14T03:54:51.908Z",
+    "expiresAt": "2027-01-08T03:54:51.908Z",
+    "days": 300
+  },
+  "8458678080": {
+    "tier": "gold",
+    "assignedBy": "key_redeem",
+    "assignedAt": "2026-03-14T20:33:05.093375",
+    "expiresAt": "2027-03-14T20:33:05.093344",
+    "days": 365
+  },
+  "7292047135": {
+    "tier": "gold",
+    "assignedBy": "key_redeem",
+    "assignedAt": "2026-03-16T19:36:35.948421",
+    "expiresAt": "2027-03-16T19:36:35.948092",
+    "days": 365
+  },
+  "8124790996": {
+    "tier": "gold",
+    "assignedBy": "1214399247",
+    "assignedAt": "2026-09-29T23:55:15.678Z"
+  }
+}

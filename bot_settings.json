@@ -31,6 +31,21 @@
     },
     "adn": {
       "enabled": false
+    },
+    "skl2": {
+      "enabled": false
+    },
+    "wbw": {
+      "enabled": false
+    },
+    "ppn": {
+      "enabled": false
+    },
+    "bnc": {
+      "enabled": false
+    },
+    "sc": {
+      "enabled": false
     }
   },
   "tool_settings": {}

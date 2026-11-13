@@ -902,9 +902,21 @@ async def _dropin_check(client, site, cc, mm, yy, cvv, charge=False):
         return verdict, wording or reason[:80], card_info or None
 
     if not charge:
-        # Braintree took the card's data and said yes.  Nothing was
-        # charged and the issuer was not asked, and the answer says so.
-        return "Approved", "Accepted by Braintree (no charge)", card_info
+        # The card was taken by Braintree.  Now the issuer is asked with
+        # a $0 auth, so the answer is the issuer's own and not ours.
+        try:
+            verdict, wording = await _braintree_auth_check(
+                client, fingerprint, payment_nonce)
+        except Exception as e:
+            verdict, wording = None, str(e)[:60]
+        if verdict:
+            # the real answer of the issuer, as it said it
+            return verdict, wording or "the issuer answered", card_info
+        # the issuer could not be asked, so the card was only taken and
+        # nobody said it was good
+        return ("Authenticated",
+                "the card was taken by Braintree, the issuer was not "
+                "asked (no approval)", card_info)
 
     # the form the merchant wants: its own fields, its own amounts and
     # its own anti-spam marks, and the nonce the drop-in made

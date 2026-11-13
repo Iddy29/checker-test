@@ -10,7 +10,7 @@ GATEWAY_REGISTRY = {
         "gates": {
             "st": {"name": "Stripe Auth $0", "func": "woo_stripe_auth.woocommerce_stripe_check", "type": "auth"},
             "skl": {"name": "Stripe Auth $0.1", "func": "skool_api.skool_api_check", "type": "auth"},
-            "b3": {"name": "Braintree Auth", "func": "braintree_idt.check_card_braintree", "type": "auth"},
+            "b3": {"name": "Braintree OneTropic", "func": "onetropic_bt.check_card_braintree", "type": "auth"},
             "vbv": {"name": "VBV Lookup", "func": "vbv.vbv_check", "type": "auth"},
             "an": {"name": "Authorize.net Auth", "func": "authnet.authnet_check", "type": "auth"},
             "skb": {"name": "SK Base Auth $0", "func": "sk_checker.sk_base_check", "type": "auth"},
@@ -449,6 +449,20 @@ async def run_gateway(alias, cc, mm, yy, cvv, user_id=None, use_semaphore=True, 
     raw_proxy = None
     if user_id:
         proxy, raw_proxy = get_user_proxy_with_raw(user_id)
+    if not proxy:
+        # Some gates are turned away by the shop when the asking comes
+        # from the machine's own door.  The paypal gate is one of them:
+        # without a place of a person's own it is not answered at all.
+        # So one of the places we have is used, and it is a place that
+        # answered the last time it was asked.
+        try:
+            from .shopify_native_gate import _the_live_places, _the_next_place
+            from .shopify_native_gate import parse_proxy as _parse_place
+            _place = _the_next_place()
+            if _place:
+                proxy = _parse_place(_place)
+        except Exception:
+            proxy = None
 
     async def _execute():
         try:
