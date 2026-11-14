@@ -2065,7 +2065,7 @@ async def validate_card_across_sites(
     sites:      list[str],
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
-    max_sites:  int = 20,
+    max_sites:  int = 8,
 ) -> dict:
     """Try each merchant until one returns a real card verdict.
 
