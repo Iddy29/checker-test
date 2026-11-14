@@ -2025,8 +2025,9 @@ async def log_gate_result(alias, card, status, response, elapsed=0, user_id=None
     try:
         from datetime import datetime as _dt
         stamp = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        _elapsed_clean = str(elapsed).rstrip("s")
         line = (f"{stamp} | {str(alias).upper():5} | {card} | {str(status):8} | "
-                f"{str(response).replace(chr(10), ' ')[:100]} | {elapsed}s"
+                f"{str(response).replace(chr(10), ' ')[:100]} | {_elapsed_clean}s"
                 f" | uid={user_id or '-'} {user_name or ''} {source}")
         if reason:
             line += f" | why: {str(reason).replace(chr(10), ' ')[:200]}"
@@ -2329,7 +2330,7 @@ async def shp_cmd(event):
     _alias = "shp2" if is_price_band else "shp"
     try:
         await log_gate_result(_alias, f"{cc}|{mm}|{yy}|{cvv}",
-                               classify_response(_logged), _logged, elapsed,
+                               classify_response(status_header, _logged), _logged, elapsed,
                                event.sender_id, getattr(event.sender, "first_name", "") or "",
                                "single", result.get("explanation") or "")
     except Exception:
