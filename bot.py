@@ -2310,7 +2310,7 @@ async def shp_cmd(event):
         return
 
     resp = result.get("Response", "Unknown")
-    elapsed = result.get("elapsed", 0)
+    elapsed = result.get("Time", "0s")
     status = result.get("status", "error")
     # A shop that could not do the card is an error and not a refusal,
     # and it is shown as what it is.
@@ -7743,7 +7743,7 @@ async def process_mb3_cards(event, cards):
             if not _who:
                 continue
             try:
-                await event.client.send_document(
+                await event.client.send_file(
                     _who, _saved, caption=_caption)
                 _sent = True
                 print("the file was sent to %s" % _who, flush=True)
@@ -8114,7 +8114,7 @@ async def process_mtxt_cards_mass(event, cards, sites):
             if not _who:
                 continue
             try:
-                await event.client.send_document(
+                await event.client.send_file(
                     _who, _saved, caption=_caption)
                 _sent = True
                 print("the file was sent to %s" % _who, flush=True)
@@ -8386,7 +8386,7 @@ async def process_mtxt_cards(event, cards, sites):
             r_gateway = result.get("gateway", "Shopify Payments")
             r_amount = result.get("amount")
             r_site = result.get("site") or current_site
-            r_elapsed = result.get("elapsed", 0)
+            r_elapsed = result.get("Time", "0s")
             r_confidence = result.get("confidence")
             r_explanation = result.get("explanation", "")
             r_card_type = result.get("card_type", "")
