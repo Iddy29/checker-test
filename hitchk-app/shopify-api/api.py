@@ -1732,15 +1732,12 @@ async def validate_card(
 
             # ?????? 6. Submit for completion ??????????????????????????????????????????????????????????????????????????????????????????????????????
             billing_addr = {
-                "firstName": first,
-                "lastName": last,
-                "address1": street,
-                "address2": "",
-                "city": city,
-                "countryCode": country_code,
-                "postalCode": s_zip,
-                "zoneCode": state,
-                "phone": phone,
+                "streetAddress": {
+                    "address1": street, "address2": "", "city": city,
+                    "countryCode": country_code, "postalCode": s_zip,
+                    "firstName": first, "lastName": last,
+                    "zoneCode": state, "phone": phone,
+                }
             }
 
             def _build_submit_body() -> dict:
@@ -1773,7 +1770,13 @@ async def validate_card(
                                 "billingAddress": billing_addr,
                             },
                             "buyerIdentity":      copy.deepcopy(deliv_vars["buyerIdentity"]),
-                            "taxes":              deliv_vars["taxes"],
+                            "taxes": {
+                                "proposedAllocations":         None,
+                                "proposedTotalAmount":         {"any": True},
+                                "proposedTotalIncludedAmount": None,
+                                "proposedMixedStateTotalAmount": None,
+                                "proposedExemptions":          [],
+                            },
                             "tip":                deliv_vars.get("tip", {"tipLines": []}),
                             "note":               deliv_vars.get("note", {"message": None, "customAttributes": []}),
                             "localizationExtension": deliv_vars.get("localizationExtension", {"fields": []}),
