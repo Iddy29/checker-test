@@ -1660,6 +1660,10 @@ async def validate_card(
                                 d_tax_amt.get("value", {}).get("amount") or
                                 d_tax_amt.get("amount") or "0"
                             )
+                            # Update deliv_vars with the ACTUAL tax from delivery proposal
+                            deliv_vars["taxes"]["proposedTotalAmount"] = {
+                                "value": {"amount": str(tax_amount), "currencyCode": currency}
+                            }
                         except (ValueError, TypeError):
                             pass
             except _PriceOverMax:
@@ -1728,12 +1732,15 @@ async def validate_card(
 
             # ?????? 6. Submit for completion ??????????????????????????????????????????????????????????????????????????????????????????????????????
             billing_addr = {
-                "streetAddress": {
-                    "address1": street, "address2": "", "city": city,
-                    "countryCode": country_code, "postalCode": s_zip,
-                    "firstName": first, "lastName": last,
-                    "zoneCode": state, "phone": phone,
-                }
+                "firstName": first,
+                "lastName": last,
+                "address1": street,
+                "address2": "",
+                "city": city,
+                "countryCode": country_code,
+                "postalCode": s_zip,
+                "zoneCode": state,
+                "phone": phone,
             }
 
             def _build_submit_body() -> dict:
