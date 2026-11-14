@@ -773,7 +773,14 @@ def _normalize_response(raw: Optional[str]) -> str:
                                "TRY_AGAIN_LATER", "LIMIT_EXCEEDED")):
         return "CARD_DECLINED"
     if any(k in msg for k in ("CAPTCHA", "RECAPTCHA", "HCAPTCHA", "BOT_DETECTION", "CHALLENGE_REQUIRED")):
-        return "CAPTCHA_REQUIRED"
+        return "SITE_ERROR"
+    if any(k in msg for k in ("WAITING_PENDING_TERMS", "PENDING_TERM", "DELIVERY",
+                               "UNAVAILABLE_TERMS", "REQUIRED_ARTIFACTS",
+                               "MERCHANDISE_EXPECTED_PRICE_MISMATCH", "PRICE_MISMATCH",
+                               "PAYMENTS_FIRST_NAME_REQUIRED", "PAYMENTS_NAME_REQUIRED",
+                               "TAX_NEW_TAX_MUST_BE_ACCEPTED", "TAX_CHANGED",
+                               "GENERIC_ERROR", "CONFIRM_CHANGE_VIOLATION")):
+        return "SITE_ERROR"
     return "CARD_DECLINED"
 
 
@@ -1650,6 +1657,9 @@ async def validate_card(
                                 d_tax_amt.get("value", {}).get("amount") or
                                 d_tax_amt.get("amount") or "0"
                             )
+                            deliv_vars["taxes"]["proposedTotalAmount"] = {
+                                "value": {"amount": str(tax_amount), "currencyCode": currency}
+                            }
                         except (ValueError, TypeError):
                             pass
             except _PriceOverMax:
@@ -2091,7 +2101,17 @@ async def validate_card_across_sites(
                         "THROTTLED", "TIMEOUT", "SITE_ERROR", "PROXY_ERROR",
                         "NO_SELLER_PROPOSAL", "GRAPHQL_ERROR",
                         "NO_PAYMENT_REQUIRED", "CART_ERROR", "PRICE_OVER_MAX",
-                        "CAPTCHA_REQUIRED", "TOKENIZATION_FAILED", "SUBMIT_FAILED")
+                        "CAPTCHA_REQUIRED", "TOKENIZATION_FAILED", "SUBMIT_FAILED",
+                        "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
+                        "DELIVERY_NO_DELIVERY_STRATEGY_AVAILABLE",
+                        "REQUIRED_ARTIFACTS_UNAVAILABLE",
+                        "WAITING_PENDING_TERMS", "PENDING_TERM",
+                        "MERCHANDISE_EXPECTED_PRICE_MISMATCH",
+                        "PAYMENTS_FIRST_NAME_REQUIRED",
+                        "PAYMENTS_LAST_NAME_REQUIRED",
+                        "PAYMENTS_NAME_REQUIRED", "PAYMENTS_EMAIL_REQUIRED",
+                        "PAYMENTS_PHONE_REQUIRED", "PAYMENTS_ADDRESS_REQUIRED",
+                        "TAX_NEW_TAX_MUST_BE_ACCEPTED", "GENERIC_ERROR")
         if not any(resp.startswith(e) for e in _site_errors):
             return result
         last = result
