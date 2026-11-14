@@ -2310,13 +2310,13 @@ async def shp_cmd(event):
         return
 
     resp = result.get("Response", "Unknown")
-    elapsed = result.get("Time", "0s")
-    status = result.get("status", "error")
+    elapsed = result.get("Result" if False else "Time", "0s")
+    status = result.get("Status", "error")
     # A shop that could not do the card is an error and not a refusal,
     # and it is shown as what it is.
-    if status in ("approved", "approved_3ds"):
+    if status in ("approved", "approved_3ds", True):
         status_header = "APPROVED"
-    elif status == "error":
+    elif status in ("error", False):
         status_header = "ERROR"
     else:
         status_header = "DECLINED"
@@ -2324,7 +2324,7 @@ async def shp_cmd(event):
     brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
 
     # The log keeps what the card is, the way the other gates do.
-    _detail = str(result.get("card_detail") or "")
+    _detail = str(result.get("Message") or "")
     _logged = f"{resp} | {_detail}" if _detail else str(resp)
     _alias = "shp2" if is_price_band else "shp"
     try:
@@ -2338,9 +2338,9 @@ async def shp_cmd(event):
     text = format_shopify_result(
         status_header, cc, mm, yy, cvv, resp,
         brand, bin_type, bank, country, flag, elapsed,
-        amount=result.get("amount"),
-        product=result.get("product"),
-        gateway=result.get("gateway"),
+        amount=result.get("Price"),
+        product=result.get("Product"),
+        gateway=result.get("Gateway"),
         code=result.get("code"),
         decline_code=result.get("decline_code"),
         proxy=result.get("proxy"),
