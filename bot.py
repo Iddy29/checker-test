@@ -7132,7 +7132,7 @@ async def process_msh_cards(event, cards):
                     errors[0] += 1
                 else:
                     declined[0] += 1
-                all_results.append(f"{full} | {resp} | {msg}")
+                all_results.append(f"{full} | {resp} | {msg} | ${price}")
                 await update_progress()
 
             queue.task_done()
@@ -7163,15 +7163,25 @@ async def process_msh_cards(event, cards):
         await progress_msg.edit(final)
     except: pass
 
-    # Save results to file
-    if good_cards:
-        import tempfile
-        fname = f"msh_results_{user_id}.txt"
-        fpath = os.path.join(tempfile.gettempdir(), fname)
-        with open(fpath, "w") as f:
-            f.write("\n".join(good_cards))
+    # Save ALL results to txt file — each line: cc|mm|yy|cvv | RESPONSE | $amount
+    import tempfile
+    fname = f"msh_results_{user_id}.txt"
+    fpath = os.path.join(tempfile.gettempdir(), fname)
+    with open(fpath, "w", encoding="utf-8") as f:
+        f.write(f"MSH Results — {checked[0]}/{total} checked\n")
+        f.write(f"Charged: {charged[0]} | Approved: {approved[0]} | Declined: {declined[0]} | Errors: {errors[0]}\n")
+        f.write("=" * 60 + "\n\n")
+        for line in all_results:
+            f.write(line + "\n")
+    try:
+        await event.client.send_file(
+            event.chat_id, fpath,
+            caption=f"MSH Results — {checked[0]}/{total} checked\nCharged: {charged[0]} | Approved: {approved[0]} | Declined: {declined[0]}",
+            force_document=True
+        )
+    except Exception as e:
         try:
-            await event.reply("Approved cards:", file=fpath)
+            await event.reply(f"Results saved but could not send file: {str(e)[:60]}")
         except: pass
 
     # Log

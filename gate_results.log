@@ -6990,3 +6990,4 @@
 2026-11-17 18:48:43 | SHP   | 4031631348557098|12|30|364 | declined | CARD_DECLINED | 10.0ss | uid=1214399247 web
 2026-11-17 18:51:22 | B3    | 5143773819222927|04|29|465 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 5.68s | uid=1441224988 ＧＯＫＵ O P single
 2026-11-17 18:52:47 | SKL1  | 5143773819222927|04|29|465 | UNKNOWN  | NO_SKOOL_ACCOUNT | 0.02s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-17 19:15:10 | SHOP  |  | MASS     | checked=76 approved=0 declined=25 errors=51 | 60s | uid=1214399247  mass-file
