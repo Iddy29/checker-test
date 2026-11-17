@@ -3247,7 +3247,7 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extr
 
     success, message, gateway, price, currency = False, "No site available", "Shopify", "N/A", "USD"
 
-    for _site in sites_to_try[:5]:
+    for _site in sites_to_try[:8]:
         try:
             # Limit concurrent workers per site — prevents hammering
             _site_key = _normalize_site_key(_site)

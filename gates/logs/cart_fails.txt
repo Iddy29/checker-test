@@ -1,0 +1,4 @@
+[2026-11-17 22:14:39] STATUS=429 SITE=https://puppycommunity.shop VARIANT=46652638920948 BODY={"status":"too_many_requests","message":"Too many attempts","description":"Please try again in a few minutes"}
+[2026-11-17 22:14:58] STATUS=429 SITE=https://puppycommunity.shop VARIANT=46652638920948 BODY={"status":"too_many_requests","message":"Too many attempts","description":"Please try again in a few minutes"}
+[2026-11-17 22:15:18] STATUS=429 SITE=https://puppycommunity.shop VARIANT=46652638920948 BODY={"status":"too_many_requests","message":"Too many attempts","description":"Please try again in a few minutes"}
+[2026-11-17 22:15:36] STATUS=429 SITE=https://puppycommunity.shop VARIANT=46652638920948 BODY={"status":"too_many_requests","message":"Too many attempts","description":"Please try again in a few minutes"}
