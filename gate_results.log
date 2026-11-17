@@ -6971,3 +6971,4 @@
 2026-11-17 13:52:00 | B3    | 4256015472871988|05|29|244 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.74s | uid=8804730508 Арина single
 2026-11-17 17:35:07 | B3    | 4867960345100092|11|26|153 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | 6.5s | uid=8804730508 Арина single
 2026-11-17 17:45:34 | B3    | 4060686620424502|11|26|613 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | 4.98s | uid=8804730508 Арина single
+2026-11-17 18:07:46 | B3    | 5143773938885224|04|28|900 | APPROVED | APPROVED | 7.55s | uid=8804730508 Арина single
