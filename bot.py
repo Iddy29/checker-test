@@ -7109,7 +7109,6 @@ async def process_msh_cards(event, cards):
         "www.glowrecipe.com": 4.00,
         "www.gruntstyle.com": 4.99,
         "www.burpee.com": 5.95,
-        // REMOVED: "gwdirectstore.com": 7.94,
         "www.springhillnursery.com": 8.99,
         "shop.bullymax.com": 9.99,
         "www.cheapestees.com": 10.48,
@@ -7119,7 +7118,6 @@ async def process_msh_cards(event, cards):
         "www.gurneys.com": 19.99,
         "www.dutchbulbs.com": 20.83,
         "www.runpxl.com": 21.00,
-        // REMOVED: "thebudgetingprincess.com": 21.00,
         "wearladydry.com": 21.00,
         "store.trueleafmarket.com": 22.29,
     }
