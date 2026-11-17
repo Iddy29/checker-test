@@ -9,12 +9,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from gateways import (run_gateway, parse_card_input, classify_response,
                       get_flat_registry, st_verdict_token, is_gateway_on)
-from gates.shopify_api import call_shopify_api as _shopify_api_call
+from gates.shopify_native_gate import check_card_native as _sh_native_check
 
 GATE_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gate_results.log")
 
 # the gates that need more than a minute
-SLOW_GATES = ("auto", "autoskool", "shp", "shp2", "skl", "skl1", "skl2", "pp")
+SLOW_GATES = ("auto", "autoskool", "shp", "shp2", "sh", "skl", "skl1", "skl2", "pp")
 SLOW_TIMEOUT = 150
 FAST_TIMEOUT = 60
 
@@ -71,30 +71,53 @@ async def check_card(alias, card_str, user_id=None, is_admin=False):
     # second call with site=None) was removed.  Shopify now goes through the
     # local validator API, so a single check runs exactly once.
 
-    if alias == "shp":
+    if alias in ("shp", "sh", "msh"):
         try:
+            # Load user sites
+            _extra_sites = []
+            try:
+                import json as _json
+                _sf = os.path.join(os.path.dirname(__file__), "user_sites.json")
+                with open(_sf) as _f:
+                    _sd = _json.load(_f)
+                    _extra_sites = _sd.get(str(user_id), [])
+            except: pass
+
             result = await asyncio.wait_for(
-                _shopify_api_call(cc, mm, yy, cvv, site=None, timeout=timeout_secs),
+                _sh_native_check(cc, mm, yy, cvv, site_url=None,
+                                 proxy_str=None, extra_sites=_extra_sites),
                 timeout=timeout_secs + 5,
             )
-            result_str = result.get("response", "Unknown")
-            classification = classify_response(result_str)
-            if result.get("status") == "error":
-                classification = "error"
-            elif result.get("status") == "approved":
+            resp = str(result.get("Response") or "UNKNOWN")
+            charged = str(result.get("Charged")).lower() == "true"
+            price = result.get("Price") or "N/A"
+            site_used = result.get("Site") or ""
+            t = result.get("Time") or "0s"
+
+            if resp == "ORDER_PLACED":
                 classification = "approved"
-            elif result.get("status") == "declined":
+                status = "charged"
+            elif resp in ("INSUFFICIENT_FUNDS", "INVALID_CVC", "OTP_REQUIRED"):
+                classification = "approved"
+                status = "approved_3ds" if resp == "OTP_REQUIRED" else "approved"
+            elif resp in ("UNTESTED", "ERROR", "TIMEOUT", "CART_FAILED", "CAPTCHA_REQUIRED"):
+                classification = "error"
+                status = "error"
+            else:
                 classification = "declined"
-            log_result(alias, card_clean, classification.lower(),
-                       clean_response(result_str), result.get("elapsed", 0), user_id)
+                status = "declined"
+
+            log_result(alias, card_clean, status,
+                       resp, t, user_id)
             return {
-                "status": classification.lower(),
-                "response": clean_response(result_str),
-                "gateway": result.get("gateway", "Shopify"),
+                "status": status,
+                "response": resp,
+                "gateway": result.get("Gateway", "Shopify"),
                 "card": card_clean,
-                "site": result.get("site", ""),
-                "amount": result.get("amount"),
-                "elapsed": result.get("elapsed", 0),
+                "site": site_used,
+                "amount": price,
+                "elapsed": t,
+                "bank_reached": classification in ("approved", "declined"),
             }
         except asyncio.TimeoutError:
             return {"status": "error", "response": f"Gateway timeout ({timeout_secs}s)"}

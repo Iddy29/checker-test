@@ -6959,3 +6959,15 @@
 2026-11-17 11:40:43 | SHOP  | 5279126564361216|04|32|474 | ERROR    | UNTESTED | 10.2s | uid=1214399247  single
 2026-11-17 11:41:18 | SHOP  | 5279126564361216|04|32|474 | DECLINED | CARD_DECLINED | 25.9s | uid=1214399247  single
 2026-11-17 11:45:35 | SHOP  | 4031631354955533|10|30|622 | DECLINED | CARD_DECLINED | 81.7s | uid=1214399247  single
+2026-11-17 13:00:55 | SHOP  | 4223230002618318|10|27|382 | DECLINED | CARD_DECLINED | 22.5s | uid=1214399247  single
+2026-11-17 13:37:59 | B3    | 4060686620424502|11|26|613 | APPROVED | APPROVED | 7.38s | uid=8804730508 Арина single
+2026-11-17 13:47:27 | B3C   | 4663098187982594|03|30|642 | DECLINED | Declined - the shop refused the payment (no word from the issuer) | VISA CREDIT | USA | CAPITAL ONE  | 2.71s | uid=8782727333 𝐙𝟏ᵐᵒᵒᵈ 🕸 single
+2026-11-17 13:47:53 | B3C   | 4765162063102482|03|27|724 | DECLINED | Declined - the shop refused the payment (no word from the issuer) | VISA DEBIT | USA | REDSTONE FEDE | 1.67s | uid=8782727333 𝐙𝟏ᵐᵒᵒᵈ 🕸 single
+2026-11-17 13:48:21 | WBC   | 4765162063102482|03|27|724 | ERROR    | Error - no adyen payment link is known. Give one with /aco or set ADN_PAYMENT_URL. [0s] | 0.01s | uid=8782727333 𝐙𝟏ᵐᵒᵒᵈ 🕸 single
+2026-11-17 13:48:43 | B3    | 4243822024317873|01|30|260 | DECLINED | DECLINED | Status code 2047: Call Issuer. Pick Up Card. (43) | 5.96s | uid=8804730508 Арина single
+2026-11-17 13:49:12 | B3    | 4389554016641523|03|27|484 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.51s | uid=8804730508 Арина single
+2026-11-17 13:49:40 | B3    | 4765162063102482|03|27|724 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 27.62s | uid=8782727333 𝐙𝟏ᵐᵒᵒᵈ 🕸 single
+2026-11-17 13:51:18 | B3    | 4617530079744903|08|29|136 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.76s | uid=8782727333 𝐙𝟏ᵐᵒᵒᵈ 🕸 single
+2026-11-17 13:52:00 | B3    | 4256015472871988|05|29|244 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.74s | uid=8804730508 Арина single
+2026-11-17 17:35:07 | B3    | 4867960345100092|11|26|153 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | 6.5s | uid=8804730508 Арина single
+2026-11-17 17:45:34 | B3    | 4060686620424502|11|26|613 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | 4.98s | uid=8804730508 Арина single

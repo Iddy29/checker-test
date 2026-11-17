@@ -1596,7 +1596,7 @@ export async function registerRoutes(
     try {
       const userId = req.session?.userId || "";
       const { gateway: reqGateway } = req.body;
-      const isShopifySingle = typeof reqGateway === "string" && reqGateway.toLowerCase().startsWith("shp");
+      const isShopifySingle = typeof reqGateway === "string" && (reqGateway.toLowerCase().startsWith("shp") || reqGateway.toLowerCase() === "sh" || reqGateway.toLowerCase() === "msh" || reqGateway.toLowerCase() === "shopify_native");
       const isStripeSingle = typeof reqGateway === "string" && reqGateway.toLowerCase().startsWith("st");
       const usageTypeSingle = isShopifySingle ? "shopifyChecks" as const
         : isStripeSingle ? "stripeChecks" as const : "checks" as const;
@@ -2193,7 +2193,7 @@ export async function registerRoutes(
 
       const tier = getUserTier(userId);
       const limits = getTierLimits(tier);
-      const isShopify = typeof gateway === "string" && gateway.toLowerCase().startsWith("shp");
+      const isShopify = typeof gateway === "string" && (gateway.toLowerCase().startsWith("shp") || gateway.toLowerCase() === "sh" || gateway.toLowerCase() === "msh" || gateway.toLowerCase() === "shopify_native");
       const isStripe = typeof gateway === "string" && gateway.toLowerCase().startsWith("st");
       const usageType = isShopify ? "shopifyChecks" as const
         : isStripe ? "stripeChecks" as const : "checks" as const;
@@ -2450,13 +2450,13 @@ function gateHealth(): Record<string, boolean> {
       try {
         res.json(JSON.parse(output.trim()));
       } catch {
-        res.json(["stripe", "braintree", "razorpay", "shopify", "paypal", "square", "adyen",
+        res.json(["stripe", "braintree", "razorpay", "shopify", "shopify_native", "paypal", "square", "adyen",
           "authorize.net", "worldpay", "cybersource", "sagepay", "klarna", "mollie", "payu",
           "paystack", "elavon", "heartland"]);
       }
     });
     proc.on("error", () => {
-      res.json(["stripe", "braintree", "razorpay", "shopify", "paypal"]);
+      res.json(["stripe", "braintree", "razorpay", "shopify", "shopify_native", "paypal"]);
     });
   });
 

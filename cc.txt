@@ -426,3 +426,6 @@
 5131274808950861|06|28|530 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [3.22s] | Stripe Auth $0 | -
 4978644087619404|02|27|231 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [3.95s] | Stripe Auth $0 | -
 5264120008855690|01|28|682 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [5.29s] | Stripe Auth $0 | -
+4060686620424502|11|26|613 | APPROVED | APPROVED | Braintree OneTropic | -
+4867960345100092|11|26|153 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
+4060686620424502|11|26|613 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
