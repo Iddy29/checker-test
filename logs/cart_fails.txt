@@ -697,3 +697,747 @@
 
     <style type="text/css">
         *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:54] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:00] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:09] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:17] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:22] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:30] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:32] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:41] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:39:50] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:08] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:12] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:14] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:22] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:24] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:32] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:40:40] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:47] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:40:48] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:52] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:40:55] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:41:00] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:41:10] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:41:24] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:41:24] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:41:25] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:41:37] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:41:43] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:41:45] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:05] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:05] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:08] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:26] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:33] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:35] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:36] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:44] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:42:48] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:42:57] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:10] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:11] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:18] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:26] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:29] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:43:34] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:44] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:49] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:43:56] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:44:02] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:55:20] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 19:55:20] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:21] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:22] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:22] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:22] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:22] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:22] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:22] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:24] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=429 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:25] STATUS=422 SITE=https://www.nayabjewellery.com VARIANT=192013664531 BODY={"status":422,"message":"Cart Error","description":"Cannot find variant"}
+[2026-11-17 19:55:26] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:26] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:55:26] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:27] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:28] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:28] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:28] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:28] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:28] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:31] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:55:34] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 19:55:34] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-17 19:55:34] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-17 19:55:34] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-17 19:55:35] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:35] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:38] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:55:43] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:47] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:47] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:47] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:48] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:48] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:49] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:49] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:50] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:55:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 19:55:51] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:55] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:55:56] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:56:00] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:56:00] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:56:01] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:01] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:02] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:56:02] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:56:03] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 19:56:05] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:09] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:13] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 19:56:13] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:13] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:14] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:56:14] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 19:56:15] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:15] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 19:56:16] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.cheapestees.com VARIANT=50551165386927 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://esavingsblog.myshopify.com VARIANT=39704319295536 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://fccrystal.com VARIANT=50384778920173 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://esavingsblog.myshopify.com VARIANT=39704319295536 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.nayabjewellery.com VARIANT=192013664531 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://wearladydry.com VARIANT=57252810686848 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://thebudgetingprincess.com VARIANT=53272648810783 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.cheapestees.com VARIANT=50551165386927 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 20:00:49] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:50] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=429 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:51] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:52] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:53] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:54] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:55] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:57] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:58] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:00:59] STATUS=403 SITE=https://www.nayabjewellery.com VARIANT=192013664531 BODY=
+[2026-11-17 20:01:00] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:00] STATUS=0 SITE=https://www.cheapestees.com VARIANT=50551165386927 BODY=
+[2026-11-17 20:01:00] STATUS=0 SITE=https://fccrystal.com VARIANT=50384778920173 BODY=
+[2026-11-17 20:01:00] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:01:00] STATUS=0 SITE=https://wearladydry.com VARIANT=57252810686848 BODY=
+[2026-11-17 20:01:00] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:03] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-17 20:01:03] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-17 20:01:03] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 20:01:03] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 20:01:04] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:07] STATUS=422 SITE=https://www.nayabjewellery.com VARIANT=192013664531 BODY={"status":422,"message":"Cart Error","description":"Cannot find variant"}
+[2026-11-17 20:01:13] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:13] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:13] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:13] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:13] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:13] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:16] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:16] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:16] STATUS=0 SITE=https://livsn.myshopify.com VARIANT=47961984729307 BODY=
+[2026-11-17 20:01:17] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:26] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:26] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:26] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:26] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:26] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:27] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:29] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:29] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:29] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 20:01:30] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:01:30] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:31] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 20:01:39] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:39] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:39] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:39] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:39] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:40] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:42] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:42] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:42] STATUS=0 SITE=https://meloraaa.com VARIANT=54299228537126 BODY=
+[2026-11-17 20:01:43] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=

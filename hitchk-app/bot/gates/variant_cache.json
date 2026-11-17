@@ -2,5 +2,73 @@
   "livsn.myshopify.com": {
     "variant_id": "47961984729307",
     "price": "5.95"
+  },
+  "puppycommunity.shop": {
+    "variant_id": "68081813422324",
+    "price": "5.99"
+  },
+  "esavingsblog.myshopify.com": {
+    "variant_id": "39704319295536",
+    "price": "3.00"
+  },
+  "pinkbikinitanning.com": {
+    "variant_id": "55770220364103",
+    "price": "14.00"
+  },
+  "wearladydry.com": {
+    "variant_id": "57252810686848",
+    "price": "21.00"
+  },
+  "creativecitydesigns.com": {
+    "variant_id": "42522953056317",
+    "price": "1.20"
+  },
+  "thebudgetingprincess.com": {
+    "variant_id": "53272648810783",
+    "price": "14.00"
+  },
+  "meloraaa.com": {
+    "variant_id": "54299228537126",
+    "price": "8.00"
+  },
+  "fccrystal.com": {
+    "variant_id": "50384778920173",
+    "price": "1.00"
+  },
+  "busybug-boutique.myshopify.com": {
+    "variant_id": "54457786106174",
+    "price": "1.00"
+  },
+  "buttonworks.com": {
+    "variant_id": "67974720422180",
+    "price": "1.55"
+  },
+  "www.cheapestees.com": {
+    "variant_id": "50551165386927",
+    "price": "10.48"
+  },
+  "gwdirectstore.com": {
+    "variant_id": "45231724822728",
+    "price": "7.94"
+  },
+  "www.nayabjewellery.com": {
+    "variant_id": "192013664531",
+    "price": "14.84"
+  },
+  "bagandcanvas.com": {
+    "variant_id": "47762044387466",
+    "price": "1.15"
+  },
+  "www.runpxl.com": {
+    "variant_id": "53378720399657",
+    "price": "3.00"
+  },
+  "championdogproducts.com": {
+    "variant_id": "46980076601593",
+    "price": "2.99"
+  },
+  "www.xtool.com": {
+    "variant_id": "49584765894895",
+    "price": "14.00"
   }
 }
