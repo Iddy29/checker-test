@@ -6945,3 +6945,7 @@
 2026-11-17 10:26:05 | SHOP  | 4834250010050933|03|27|951 | ERROR    | CART_FAILED | 0.46s | uid=1214399247  single
 2026-11-17 10:40:22 | MSH   | 5415411641609158|01|32|023 | ERROR    | UNKNOWN | 0s | uid=1214399247  single | why: check_card_native() got an unexpected keyword argument 'extra_sites'
 2026-11-17 10:51:50 | MSH   | 5279126564361216|04|32|474 | ERROR    | UNKNOWN | 0s | uid=1214399247  single | why: check_card_native() got an unexpected keyword argument 'extra_sites'
+2026-11-17 10:56:21 | SHOP  | 5279126564361216|04|32|474 | ERROR    | UNTESTED | 0.5s | uid=1214399247  single
+2026-11-17 10:56:26 | SHOP  | 5279126564361216|04|32|474 | ERROR    | UNTESTED | 0.5s | uid=1214399247  single
+2026-11-17 10:56:32 | SHOP  | 5279126564361216|04|32|474 | ERROR    | UNTESTED | 0.5s | uid=1214399247  single
+2026-11-17 10:59:58 | SHOP  | 5279126564361216|04|32|474 | ERROR    | UNTESTED | 0.5s | uid=1214399247  single

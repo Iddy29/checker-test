@@ -3235,20 +3235,45 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extr
             price = "N/A"
             currency = "USD"
 
-        # If bank responded (success=True) or we got a non-cart error, stop rotating
+        # If bank responded (success=True), stop rotating
         _clean = extract_clean_response(message) if message else "UNKNOWN"
+        _msg = str(message or "")
         if success:
             break  # Bank responded — stop rotating
-        # Cart failures / 429 / cooldown → try next site
-        if _clean in ("CART_FAILED", "Cart failed with status 429", "UNKNOWN") and "429" in str(message):
+
+        # ALL checkout/site errors → rotate to next site
+        ROTATE_ERRORS = (
+            "CART_FAILED", "Cart failed with status 429", "UNKNOWN",
+            "NO_PRODUCTS", "Not Shopify", "Site requires login!",
+            "SITE_ERROR", "No Products", "UNTESTED",
+            "Payment method not available", "Failed to get session token",
+            "Checkpoint Denied", "Negotiation failed", "No seller proposal",
+            "No valid payment method found", "No runningTotal", "Throttled",
+            "CAPTCHA_REQUIRED", "CAPTCHA_REQUIRED on submit",
+            "Change Proxy", "Change Proxy or Site",
+            "VALIDATION_CUSTOM", "VALIDATION_ERROR",
+        )
+        # Also rotate on any "Site Error" or "Cart failed" message
+        should_rotate = (
+            _clean in ROTATE_ERRORS
+            or _msg.startswith("Site Error")
+            or _msg.startswith("Cart failed")
+            or _msg.startswith("Cannot connect")
+            or _msg.startswith("No Products")
+            or _msg.startswith("Not Shopify")
+            or _msg.startswith("Site requires")
+            or _msg.startswith("Payment method")
+            or _msg.startswith("Failed to get")
+            or _msg.startswith("Checkout page error")
+            or _msg.startswith("Unable to get payment")
+            or "429" in _msg
+            or "CAPTCHA" in _msg.upper()
+        )
+        if should_rotate:
             print(f"[SH-ROTATE] {_site} failed ({_clean}) — trying next site")
-            await asyncio.sleep(1)  # Brief pause before next site
+            await asyncio.sleep(0.5)
             continue
-        # Other errors (no products, site requires login, etc.) → try next site
-        if _clean in ("NO_PRODUCTS", "Not Shopify", "Site requires login!", "SITE_ERROR", "CART_FAILED", "No Products"):
-            print(f"[SH-ROTATE] {_site} failed ({_clean}) — trying next site")
-            continue
-        # Non-cart error that might be a real response → stop rotating
+        # Unknown error that might be a real response → stop rotating
         break
 
     import time as _time_mod
