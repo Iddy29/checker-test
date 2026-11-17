@@ -3219,11 +3219,12 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extr
     if site_url:
         sites_to_try = [site_url] + _extra + [s for s in DEFAULT_SITE_ROTATION if s != site_url and s not in _extra]
     else:
-        sites_to_try = _extra + list(DEFAULT_SITE_ROTATION)
+        # User sites first (up to 2), then ALWAYS include default working sites
+        sites_to_try = _extra[:2] + list(DEFAULT_SITE_ROTATION) + _extra[2:]
 
     success, message, gateway, price, currency = False, "No site available", "Shopify", "N/A", "USD"
 
-    for _site in sites_to_try[:3]:
+    for _site in sites_to_try[:5]:
         try:
             success, message, gateway, price, currency = await process_card(
                 cc, mm, yy, cvv, _site,
