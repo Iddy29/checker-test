@@ -38,7 +38,7 @@ const CF_IPV6_PREFIXES = ["2400:cb00","2606:4700","2803:f800","2405:b500","2405:
 
 // The bot and the panel must read the same files, or a code made in
 // one is unknown in the other.
-const BOT_DIR = process.env.BOT_DATA_DIR || BOT_DIR;
+const BOT_DIR = process.env.BOT_DATA_DIR || path.resolve(__dirname, "..", "..", "hitchecker");
 
 function ipToInt(ip: string): number {
   return ip.split(".").reduce((acc, o) => (acc << 8) + parseInt(o, 10), 0) >>> 0;
