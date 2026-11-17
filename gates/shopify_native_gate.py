@@ -3195,6 +3195,11 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
     """
     Bot-compatible wrapper around process_card.
     Returns a dict the bot's /sh handler expects.
+
+    PROPERLY DISTINGUISHES:
+    - Checkout/validation errors (SubmitRejected) → UNTESTED, bank never reached
+    - Bank responses (poll FailedReceipt/ProcessedReceipt) → real bank code
+    - Approved/charged (ProcessedReceipt) → ORDER_PLACED, Charged=True
     """
     try:
         success, message, gateway, price, currency = await process_card(
@@ -3214,8 +3219,64 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
 
     clean = extract_clean_response(message) if message else "UNKNOWN"
 
-    # Determine if charged (ORDER_PLACED = money moved)
-    charged = "True" if (success and clean == "ORDER_PLACED") else "False"
+    # ── CHECKOUT ERRORS — bank never reached ──────────────────────────────
+    # These are Shopify validation/gateway errors, NOT bank responses.
+    # The card was never sent to the issuing bank.
+    CHECKOUT_ERRORS = {
+        "VALIDATION_CUSTOM", "VALIDATION_ERROR",
+        "PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT",
+        "MERCHANDISE_EXPECTED_PRICE_MISMATCH",
+        "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
+        "TAX_NEW_TAX_MUST_BE_ACCEPTED",
+        "WAITING_PENDING_TERMS",
+        "PAYMENTS_FIRST_NAME_REQUIRED",
+        "PAYMENTS_LAST_NAME_REQUIRED",
+        "REQUIRED_ARTIFACTS",
+        "INVENTORY_RESERVATION_FAILURE",
+        "InventoryReservationFailure",
+        "CART_FAILED",
+        "NO_PRODUCTS",
+        "Not Shopify",
+        "Site requires login!",
+        "Payment method not available",
+        "Failed to get session token",
+        "Checkpoint Denied",
+        "Negotiation failed",
+        "No seller proposal",
+        "No valid payment method found",
+        "No runningTotal",
+        "Throttled",
+        "CAPTCHA_REQUIRED",
+        "CAPTCHA_REQUIRED on submit",
+        "Change Proxy",
+        "Change Proxy or Site",
+    }
+
+    # If the response is a checkout error, return UNTESTED — bank never spoke
+    if clean in CHECKOUT_ERRORS or not success:
+        # Check if it's a real bank response despite success=False
+        # process_card returns success=True for FailedReceipt (bank responded)
+        # and success=False for checkout errors
+        # So if success=False, it's ALWAYS a checkout error, not a bank response
+        return {
+            "Response": "UNTESTED",
+            "Message": str(message)[:160] if message else clean,
+            "Product": "",
+            "Price": str(price) if price else "N/A",
+            "Site": site_url or "",
+            "Charged": "False",
+            "Gateway": gateway or "Shopify",
+        }
+
+    # ── BANK RESPONSES — bank spoke ───────────────────────────────────────
+    # success=True means the card reached the bank (SubmitSuccess + poll)
+    # clean contains the actual bank response code
+
+    # ORDER_PLACED = bank approved, money charged
+    charged = "True" if clean == "ORDER_PLACED" else "False"
+
+    # OTP_REQUIRED = bank requires 3DS verification (card is live)
+    # All other codes = bank decline codes (CARD_DECLINED, INSUFFICIENT_FUNDS, etc.)
 
     return {
         "Response": clean,
