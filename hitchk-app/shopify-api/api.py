@@ -37,6 +37,31 @@ def _load_sites():
 SITE_LIST = _load_sites()
 logger.info(f"Loaded {len(SITE_LIST)} sites from site.txt")
 
+# Load working proxies
+def _load_proxies():
+    proxies = []
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "working_proxies.txt")) as f:
+            for line in f:
+                line = line.strip()
+                if line and line.startswith("http"):
+                    proxies.append(line)
+    except Exception:
+        pass
+    return proxies
+
+PROXY_LIST = _load_proxies()
+logger.info(f"Loaded {len(PROXY_LIST)} working proxies")
+_proxy_idx = 0
+
+def _next_proxy():
+    global _proxy_idx
+    if not PROXY_LIST:
+        return None
+    p = PROXY_LIST[_proxy_idx % len(PROXY_LIST)]
+    _proxy_idx += 1
+    return p
+
 # ── Response mapper ───────────────────────────────────────────────────────
 def _map_result(r, cc_str, site, proxy_used):
     """Map shopify_check output to bot-expected format."""
@@ -181,6 +206,9 @@ async def shopify_get(
     # Try each site
     start = time.time()
     proxy_url = proxy.strip() if proxy and proxy.strip() else None
+    # Auto-use working proxy if none provided
+    if not proxy_url:
+        proxy_url = _next_proxy()
 
     result = None
     for s in sites[:5]:
@@ -247,6 +275,8 @@ async def shopii(
     card_num, mm, yy, cvv = parts[0], parts[1], parts[2], parts[3]
     sites = _get_sites(site)
     proxy_url = proxy.strip() if proxy and proxy.strip() else None
+    if not proxy_url:
+        proxy_url = _next_proxy()
 
     result = None
     for s in sites[:5]:
@@ -317,13 +347,16 @@ async def shopify_mass(req: MassRequest):
             if not s:
                 return {"Response": "NO_SITES", "Message": "No sites available", "CC": card_str, "Price": "N/A", "Gateway": "Shopify Payments", "Charged": "False", "Approved": "False", "Time": "0.0s", "status": "error"}
 
+            # Auto-use proxy if none provided
+            p = proxy_url or _next_proxy()
+
             try:
                 r = await asyncio.wait_for(
-                    shopify_check(card_num, mm, yy, cvv, site=s, proxy=proxy_url),
+                    shopify_check(card_num, mm, yy, cvv, site=s, proxy=p),
                     timeout=30
                 )
                 if r:
-                    return _map_result(r, card_str, s, proxy_url)
+                    return _map_result(r, card_str, s, p)
             except (asyncio.TimeoutError, Exception) as e:
                 logger.info(f"Mass error {card_str[:6]}xx: {str(e)[:60]}")
 
