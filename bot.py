@@ -6778,15 +6778,22 @@ async def sh(event):
             "**Usage:**\n`/sh cc|mm|yy|cvv`\n"
             "`/sh cc|mm|yy|cvv shop.com` — the shop to use, "
             "or the next one in the list.")
-    card = lines[1].strip()
-    parts = card.split("|")
-    if len(parts) != 4 or not all(p.strip().isdigit() for p in parts):
+    card = lines[1].strip().strip("`").strip("'").strip('"').strip()
+    card = card.replace("`", "").replace("'", "").replace('"', "")
+    parts = [p.strip() for p in card.split("|")]
+    if len(parts) != 4:
         return await event.reply("The card must be `cc|mm|yy|cvv`.")
-    cc, mm, yy, cvv = [p.strip() for p in parts]
+    cc, mm, yy, cvv = parts
+    cc = "".join(c for c in cc if c.isdigit())
+    mm = "".join(c for c in mm if c.isdigit())
+    yy = "".join(c for c in yy if c.isdigit())
+    cvv = "".join(c for c in cvv if c.isdigit())
+    if not (cc and mm and yy and cvv):
+        return await event.reply("The card must be `cc|mm|yy|cvv`.")
     if len(yy) == 4:
         yy = yy[2:]
     mm = mm.zfill(2)
-    site = lines[2].strip() if len(lines) > 2 else None
+    site = lines[2].strip().strip("`").strip("'") if len(lines) > 2 else None
     if site and not site.startswith("http"):
         site = "https://" + site
     if user_id not in ADMIN_ID:
@@ -6869,15 +6876,24 @@ async def sh_native(event):
             "**Usage:**\n`/sh cc|mm|yy|cvv`\n"
             "`/sh cc|mm|yy|cvv shop.com` — the shop to use, "
             "or the next one in the list.")
-    card = words[1].strip()
-    parts = card.split("|")
-    if len(parts) != 4 or not all(p.strip().isdigit() for p in parts):
+    card = words[1].strip().strip("`").strip("'").strip('"').strip()
+    # Also handle if the whole message has backticks around the card
+    card = card.replace("`", "").replace("'", "").replace('"', "")
+    parts = [p.strip() for p in card.split("|")]
+    if len(parts) != 4:
         return await event.reply("The card must be `cc|mm|yy|cvv`.")
-    cc, mm, yy, cvv = [p.strip() for p in parts]
+    cc, mm, yy, cvv = parts
+    # Clean each part — remove any non-digit characters
+    cc = "".join(c for c in cc if c.isdigit())
+    mm = "".join(c for c in mm if c.isdigit())
+    yy = "".join(c for c in yy if c.isdigit())
+    cvv = "".join(c for c in cvv if c.isdigit())
+    if not (cc and mm and yy and cvv):
+        return await event.reply("The card must be `cc|mm|yy|cvv`.")
     if len(yy) == 4:
         yy = yy[2:]
     mm = mm.zfill(2)
-    site = words[2].strip() if len(words) > 2 else None
+    site = words[2].strip().strip("`").strip("'") if len(words) > 2 else None
     if site and not site.startswith("http"):
         site = "https://" + site
     if user_id not in ADMIN_ID:
