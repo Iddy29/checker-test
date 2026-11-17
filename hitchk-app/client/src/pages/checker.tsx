@@ -47,6 +47,10 @@ interface CheckResult {
   card_type?: string;
   card_bin?: string;
   card_last4?: string;
+  /** did the card go all the way to the bank? */
+  bank_reached?: boolean;
+  /** what the shop said when the tax of the order moved */
+  tax_note?: string;
 }
 
 interface LogEntry {
@@ -130,7 +134,7 @@ interface JobDetail {
   gateway: string;
   totalCards: number;
   processedCards: number;
-  results: { id: string; card: string; status: string; response: string; timestamp: number; gateway?: string; site?: string; amount?: string | number | null; confidence?: number | null; explanation?: string; card_type?: string; card_bin?: string; card_last4?: string }[];
+  results: { id: string; card: string; status: string; response: string; timestamp: number; gateway?: string; site?: string; amount?: string | number | null; confidence?: number | null; explanation?: string; card_type?: string; card_bin?: string; card_last4?: string; bank_reached?: boolean; tax_note?: string }[];
   allResultsCount: number;
   createdAt: number;
   completedAt?: number;
@@ -234,6 +238,8 @@ export default function CheckerPage() {
             card_type: r.card_type,
             card_bin: r.card_bin,
             card_last4: r.card_last4,
+            bank_reached: r.bank_reached,
+            tax_note: r.tax_note,
           }));
 
           seenCountRef.current = data.allResultsCount;
@@ -875,6 +881,20 @@ export default function CheckerPage() {
                                   {r.explanation && (
                                     <span>💬 Reason: <span className="font-medium text-foreground/70">{r.explanation}</span></span>
                                   )}
+                                {r.bank_reached != null && (
+                                  <span>🎯 To the bank: 
+                                    <span className="font-medium text-foreground/70">
+                                      {r.bank_reached ? "YES" : "no"}
+                                    </span>
+                                  </span>
+                                )}
+                                {r.tax_note && (
+                                  <span>🧾 Tax: 
+                                    <span className="font-medium text-foreground/70">
+                                      {r.tax_note}
+                                    </span>
+                                  </span>
+                                )}
                                 </div>
                               )}
                             </div>

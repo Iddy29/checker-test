@@ -1696,7 +1696,13 @@ export async function registerRoutes(
         if (req.session?.userId) {
           const responseStr = parsed.response || parsed.status || "";
           const responseLower = responseStr.toLowerCase();
-          const isHit = parsed.status === "charged" || responseLower.includes("insufficient") || responseLower.includes("insuff");
+          // A card the issuer judged is a hit, whatever the issuer said
+          // about it: there is no money on it, the security code is
+          // wrong, or the issuer wants a check.  The word of the bank
+          // is in the answer, and it is to be counted as the hit it is.
+          const isHit = parsed.status === "charged" || parsed.status === "approved" ||
+                        parsed.status === "approved_3ds" ||
+                        responseLower.includes("insufficient") || responseLower.includes("insuff");
           const userName = [req.session.firstName, req.session.lastName].filter(Boolean).join(" ") || req.session.username || req.session.userId;
 
           if (parsed.status === "charged") {
@@ -1717,7 +1723,7 @@ export async function registerRoutes(
               userName,
               userId: req.session.userId,
               message: `${userName} Got Hit ⚡`,
-              detail: `${parsed.status === "charged" ? "Charged" : "Insufficient Funds"} — ${gateway.toUpperCase()}`,
+              detail: `${parsed.status === "charged" ? "Charged" : (parsed.explanation || parsed.response || "Approved")} — ${gateway.toUpperCase()}`,
             });
           }
         }
@@ -1978,6 +1984,10 @@ export async function registerRoutes(
     card_type?: string;
     card_bin?: string;
     card_last4?: string;
+    /** did the card go all the way to the bank? */
+    bank_reached?: boolean;
+    /** what the shop said when the tax of the order moved */
+    tax_note?: string;
   }
 
   interface CheckJob {
@@ -2105,11 +2115,17 @@ export async function registerRoutes(
             card_type: result.card_type,
             card_bin: result.card_bin,
             card_last4: result.card_last4,
+            bank_reached: result.bank_reached,
+            tax_note: result.tax_note,
           });
 
           const resultResponse = result.response || result.status || "";
           const resultLower = resultResponse.toLowerCase();
-          const isBatchHit = result.status === "charged" || resultLower.includes("insufficient") || resultLower.includes("insuff");
+          // A card the issuer judged is a hit, whatever the issuer said about
+    // it.
+    const isBatchHit = result.status === "charged" || result.status === "approved" ||
+                       result.status === "approved_3ds" ||
+                       resultLower.includes("insufficient") || resultLower.includes("insuff");
 
           if (result.status === "charged") {
             const botDir = BOT_DIR;
@@ -2130,7 +2146,7 @@ export async function registerRoutes(
               userName: job.userName,
               userId: job.userId,
               message: `${job.userName} Got Hit ⚡`,
-              detail: `${result.status === "charged" ? "Charged" : "Insufficient Funds"} — ${job.gateway.toUpperCase()}`,
+              detail: `${result.status === "charged" ? "Charged" : (result.explanation || result.response || "Approved")} — ${job.gateway.toUpperCase()}`,
             });
           }
         } catch (err: any) {

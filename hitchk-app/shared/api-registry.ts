@@ -230,6 +230,33 @@ export const STRIPE_REASON_CODES: ReasonCode[] = [
   { code: "generic_decline", meaning: "The issuer refused without naming a reason", verdict: "declined" },
 ];
 
+// The words of the bank, for the shops that take cards.  Every one of
+// them is a word about the card, and the verdict says what it means:
+// the issuer saw the card, so the card is a live one, or the issuer
+// did not see it, so it is not.
+export const SHOPIFY_REASON_CODES: ReasonCode[] = [
+  { code: "ORDER_PLACED", meaning: "The order was placed and the card was charged", verdict: "approved (live / charged)" },
+  { code: "INSUFFICIENT_FUNDS", meaning: "Customer has insufficient available funds", verdict: "approved (live / CCN)" },
+  { code: "INVALID_CVC", meaning: "Card security code (CVV/CVC) is incorrect", verdict: "approved (live / CCN)" },
+  { code: "3DS_REQUIRED", meaning: "Additional cardholder authentication is required", verdict: "approved (live / 3DS)" },
+  { code: "INVALID_CARD", meaning: "Card number is invalid", verdict: "declined" },
+  { code: "INVALID_EXPIRY_DATE", meaning: "Card expiration date is invalid", verdict: "declined" },
+  { code: "EXPIRED_CARD", meaning: "Card has expired", verdict: "declined" },
+  { code: "CARD_DECLINED", meaning: "Bank declined the transaction", verdict: "declined" },
+  { code: "DO_NOT_HONOR", meaning: "Bank refused the transaction without giving a specific reason", verdict: "approved (live / CCN)" },
+  { code: "GENERIC_ERROR", meaning: "General payment-processing error; exact reason unknown", verdict: "declined" },
+  { code: "INCORRECT_ZIP", meaning: "Billing ZIP/postal code is incorrect", verdict: "approved (live / CCN)" },
+  { code: "PROCESSING_ERROR", meaning: "An error occurred while processing the payment", verdict: "error" },
+  { code: "LOST_CARD", meaning: "Card reported as lost", verdict: "approved (live / CCN)" },
+  { code: "STOLEN_CARD", meaning: "Card reported as stolen", verdict: "approved (live / CCN)" },
+  { code: "RESTRICTED_CARD", meaning: "Card is restricted from making the transaction", verdict: "approved (live / CCN)" },
+  { code: "TRANSACTION_NOT_ALLOWED", meaning: "Transaction is not permitted by the bank or card issuer", verdict: "approved (live / CCN)" },
+  { code: "ISSUER_NOT_AVAILABLE", meaning: "Card issuer or bank is temporarily unavailable", verdict: "error" },
+  { code: "DUPLICATE_TRANSACTION", meaning: "Transaction appears to be a duplicate", verdict: "error" },
+  { code: "PICKUP_CARD", meaning: "Issuer requests that the card be retained", verdict: "approved (live / CCN)" },
+  { code: "FRAUD_SUSPECTED", meaning: "The issuer suspects fraud", verdict: "declined" },
+];
+
 /** The order of operations the Stripe $0 check runs. */
 export const STRIPE_FLOW: string[] = [
   "The card is checked locally: a Luhn failure or an expiry date in the past is declined without any request leaving the bot.",

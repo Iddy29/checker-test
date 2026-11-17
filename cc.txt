@@ -411,3 +411,18 @@
 4165981532542523|06|30|799 | APPROVED_3DS | Approved - 3DS required (live card) - a $0 check cannot run the challenge, so the card needs a real transaction to be judged - the store asked for a 3D Secure challenge (next_action: use_stripe_sdk, type: stripe_3ds2_fingerprint, network: visa, source: setatt_1Ub9CqDKdrHmTW2nvINkExSY) [36.85s] | Stripe Auth $0 | -
 5520419970925113|07|29|889 | APPROVED_3DS | Approved - 3DS required (live card) - a $0 check cannot run the challenge, so the card needs a real transaction to be judged - the store asked for a 3D Secure challenge (next_action: use_stripe_sdk, type: stripe_3ds2_fingerprint, network: mastercard, source: setatt_1Ub9ELDKdrHmTW2nx5YUFIO4) [32.15s] | Stripe Auth $0 | -
 5247475310844259|05|27|986 | APPROVED_3DS | Approved - 3DS required (live card) - a $0 check cannot run the challenge, so the card needs a real transaction to be judged - the store asked for a 3D Secure challenge (next_action: use_stripe_sdk, type: stripe_3ds2_fingerprint, network: mastercard, source: setatt_1Ub9GCDKdrHmTW2nAqpoQh5X) [43.71s] | Stripe Auth $0 | -
+4867960347633025|11|26|496 | APPROVED | APPROVED | Braintree OneTropic | -
+4867960345100092|11|26|153 | APPROVED | APPROVED | Braintree OneTropic | -
+4867960345100092|11|26|153 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
+4867960345100092|11|26|153 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
+4427567007496388|03|27|815 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) | Stripe Auth $0 | -
+4232233024803149|05|28|099 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) | Stripe Auth $0 | -
+4836121887667471|12|33|372 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) | Stripe Auth $0 | -
+4031630242554565|09|29|554 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) | Stripe Auth $0 | -
+5328396688640875|05|27|457 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) | Stripe Auth $0 | -
+4232230242337702|03|29|799 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) | Stripe Auth $0 | -
+5328396688640875|05|27|457 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [2.01s] | Stripe Auth $0 | -
+4266841737784452|11|27|807 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [2.03s] | Stripe Auth $0 | -
+5131274808950861|06|28|530 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [3.22s] | Stripe Auth $0 | -
+4978644087619404|02|27|231 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [3.95s] | Stripe Auth $0 | -
+5264120008855690|01|28|682 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [5.29s] | Stripe Auth $0 | -

@@ -28,6 +28,10 @@ interface JobResult {
   card_type?: string;
   card_bin?: string;
   card_last4?: string;
+  /** did the card go all the way to the bank? */
+  bank_reached?: boolean;
+  /** what the shop said when the tax of the order moved */
+  tax_note?: string;
 }
 
 interface JobSummary {

@@ -62,6 +62,29 @@ PERSISTED_ID_POLL = ("cb31a1b2197416d7441bf789defc306069c385c558764a58"
 
 PCI_BUILD_ID = "5cdd519"
 
+# The words of the bank, and what each of them means: one place, so
+# that the same card gives the same word whichever way it is asked.
+try:
+    from gates.card_words import (THE_BANK_WORDS as _THE_BANK_WORDS,
+                                   THE_WORD_MEANS as _THE_WORD_MEANS,
+                                   the_bank_word as _the_bank_word,
+                                   the_word_said as _the_word_said)
+except Exception:                                    # a plain copy
+    _THE_BANK_WORDS = {}
+    _THE_WORD_MEANS = {}
+
+    def _the_bank_word(text):
+        up = str(text or "").upper()
+        best = ""
+        for said, ours in _THE_BANK_WORDS.items():
+            if said in up and len(said) > len(best):
+                best = said
+        return _THE_BANK_WORDS.get(best, "") if best else ""
+
+    def _the_word_said(norm, said):
+        return said or str(norm or "")
+
+
 # What the shop says, and what it means.
 _ANSWER_WORDS = (
     (("INSUFFICIENT_FUNDS", "INSUFFICIENT"), "INSUFFICIENT_FUNDS"),
@@ -112,10 +135,18 @@ _ANSWER_WORDS = (
 
 
 def _the_words(raw: Optional[str]) -> str:
-    """What the shop said, in the words we use."""
+    """What the shop said, in the words we use.
+
+    The whole vocabulary of the bank is looked through first, so that
+    every word of it is told as it is: "there is no money on the card"
+    and "the reason was not given" are two different answers.
+    """
     if not raw:
         return "CARD_DECLINED"
     text = str(raw).upper()
+    _the_word = _the_bank_word(text)
+    if _the_word:
+        return _the_word
     for keys, name in _ANSWER_WORDS:
         if any(k in text for k in keys):
             return name

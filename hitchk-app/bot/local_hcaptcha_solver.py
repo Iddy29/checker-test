@@ -400,10 +400,11 @@ async def _get_browser(launch):
     wanted = launch.get("proxy")
     wanted = wanted.get("server") if isinstance(wanted, dict) else wanted
     if _BROWSER is not None:
-        if wanted == _BROWSER_PROXY:
-            _BROWSER_AT = time.time()
-            return _BROWSER
-        # the address changed, so the browser goes too
+        # The browser that answered the last captcha has the memory of
+        # it, and the captcha of the next one knows that browser.  So
+        # every captcha gets a browser of its own, and the old one is
+        # closed before the new one is opened: the memory of this box
+        # is small, and two browsers at once is too much.
         try:
             await _BROWSER.close()
         except Exception:
@@ -463,18 +464,25 @@ async def _close_browser_if_idle():
 PAGE_OPTIONS = {
     "locale": "en-US",
     "timezone_id": "America/Chicago",
-    "viewport": {"width": 1366, "height": 900},
+    "viewport": {"width": 1728, "height": 1117},
 }
 
 
 def _profile_dir():
-    """A saved browser profile, so the browser looks used before."""
-    path = os.path.join("/tmp", "lc_browser_profile")
+    """A profile of its own for each browser.
+
+    A profile that is saved is the same browser every day, and a
+    captcha that sees the same browser twice in a day knows it.  So
+    every browser gets a profile that has never been used, and the
+    old ones are taken away so that the disk does not fill up.
+    """
+    import shutil as _shutil
+    import tempfile as _tempfile
     try:
-        os.makedirs(path, exist_ok=True)
+        path = _tempfile.mkdtemp(prefix="lc_profile_")
+        return path
     except Exception:
         return "/tmp"
-    return path
 
 
 def _the_browser():
@@ -488,12 +496,28 @@ def _the_browser():
         from browser_identity import CHROME_VERSION
     except Exception:
         CHROME_VERSION = ""
+    # The memory of this box is small, and a browser that is too big is
+    # killed by the kernel in the middle of a solve.  So the browser is
+    # told to be small, and to keep to one process.
+    _flags = [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+        "--single-process",
+        "--renderer-process-limit=1",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints",
+        "--js-flags=--max-old-space-size=192",
+    ]
     if CHROME_VERSION:
         for path in ("/opt/chrome-%s/chrome" % CHROME_VERSION,
                      "/opt/chrome/chrome"):
             if os.path.exists(path):
-                return {"channel": "chrome", "executable_path": path}
-    return {"channel": "chrome"}
+                return {"channel": "chrome", "executable_path": path,
+                        "args": _flags}
+    return {"channel": "chrome", "args": _flags}
 
 
 # The proxies that are worth trying, and the file they are in.

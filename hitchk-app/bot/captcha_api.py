@@ -90,6 +90,17 @@ MANUAL = "manual"
 # A method that is not here is turned away, and not taken for the
 # hCaptcha it is not.
 METHODS = {
+    # The names of the kinds of captcha come in many forms, and they
+    # all mean the same kind of captcha.  A name that is not known
+    # here is a captcha that is never answered, so the names that the
+    # gates use are all here.
+    "hcaptcha_motion": "hcaptcha",
+    "hcaptcha_motion_v2": "hcaptcha",
+    "hcaptcha_v2": "hcaptcha",
+    "hcaptcha_enterprise": "hcaptcha",
+    "recaptcha_v3": "recaptcha",
+    "recaptcha_v3_visible": "recaptcha",
+    "recaptcha_enterprise": "recaptcha",
     "hcaptcha": "hcaptcha",
     "recaptcha": "recaptcha",
     "userrecaptcha": "recaptcha",

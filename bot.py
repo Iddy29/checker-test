@@ -329,7 +329,7 @@ async def get_http_session():
             limit=50,
             limit_per_host=10,
             ttl_dns_cache=300,
-            keepalive_timeout=20,
+            keepalive_timeout=30,
             enable_cleanup_closed=True
         )
         _http_session = aiohttp.ClientSession(
@@ -2025,9 +2025,8 @@ async def log_gate_result(alias, card, status, response, elapsed=0, user_id=None
     try:
         from datetime import datetime as _dt
         stamp = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
-        _elapsed_clean = str(elapsed).rstrip("s")
         line = (f"{stamp} | {str(alias).upper():5} | {card} | {str(status):8} | "
-                f"{str(response).replace(chr(10), ' ')[:100]} | {_elapsed_clean}s"
+                f"{str(response).replace(chr(10), ' ')[:100]} | {str(elapsed).rstrip('s')}s"
                 f" | uid={user_id or '-'} {user_name or ''} {source}")
         if reason:
             line += f" | why: {str(reason).replace(chr(10), ' ')[:200]}"
@@ -2310,14 +2309,14 @@ async def shp_cmd(event):
         await status_msg.edit(f"\u274c Error: {type(e).__name__}: {str(e)[:120]}")
         return
 
-    resp = result.get("Response", "Unknown")
-    elapsed = result.get("Result" if False else "Time", "0s")
-    status = result.get("Status", "error")
+    resp = result.get("response", "Unknown")
+    elapsed = result.get("elapsed", 0)
+    status = result.get("status", "error")
     # A shop that could not do the card is an error and not a refusal,
     # and it is shown as what it is.
-    if status in ("approved", "approved_3ds", True):
+    if status in ("approved", "approved_3ds"):
         status_header = "APPROVED"
-    elif status in ("error", False):
+    elif status == "error":
         status_header = "ERROR"
     else:
         status_header = "DECLINED"
@@ -2325,7 +2324,7 @@ async def shp_cmd(event):
     brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
 
     # The log keeps what the card is, the way the other gates do.
-    _detail = str(result.get("Message") or "")
+    _detail = str(result.get("card_detail") or "")
     _logged = f"{resp} | {_detail}" if _detail else str(resp)
     _alias = "shp2" if is_price_band else "shp"
     try:
@@ -2339,9 +2338,9 @@ async def shp_cmd(event):
     text = format_shopify_result(
         status_header, cc, mm, yy, cvv, resp,
         brand, bin_type, bank, country, flag, elapsed,
-        amount=result.get("Price"),
-        product=result.get("Product"),
-        gateway=result.get("Gateway"),
+        amount=result.get("amount"),
+        product=result.get("product"),
+        gateway=result.get("gateway"),
         code=result.get("code"),
         decline_code=result.get("decline_code"),
         proxy=result.get("proxy"),
@@ -6526,7 +6525,7 @@ async def _process_sk_keys(event, keys, first_name, user_id):
         f"\u23f3 Progress: `0/{total}`"
     )
 
-    CONCURRENT = max(5, int(os.environ.get("MTXT_WORKERS", "50") or 50))
+    CONCURRENT = 5
 
     async def check_one(sk):
         nonlocal checked
@@ -7300,12 +7299,12 @@ async def process_msh_cards(event, cards):
     from gates.shopify_native_gate import check_card_native
     # A card takes about six seconds in a shop, so a thousand cards in
     # a minute needs a hundred and seven of them in the air at once.
-    WORKERS = max(1, int(os.environ.get("MSH_WORKERS", "150") or 150))
+    WORKERS = max(1, int(os.environ.get("MSH_WORKERS", "110") or 110))
     # The cards are cut into groups, and each group is scanned on its
     # own.  The groups do not wait for one another, so the run takes as
     # long as the slowest group and not the sum of them all, and the
     # groups do not all go to the same shop at the same time.
-    GROUPS = max(1, int(os.environ.get("MSH_GROUPS", "24") or 24))
+    GROUPS = max(1, int(os.environ.get("MSH_GROUPS", "16") or 16))
     lanes = [[] for _ in range(GROUPS)]
     for i, one_card in enumerate(cards):
         lanes[i % GROUPS].append(one_card)
@@ -7744,7 +7743,7 @@ async def process_mb3_cards(event, cards):
             if not _who:
                 continue
             try:
-                await event.client.send_file(
+                await event.client.send_document(
                     _who, _saved, caption=_caption)
                 _sent = True
                 print("the file was sent to %s" % _who, flush=True)
@@ -7854,8 +7853,8 @@ async def process_mtxt_cards_mass(event, cards, sites):
     total = len(cards)
     await register_mass_user(user_id)
 
-    BATCH = max(10, int(os.environ.get("MTXT_BATCH_SIZE", "50") or 50))
-    WORKERS = max(1, int(os.environ.get("MTXT_BATCH_WORKERS", "8") or 8))
+    BATCH = max(10, int(os.environ.get("MTXT_BATCH_SIZE", "100") or 100))
+    WORKERS = max(1, int(os.environ.get("MTXT_BATCH_WORKERS", "2") or 2))
     pool = ",".join(sites) if sites else ""
 
     stop_btn = [Button.inline("Stop", data=f"mtxt_stop_{user_id}".encode())]
@@ -7921,7 +7920,7 @@ async def process_mtxt_cards_mass(event, cards, sites):
         while batches_done < len(batches):
             try:
                 one_batch, out = await asyncio.wait_for(answers.get(),
-                                                         timeout=20)
+                                                         timeout=30)
             except asyncio.TimeoutError:
                 if user_id not in ACTIVE_MTXT_PROCESSES:
                     stop = True
@@ -8115,7 +8114,7 @@ async def process_mtxt_cards_mass(event, cards, sites):
             if not _who:
                 continue
             try:
-                await event.client.send_file(
+                await event.client.send_document(
                     _who, _saved, caption=_caption)
                 _sent = True
                 print("the file was sent to %s" % _who, flush=True)
@@ -8383,11 +8382,11 @@ async def process_mtxt_cards(event, cards, sites):
                 return
 
             r_status = result.get("status", "error")
-            r_resp = result.get("Response", "Unknown")
+            r_resp = result.get("response", "Unknown")
             r_gateway = result.get("gateway", "Shopify Payments")
             r_amount = result.get("amount")
             r_site = result.get("site") or current_site
-            r_elapsed = result.get("Time", "0s")
+            r_elapsed = result.get("elapsed", 0)
             r_confidence = result.get("confidence")
             r_explanation = result.get("explanation", "")
             r_card_type = result.get("card_type", "")
