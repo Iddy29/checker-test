@@ -55,6 +55,7 @@ PCI_BUILD_ID = "5cdd519"
 # ---------------------------------------------------------------------------
 MIN_VARIANT_PRICE = 0.10
 MAX_VARIANT_PRICE = 5.00
+MAX_TOTAL_PRICE = 25.00  # Final total (product + shipping + tax) can be higher
 
 
 def _checkout_total(running_total, shipping_amount, tax_amount=0) -> str:
@@ -2792,9 +2793,9 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                 _final_total = 0.0
             # Forced SKUs may be $1; still block absurd high totals
             _min_ok = MIN_VARIANT_PRICE if not _forced_active else 0.50
-            if _final_total < _min_ok or _final_total > MAX_VARIANT_PRICE:
+            if _final_total < _min_ok or _final_total > MAX_TOTAL_PRICE:
                 print(f"{tag} STEP 5: final total {total_price} outside "
-                      f"${_min_ok:.2f}-${MAX_VARIANT_PRICE:.2f} — aborting submit")
+                      f"${_min_ok:.2f}-${MAX_TOTAL_PRICE:.2f} — aborting submit")
                 return False, "Site not supported", gateway, total_price, currency
 
             submit_body = {
