@@ -6871,6 +6871,9 @@ async def sh_native(event):
         return await event.reply(msg, buttons=buttons)
     user_id = event.sender_id
     words = (event.message.text or "").split()
+    # Strip duplicate /sh if user typed /sh /sh
+    while len(words) > 1 and words[1].lower().startswith("/sh"):
+        words.pop(1)
     if len(words) < 2:
         return await event.reply(
             "**Usage:**\n`/sh cc|mm|yy|cvv`\n"

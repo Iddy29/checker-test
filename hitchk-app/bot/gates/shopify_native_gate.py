@@ -808,7 +808,7 @@ async def fetch_products(domain, proxy_str=None):
                 url,
                 headers=headers,
                 allow_redirects=allow_redirects,
-                timeout=8,
+                timeout=3,
             )
             return resp.status_code, resp.text
 
@@ -863,7 +863,7 @@ async def fetch_products(domain, proxy_str=None):
                 err_s = str(e).lower()
                 if "proxy" in err_s or "cannot connect" in err_s:
                     return False, f"Cannot connect to proxy: {e}"
-                if "connect" in err_s or "timeout" in err_s:
+                if "connect" in err_s or "timeout" in err_s or "timed out" in err_s:
                     return False, "Site Error! Status: 0"
                 print(f"[fetch_products] limit=5 error: {type(e).__name__}: {e}")
                 primary_failed = True
@@ -1288,7 +1288,7 @@ async def validate_site(site_url: str, proxy_str=None) -> tuple:
                         f"{ourl}/products.json?limit=1",
                         headers=_liveness_hdrs,
                         allow_redirects=True,
-                        timeout=8,
+                        timeout=3,
                     )
                     status = resp.status_code
                     body   = resp.text
@@ -1551,7 +1551,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                     _warmup_url,
                     headers=_warmup_hdrs,
                     allow_redirects=True,
-                    timeout=5,
+                    timeout=3,
                 )
                 _cookies_set = list(curl_sess.cookies.keys()) if hasattr(curl_sess, 'cookies') else []
                 print(f"{tag} STEP 0.5: cookie warm-up done "
@@ -1595,7 +1595,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                         _warmup_url,
                         headers=_warmup_hdrs,
                         allow_redirects=True,
-                        timeout=5,
+                        timeout=3,
                     )
                     _cookies_set = list(curl_sess.cookies.keys()) if hasattr(curl_sess, 'cookies') else []
                     print(f"{tag} STEP 0.5: cookie warm-up done "
@@ -1650,7 +1650,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                             "upgrade-insecure-requests": "1",
                         },
                         allow_redirects=True,
-                        timeout=8,
+                        timeout=3,
                     )
                     print(f"{tag} STEP 1: permalink status={_pr.status_code}")
                     # Verify cart contents
@@ -1701,14 +1701,14 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                                     f"{url}/cart/clear.js",
                                     headers={**headers, "Accept": "application/json",
                                              "X-Requested-With": "XMLHttpRequest"},
-                                    allow_redirects=True, timeout=5,
+                                    allow_redirects=True, timeout=3,
                                 )
                             except Exception:
                                 pass
                             await curl_sess.get(
                                 _plink,
                                 headers={**headers, "Accept": "text/html", "Referer": product_referer},
-                                allow_redirects=True, timeout=8,
+                                allow_redirects=True, timeout=3,
                             )
                             _cj2 = await curl_sess.get(
                                 f"{url}/cart.js",
@@ -1736,7 +1736,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                                          "X-Requested-With": "XMLHttpRequest",
                                          "Referer": url + "/"},
                                 allow_redirects=True,
-                                timeout=5,
+                                timeout=3,
                             )
                         except Exception:
                             pass
@@ -1744,7 +1744,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                             _plink,
                             headers={**headers, "Accept": "text/html", "Referer": product_referer},
                             allow_redirects=True,
-                            timeout=8,
+                            timeout=3,
                         )
                         cart_status = 200
                     else:
@@ -1785,7 +1785,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                             data=data_,
                             headers=final_hdrs,
                             allow_redirects=True,
-                            timeout=8,
+                            timeout=3,
                         )
                         cart_status    = r.status_code
                         cart_resp_text = r.text
@@ -1853,7 +1853,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                                 "Referer":      product_referer,
                             },
                             allow_redirects=True,
-                            timeout=8,
+                            timeout=3,
                         )
                         cart_status = r.status_code
                     else:
