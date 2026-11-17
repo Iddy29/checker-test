@@ -6898,16 +6898,22 @@ async def sh_native(event):
         site = "https://" + site
     if user_id not in ADMIN_ID:
         increment_hitter_usage(user_id)
+    # Load user's sites from /addsite
+    user_extra_sites = []
+    try:
+        _site_data = await load_json(SITE_FILE)
+        user_extra_sites = _site_data.get(str(user_id), [])
+        # Clean sites
+        user_extra_sites = [s.strip().replace("https://", "").replace("http://", "").rstrip("/") for s in user_extra_sites if s and "." in s]
+    except Exception:
+        pass
+
     try:
         from gates.shopify_native_gate import check_card_native
-        # The card is given its time and no more: a shop that is
-        # slow must not leave the user looking at nothing.  The gate
-        # has a budget of its own for walking from shop to shop, and
-        # this cap is above that, so the answer is the gate's answer
-        # and not a cut-off.
         out = await asyncio.wait_for(
             check_card_native(cc, mm, yy, cvv, site_url=site,
-                              proxy_str=get_user_proxy(user_id) or None),
+                              proxy_str=get_user_proxy(user_id) or None,
+                              extra_sites=user_extra_sites),
             timeout=120)
     except asyncio.TimeoutError:
         try:

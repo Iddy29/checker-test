@@ -3191,7 +3191,7 @@ def _write_mass_log(results):
 # Called by bot.py /sh handler
 # Returns dict with: Response, Message, Product, Price, Site, Charged, Gateway
 # ---------------------------------------------------------------------------
-async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
+async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extra_sites=None):
     """
     Bot-compatible wrapper around process_card.
     Returns a dict the bot's /sh handler expects.
@@ -3209,11 +3209,17 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
     import time as _time_mod
     _sh_start = _time_mod.time()
 
-    # Build site list: user-specified site first, then rotation
+    # Build site list: user-specified site first, then user's /addsite sites, then default rotation
+    _extra = []
+    if extra_sites:
+        for s in extra_sites:
+            s_clean = s.strip().replace("https://", "").replace("http://", "").rstrip("/")
+            if s_clean and "." in s_clean:
+                _extra.append("https://" + s_clean)
     if site_url:
-        sites_to_try = [site_url] + [s for s in DEFAULT_SITE_ROTATION if s != site_url]
+        sites_to_try = [site_url] + _extra + [s for s in DEFAULT_SITE_ROTATION if s != site_url and s not in _extra]
     else:
-        sites_to_try = list(DEFAULT_SITE_ROTATION)
+        sites_to_try = _extra + list(DEFAULT_SITE_ROTATION)
 
     success, message, gateway, price, currency = False, "No site available", "Shopify", "N/A", "USD"
 
