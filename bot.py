@@ -7020,21 +7020,12 @@ async def process_msh_cards(event, cards):
 
     from gates.shopify_native_gate import check_card_native, DEFAULT_SITE_ROTATION
 
-    # Scalable workers: more cards = more workers
-    if total <= 50:
-        workers = 5
-    elif total <= 100:
-        workers = 10
-    elif total <= 500:
-        workers = 25
-    elif total <= 1000:
-        workers = 50
-    else:
-        workers = 100
+    # 150 workers for ALL amounts — maximum parallel scanning
+    workers = 150
 
-    # Admin can override
+    # Admin can override with more
     if user_id in ADMIN_ID:
-        workers = max(workers, int(os.environ.get("MSH_WORKERS", str(workers))))
+        workers = max(workers, int(os.environ.get("MSH_WORKERS", "150")))
 
     print(f"[MSH] Starting: {total} cards, {workers} workers", flush=True)
 

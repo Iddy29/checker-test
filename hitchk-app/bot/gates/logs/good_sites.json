@@ -1,0 +1,16 @@
+{
+  "https://livsn.myshopify.com": {
+    "variant_id": "47961984729307",
+    "price": "5.95",
+    "hits": 15,
+    "first_seen": "2026-11-17 18:41:53",
+    "last_seen": "2026-11-17 18:42:24"
+  },
+  "https://16acfa-2.myshopify.com": {
+    "variant_id": "67974958416145",
+    "price": "1.00",
+    "hits": 5,
+    "first_seen": "2026-11-17 18:41:58",
+    "last_seen": "2026-11-17 18:42:20"
+  }
+}

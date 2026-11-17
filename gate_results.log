@@ -6975,3 +6975,18 @@
 2026-11-17 18:14:36 | B3    | 5143773675591456|11|28|624 | DECLINED | DECLINED | Code: 2046, Status code 2044: Declined - Call Issuer (83) | 6.56s | uid=8804730508 Арина single
 2026-11-17 18:15:24 | B3    | 5143773027753309|09|28|060 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.76s | uid=8804730508 Арина single
 2026-11-17 18:15:45 | B3C   | 5143773938885224|04|28|900 | DECLINED | Declined - the shop refused the payment (no word from the issuer) | MASTERCARD DEBIT | USA | THE BAN | 2.96s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-17 18:21:07 | B3    | 5143773100767515|01|28|683 | ERROR    | ERROR: client token AJAX failed - ('Connection aborted.', RemoteDisconnected('Remote end closed conn | 1.57s | uid=8804730508 Арина single
+2026-11-17 18:26:11 | B3    | 4223230002618318|10|27|382 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 5.28s | uid=1214399247 wiseman ✌️ single
+2026-11-17 18:26:46 | B3    | 5143773248275561|03|31|939 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.59s | uid=8804730508 Арина single
+2026-11-17 18:43:51 | SHOP  |  | MASS     | checked=76 approved=0 declined=20 errors=56 | 120s | uid=1214399247  mass-file
+2026-11-17 18:48:31 | SHP   | 5425430154568369|08|29|020 | declined | CARD_DECLINED | 8.9ss | uid=1214399247 web
+2026-11-17 18:48:32 | SHP   | 5155979741711797|05|27|960 | declined | CARD_DECLINED | 10.1ss | uid=1214399247 web
+2026-11-17 18:48:33 | SHP   | 5156769207752982|03|29|008 | declined | CARD_DECLINED | 10.4ss | uid=1214399247 web
+2026-11-17 18:48:33 | SHP   | 4985032171124872|11|28|642 | declined | CARD_DECLINED | 10.4ss | uid=1214399247 web
+2026-11-17 18:48:33 | SHP   | 5322111082135505|03|31|395 | declined | CARD_DECLINED | 10.7ss | uid=1214399247 web
+2026-11-17 18:48:42 | SHP   | 5489010503052019|04|32|914 | declined | CARD_DECLINED | 10.1ss | uid=1214399247 web
+2026-11-17 18:48:43 | SHP   | 5156789688806420|10|29|300 | declined | CARD_DECLINED | 9.9ss | uid=1214399247 web
+2026-11-17 18:48:43 | SHP   | 4472270103210688|01|30|416 | declined | CARD_DECLINED | 9.8ss | uid=1214399247 web
+2026-11-17 18:48:43 | SHP   | 4031631348557098|12|30|364 | declined | CARD_DECLINED | 10.0ss | uid=1214399247 web
+2026-11-17 18:51:22 | B3    | 5143773819222927|04|29|465 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 5.68s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-17 18:52:47 | SKL1  | 5143773819222927|04|29|465 | UNKNOWN  | NO_SKOOL_ACCOUNT | 0.02s | uid=1441224988 ＧＯＫＵ O P single
