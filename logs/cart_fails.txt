@@ -634,3 +634,66 @@
 
     <style type="text/css">
         *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:07] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:07] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:09] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:24] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:27] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:39] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 19:38:41] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic

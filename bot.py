@@ -7089,21 +7089,82 @@ async def process_msh_cards(event, cards):
 
     lock = asyncio.Lock()
 
-    # Build full site list for round-robin rotation across workers
-    _all_sites = []
+    # Build full site list with price priority — cheapest first
+    # Sites with products $0.50-$5.00 get HIGH priority (rotated first)
+    # Sites with products $5.01-$23.00 get LOW priority (rotated after)
+    
+    # Known cheap sites ($0.50-$5.00) — HIGH PRIORITY
+    CHEAP_SITES = {
+        "puppycommunity.shop": 1.00,
+        "meloraaa.com": 1.00,
+        "gwdirectstore.com": 1.00,
+        "fccrystal.com": 1.00,
+        "championdogproducts.com": 1.00,
+        "www.xtool.com": 1.00,
+        "busybug-boutique.myshopify.com": 1.38,
+        "buttonworks.com": 1.40,
+        "tcgwholesalehq.com": 1.59,
+        "www.shopmissa.com": 1.88,
+        "www.runpxl.com": 1.99,
+        "www.diningadvantage.com": 2.00,
+        "esavingsblog.myshopify.com": 2.00,
+        "creativecitydesigns.com": 2.00,
+        "pinkbikinitanning.com": 2.00,
+        "thebudgetingprincess.com": 2.00,
+        "www.nayabjewellery.com": 2.12,
+        "bagandcanvas.com": 2.45,
+        "www.cheapestees.com": 2.68,
+        "wearladydry.com": 2.95,
+        "www.toysmith.com": 2.99,
+        "masskoupons.com": 2.99,
+        "ashleyswint.com": 3.00,
+        "gotfunnymerch.com": 3.00,
+        "viralcontent.design": 3.00,
+        "www.thepromiseboutique.com": 3.00,
+        "16acfa-2.myshopify.com": 1.00,
+        "boatcarpetbuys.myshopify.com": 2.99,
+        "www.glowrecipe.com": 4.00,
+        "www.gruntstyle.com": 4.99,
+        "www.burpee.com": 5.95,
+        "www.gurneys.com": 4.99,
+    }
+
+    # Separate user sites into cheap (priority) and expensive (normal)
+    _cheap_sites = []
+    _normal_sites = []
+    
     for s in user_extra_sites:
         s_clean = s.strip().replace("https://", "").replace("http://", "").rstrip("/")
-        if s_clean and "." in s_clean:
-            _all_sites.append("https://" + s_clean)
+        if not s_clean or "." not in s_clean:
+            continue
+        full_url = "https://" + s_clean
+        if s_clean in CHEAP_SITES and CHEAP_SITES[s_clean] <= 5.0:
+            _cheap_sites.append(full_url)
+        else:
+            _normal_sites.append(full_url)
+
+    # Add default sites to appropriate priority
     for s in DEFAULT_SITE_ROTATION:
-        if s not in _all_sites:
-            _all_sites.append(s)
+        s_clean = s.replace("https://", "").replace("http://", "").rstrip("/")
+        if s not in _cheap_sites and s not in _normal_sites:
+            if s_clean in CHEAP_SITES and CHEAP_SITES[s_clean] <= 5.0:
+                _cheap_sites.append(s)
+            else:
+                _normal_sites.append(s)
+
+    # Sort cheap sites by price (cheapest first)
+    _cheap_sites.sort(key=lambda x: CHEAP_SITES.get(x.replace("https://","").replace("http://","").rstrip("/"), 999))
+
+    # Final list: cheap sites FIRST (high priority), then normal sites
+    _all_sites = _cheap_sites + _normal_sites
     if not _all_sites:
         _all_sites = list(DEFAULT_SITE_ROTATION)
 
-    # Shuffle so workers don't all start at the same site
+    # Shuffle only the normal sites (keep cheap sites in price order)
     import random as _rnd
-    _rnd.shuffle(_all_sites)
+    _rnd.shuffle(_normal_sites)
+
+    print(f"[MSH] Site priority: {len(_cheap_sites)} cheap sites ($0.50-$5) FIRST, {len(_normal_sites)} normal sites after", flush=True)
 
     # Round-robin counter — each worker gets a different starting site
     _site_idx = [0]
