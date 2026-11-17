@@ -6936,7 +6936,7 @@ async def sh_native(event):
                   "SUBMIT_FAILED", "NO_SELLER_PROPOSAL",
                   "NO_PAYMENT_REQUIRED", "PROCESSING_ERROR",
                   "PROCESSOR_ERROR", "GATEWAY_ERROR",
-                  "SHOP_ORDER_ERROR"):
+                  "SHOP_ORDER_ERROR", "UNTESTED", "ERROR"):
         icon = "\u26A0\uFE0F"
     else:
         icon = "\u274C"
@@ -6972,7 +6972,7 @@ async def sh_native(event):
                                     "SUBMIT_FAILED", "NO_SELLER_PROPOSAL",
                                     "NO_PAYMENT_REQUIRED", "PROCESSING_ERROR",
                                     "PROCESSOR_ERROR", "GATEWAY_ERROR",
-                                    "SHOP_ORDER_ERROR")
+                                    "SHOP_ORDER_ERROR", "UNTESTED", "ERROR")
                 else "DECLINED"),
             code,
             _took, user_id, "", "single",

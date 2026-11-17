@@ -3201,6 +3201,8 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
     - Bank responses (poll FailedReceipt/ProcessedReceipt) → real bank code
     - Approved/charged (ProcessedReceipt) → ORDER_PLACED, Charged=True
     """
+    import time as _time_mod
+    _sh_start = _time_mod.time()
     try:
         success, message, gateway, price, currency = await process_card(
             cc, mm, yy, cvv, site_url or DEFAULT_SITE_ROTATION[0],
@@ -3215,8 +3217,11 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
             "Site": site_url or "",
             "Charged": "False",
             "Gateway": "Shopify",
+            "Time": "0.0s",
         }
 
+    import time as _time_mod
+    _elapsed = _time_mod.time() - _sh_start
     clean = extract_clean_response(message) if message else "UNKNOWN"
 
     # ── CHECKOUT ERRORS — bank never reached ──────────────────────────────
@@ -3266,6 +3271,7 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
             "Site": site_url or "",
             "Charged": "False",
             "Gateway": gateway or "Shopify",
+            "Time": f"{round(_elapsed, 1)}s",
         }
 
     # ── BANK RESPONSES — bank spoke ───────────────────────────────────────
@@ -3286,6 +3292,7 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None):
         "Site": site_url or "",
         "Charged": charged,
         "Gateway": gateway or "Shopify",
+        "Time": f"{round(_elapsed, 1)}s",
     }
 
 
