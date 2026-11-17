@@ -1776,10 +1776,10 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                 try:
                     if curl_sess is not None:
                         # ── CART DEBUG: log full request before sending ───────
-                        print(f"{tag} [CART-DEBUG{attempt_label}] POST {cart_url}")
-                        print(f"{tag} [CART-DEBUG{attempt_label}] Headers: {json.dumps({k:v for k,v in final_hdrs.items() if k.lower() not in ('user-agent',)}, indent=2)}")
-                        print(f"{tag} [CART-DEBUG{attempt_label}] Body: {str(data_)[:200]}")
-                        print(f"{tag} [CART-DEBUG{attempt_label}] Proxy: {proxy_str or 'NONE'}")
+                        # CART-DEBUG suppressed for speed
+                        # CART-DEBUG suppressed for speed
+                        # CART-DEBUG suppressed for speed
+                        # CART-DEBUG suppressed for speed
                         r = await curl_sess.post(
                             cart_url,
                             data=data_,
@@ -1790,10 +1790,10 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                         cart_status    = r.status_code
                         cart_resp_text = r.text
                         # ── CART DEBUG: log full response ─────────────────────
-                        print(f"{tag} [CART-DEBUG{attempt_label}] Response status={cart_status}")
-                        print(f"{tag} [CART-DEBUG{attempt_label}] Response body: {cart_resp_text[:500]}")
+                        if cart_status not in (200, 201): print(f"{tag} [CART] status={cart_status}")
+                        if cart_status not in (200, 201): print(f"{tag} [CART] body: {cart_resp_text[:200]}")
                         if cart_status == 429:
-                            print(f"{tag} [CART-DEBUG{attempt_label}] ⚠️  RATE LIMITED — Retry-After: {r.headers.get('Retry-After', 'N/A')} X-RateLimit: {r.headers.get('X-RateLimit-Remaining','N/A')}")
+                            print(f"{tag} [CART] RATE LIMITED 429")
                     else:
                         # fallback to aiohttp if curl_cffi unavailable
                         r2 = await session.post(
@@ -1802,7 +1802,7 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
                             proxy=proxy)
                         cart_status    = r2.status
                         cart_resp_text = await r2.text()
-                        print(f"{tag} [CART-DEBUG{attempt_label}] aiohttp status={cart_status} body={cart_resp_text[:300]}")
+                        if cart_status not in (200, 201): print(f"{tag} [CART] aiohttp status={cart_status}")
                 except Exception as _e:
                     cart_status = 0
                     print(f"{tag} [CART-DEBUG{attempt_label}] EXCEPTION: {type(_e).__name__}: {_e}")
