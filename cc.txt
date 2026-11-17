@@ -430,3 +430,4 @@
 4867960345100092|11|26|153 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
 4060686620424502|11|26|613 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
 5143773938885224|04|28|900 | APPROVED | APPROVED | Braintree OneTropic | -
+4100390806341943|09|29|044 | APPROVED | APPROVED | Braintree OneTropic | -

@@ -7089,6 +7089,25 @@ async def process_msh_cards(event, cards):
 
     lock = asyncio.Lock()
 
+    # Build full site list for round-robin rotation across workers
+    _all_sites = []
+    for s in user_extra_sites:
+        s_clean = s.strip().replace("https://", "").replace("http://", "").rstrip("/")
+        if s_clean and "." in s_clean:
+            _all_sites.append("https://" + s_clean)
+    for s in DEFAULT_SITE_ROTATION:
+        if s not in _all_sites:
+            _all_sites.append(s)
+    if not _all_sites:
+        _all_sites = list(DEFAULT_SITE_ROTATION)
+
+    # Shuffle so workers don't all start at the same site
+    import random as _rnd
+    _rnd.shuffle(_all_sites)
+
+    # Round-robin counter — each worker gets a different starting site
+    _site_idx = [0]
+
     async def worker():
         while True:
             if user_id not in ACTIVE_MSH_PROCESSES:
@@ -7099,10 +7118,16 @@ async def process_msh_cards(event, cards):
                 break
             if len(yy) == 4: yy = yy[2:]
             mm = mm.zfill(2)
+
+            # Pick a different site for this card (round-robin)
+            async with lock:
+                _site = _all_sites[_site_idx[0] % len(_all_sites)]
+                _site_idx[0] += 1
+
             try:
                 result = await asyncio.wait_for(
                     check_card_native(cc, mm, yy, cvv,
-                                      site_url=None,
+                                      site_url=_site,
                                       proxy_str=get_user_proxy(user_id) or None,
                                       extra_sites=user_extra_sites),
                     timeout=60)
