@@ -18,5 +18,53 @@
   "busybug-boutique.myshopify.com": {
     "variant_id": "54457840075070",
     "price": "0.31"
+  },
+  "prettytransfers.com": {
+    "variant_id": "45789268803722",
+    "price": "1.00"
+  },
+  "vinyl-destination-decals-2.myshopify.com": {
+    "variant_id": "52080957522240",
+    "price": "2.45"
+  },
+  "meloraaa.com": {
+    "variant_id": "53487741632806",
+    "price": "0.50"
+  },
+  "becreativesouls.com": {
+    "variant_id": "28803803480144",
+    "price": "2.00"
+  },
+  "www.onecompress.com": {
+    "variant_id": "46808434573569",
+    "price": "2.99"
+  },
+  "gr8vendor.myshopify.com": {
+    "variant_id": "41339041579072",
+    "price": "1.00"
+  },
+  "thesaltycrab.com": {
+    "variant_id": "67847467499732",
+    "price": "1.99"
+  },
+  "www.madisonbeads.com": {
+    "variant_id": "50250813210906",
+    "price": "2.75"
+  },
+  "oliveandlatte.com": {
+    "variant_id": "45921261715611",
+    "price": "2.00"
+  },
+  "joy-diy-shop.myshopify.com": {
+    "variant_id": "43436581814362",
+    "price": "3.00"
+  },
+  "www.unigiftstudio.com": {
+    "variant_id": "67931192099181",
+    "price": "1.00"
+  },
+  "bagandcanvas.com": {
+    "variant_id": "47762044387466",
+    "price": "1.15"
   }
 }
