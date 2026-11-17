@@ -1,10 +1,14 @@
 {
   "puppycommunity.shop": {
-    "variant_id": "68081813422324",
-    "price": "5.99"
+    "variant_id": "46652638920948",
+    "price": "0.75"
   },
   "gwdirectstore.com": {
     "variant_id": "45231724822728",
     "price": "7.94"
+  },
+  "championdogproducts.com": {
+    "variant_id": "46980076601593",
+    "price": "2.99"
   }
 }

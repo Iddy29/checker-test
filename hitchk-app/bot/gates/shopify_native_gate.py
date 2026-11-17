@@ -53,8 +53,8 @@ PCI_BUILD_ID = "5cdd519"
 # Prevents selecting expensive products (>$23) or free/penny items (<$2).
 # Enforced in: _pick_best_variant(), SQL lookups, and _fetch_fresh_variant().
 # ---------------------------------------------------------------------------
-MIN_VARIANT_PRICE = 1.00
-MAX_VARIANT_PRICE = 23.00
+MIN_VARIANT_PRICE = 0.10
+MAX_VARIANT_PRICE = 5.00
 
 
 def _checkout_total(running_total, shipping_amount, tax_amount=0) -> str:
