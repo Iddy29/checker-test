@@ -3992,3 +3992,15 @@
     <style type="text/css">
         *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
 [2026-11-17 21:59:06] STATUS=429 SITE=https://puppycommunity.shop VARIANT=46652638920948 BODY={"status":"too_many_requests","message":"Too many attempts","description":"Please try again in a few minutes"}
+[2026-11-17 22:00:58] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 22:01:00] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 22:01:02] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 22:01:04] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 22:01:22] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 22:01:24] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 22:01:26] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 22:01:28] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 22:02:56] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 22:02:58] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 22:03:00] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 22:03:02] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
