@@ -81,21 +81,32 @@ def _checkout_total(running_total, shipping_amount, tax_amount=0) -> str:
 # Keys are normalized hostnames without www.
 # ---------------------------------------------------------------------------
 FORCED_VARIANTS = {
+    "16acfa-2.myshopify.com": ("67974958416145", "1.00"),
+    "boatcarpetbuys.myshopify.com": ("33385187972", "2.99"),
+    "www.glowrecipe.com": ("66730414080115", "4.00"),
+    "www.gruntstyle.com": ("44977551081523", "4.99"),
+    "www.burpee.com": ("45869497253922", "5.95"),
+    "shop.bullymax.com": ("42647952425027", "9.99"),
+    "biggerfive.myshopify.com": ("43133680877633", "16.99"),
     "www.gurneys.com": ("51622108299636", "4.99"),
     "gurneys.com": ("51622108299636", "4.99"),
     "store.trueleafmarket.com": ("40444552840", "3.39"),
-    "www.botanicalinterests.com": ("45090234106109", "2.99"),
-    "botanicalinterests.com": ("45090234106109", "2.99"),
-    "16acfa-2.myshopify.com": ("47869966516497", "1.00"),
+    "www.springhillnursery.com": ("51949494075688", "19.49"),
+    "www.brecks.com": ("55044848746862", "19.99"),
+    "www.dutchbulbs.com": ("52253803282720", "20.83"),
 }
 
 # Default site rotation when mass/single leaves site blank, and on 429 switch.
 # Order: Gurney's → True Leaf → Botanical → 16acfa-2
 DEFAULT_SITE_ROTATION = [
-    "https://www.gurneys.com",
-    "https://store.trueleafmarket.com",
-    "https://www.botanicalinterests.com",
     "https://16acfa-2.myshopify.com",
+    "https://boatcarpetbuys.myshopify.com",
+    "https://www.glowrecipe.com",
+    "https://www.gruntstyle.com",
+    "https://www.burpee.com",
+    "https://www.gurneys.com",
+    "https://shop.bullymax.com",
+    "https://biggerfive.myshopify.com",
 ]
 
 # ---------------------------------------------------------------------------
