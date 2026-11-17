@@ -9,16 +9,16 @@
   "https://16acfa-2.myshopify.com": {
     "variant_id": "67974958416145",
     "price": "1.00",
-    "hits": 5,
+    "hits": 7,
     "first_seen": "2026-11-17 18:41:58",
-    "last_seen": "2026-11-17 18:42:20"
+    "last_seen": "2026-11-17 21:34:06"
   },
   "https://puppycommunity.shop": {
     "variant_id": "68081813422324",
     "price": "5.99",
-    "hits": 7,
+    "hits": 11,
     "first_seen": "2026-11-17 19:55:21",
-    "last_seen": "2026-11-17 20:00:59"
+    "last_seen": "2026-11-17 21:34:11"
   },
   "https://www.shopmissa.com": {
     "variant_id": "40508205367370",
@@ -37,30 +37,30 @@
   "https://wearladydry.com": {
     "variant_id": "57252810686848",
     "price": "21.00",
-    "hits": 1,
+    "hits": 3,
     "first_seen": "2026-11-17 19:55:21",
-    "last_seen": "2026-11-17 19:55:21"
+    "last_seen": "2026-11-17 21:34:01"
   },
   "https://pinkbikinitanning.com": {
     "variant_id": "55770220364103",
     "price": "14.00",
-    "hits": 3,
+    "hits": 6,
     "first_seen": "2026-11-17 19:55:21",
-    "last_seen": "2026-11-17 20:00:52"
+    "last_seen": "2026-11-17 21:34:04"
   },
   "https://creativecitydesigns.com": {
     "variant_id": "42522953056317",
     "price": "1.20",
-    "hits": 4,
+    "hits": 6,
     "first_seen": "2026-11-17 19:55:22",
-    "last_seen": "2026-11-17 20:00:53"
+    "last_seen": "2026-11-17 21:34:02"
   },
   "https://www.glowrecipe.com": {
     "variant_id": "66730414080115",
     "price": "4.00",
-    "hits": 2,
+    "hits": 4,
     "first_seen": "2026-11-17 19:55:22",
-    "last_seen": "2026-11-17 20:00:52"
+    "last_seen": "2026-11-17 21:34:07"
   },
   "https://thebudgetingprincess.com": {
     "variant_id": "53272648810783",
@@ -79,9 +79,9 @@
   "https://biggerfive.myshopify.com": {
     "variant_id": "43133680877633",
     "price": "16.99",
-    "hits": 2,
+    "hits": 3,
     "first_seen": "2026-11-17 19:55:23",
-    "last_seen": "2026-11-17 20:00:55"
+    "last_seen": "2026-11-17 21:34:06"
   },
   "https://fccrystal.com": {
     "variant_id": "50384778920173",
@@ -93,23 +93,23 @@
   "https://www.gruntstyle.com": {
     "variant_id": "44977551081523",
     "price": "4.99",
-    "hits": 2,
+    "hits": 3,
     "first_seen": "2026-11-17 19:55:23",
-    "last_seen": "2026-11-17 20:00:54"
+    "last_seen": "2026-11-17 21:34:01"
   },
   "https://www.burpee.com": {
     "variant_id": "45869497253922",
     "price": "5.95",
-    "hits": 2,
+    "hits": 4,
     "first_seen": "2026-11-17 19:55:23",
-    "last_seen": "2026-11-17 20:00:51"
+    "last_seen": "2026-11-17 21:34:07"
   },
   "https://gwdirectstore.com": {
     "variant_id": "45231724822728",
     "price": "7.94",
-    "hits": 6,
+    "hits": 7,
     "first_seen": "2026-11-17 19:55:24",
-    "last_seen": "2026-11-17 19:56:03"
+    "last_seen": "2026-11-17 21:34:00"
   },
   "https://www.cheapestees.com": {
     "variant_id": "50551165386927",
@@ -121,23 +121,23 @@
   "https://shop.bullymax.com": {
     "variant_id": "42647952425027",
     "price": "9.99",
-    "hits": 2,
+    "hits": 4,
     "first_seen": "2026-11-17 19:55:26",
-    "last_seen": "2026-11-17 20:00:55"
+    "last_seen": "2026-11-17 21:34:05"
   },
   "https://busybug-boutique.myshopify.com": {
     "variant_id": "54457786106174",
     "price": "1.00",
-    "hits": 3,
+    "hits": 6,
     "first_seen": "2026-11-17 19:55:28",
-    "last_seen": "2026-11-17 20:00:51"
+    "last_seen": "2026-11-17 21:34:02"
   },
   "https://bagandcanvas.com": {
     "variant_id": "47762044387466",
     "price": "1.15",
-    "hits": 2,
+    "hits": 4,
     "first_seen": "2026-11-17 20:00:50",
-    "last_seen": "2026-11-17 20:00:50"
+    "last_seen": "2026-11-17 21:34:01"
   },
   "https://championdogproducts.com": {
     "variant_id": "46980076601593",
@@ -156,8 +156,8 @@
   "https://www.xtool.com": {
     "variant_id": "49584765894895",
     "price": "14.00",
-    "hits": 1,
+    "hits": 4,
     "first_seen": "2026-11-17 20:00:57",
-    "last_seen": "2026-11-17 20:00:57"
+    "last_seen": "2026-11-17 21:34:03"
   }
 }

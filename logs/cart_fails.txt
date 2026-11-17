@@ -2437,3 +2437,613 @@
 
     <style type="text/css">
         *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:31:20] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:31:30] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:31:30] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:31:38] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:31:54] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:02] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:04] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:14] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:18] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:30] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:36] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:39] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:32:48] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:03] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:07] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:08] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:21] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:22] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:31] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:40] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:40] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:53] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:33:59] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://wearladydry.com VARIANT=57252810686848 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://thebudgetingprincess.com VARIANT=53272648810783 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://thebudgetingprincess.com VARIANT=53272648810783 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://www.cheapestees.com VARIANT=50551165386927 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 21:33:59] STATUS=0 SITE=https://www.cheapestees.com VARIANT=50551165386927 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://www.cheapestees.com VARIANT=50551165386927 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-17 21:34:00] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 21:34:01] STATUS=429 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:01] STATUS=429 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:01] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:01] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:02] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:02] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:03] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:03] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:03] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:03] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:04] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:04] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:04] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:04] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:05] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:05] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:05] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:05] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:05] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:05] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:06] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:06] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:06] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:06] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:06] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:07] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:07] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:07] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:07] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:07] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:07] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:07] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:07] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 21:34:07] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:08] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:08] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:08] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:08] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:08] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:08] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:09] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:09] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:09] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:09] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 21:34:10] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-17 21:34:10] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:11] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:11] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:11] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:11] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:11] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:11] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:12] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:12] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:12] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:12] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:12] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:13] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:13] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:13] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:13] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 21:34:13] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:14] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:14] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 21:34:15] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:15] STATUS=0 SITE=https://www.xtool.com VARIANT=49584765894895 BODY=
+[2026-11-17 21:34:19] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:20] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 21:34:23] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:24] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:26] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:26] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:31] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:36] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:36] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:36] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:37] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:39] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:40] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:43] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:43] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:47] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 21:34:49] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:49] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:34:49] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:49] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:50] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:34:52] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:53] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:34:56] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:34:56] STATUS=0 SITE=https://championdogproducts.com VARIANT=46980076601593 BODY=
+[2026-11-17 21:35:10] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:35:20] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:35:20] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:35:25] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:35:27] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:35:50] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:35:54] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:01] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:03] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-17 21:36:06] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:07] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:28] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:29] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:33] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:34] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:35] STATUS=0 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=
+[2026-11-17 21:36:38] STATUS=0 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=
+[2026-11-17 21:36:40] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-17 21:36:41] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:36:42] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-17 21:36:44] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-17 21:37:00] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:37:23] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:37:26] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:37:29] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45231724822728 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-17 21:37:30] STATUS=429 SITE=https://puppycommunity.shop VARIANT=68081813422324 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic

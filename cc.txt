@@ -434,3 +434,4 @@
 4100390136266265|12|26|048 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [5.29s] | Stripe Auth $0 | -
 4100390182576583|08|27|528 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [5.69s] | Stripe Auth $0 | -
 4100390040143972|01|29|688 | APPROVED | Approved - ezycourse.com asked the issuer and the issuer took the card (http 200) [7.56s] | Stripe Auth $0 | -
+4427568030387685|12|29|583 | APPROVED | APPROVED | Braintree OneTropic | -
