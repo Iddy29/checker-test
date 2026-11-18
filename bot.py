@@ -7134,10 +7134,11 @@ async def process_msh_cards(event, cards):
         else:
             _normal_sites.append(full_url)
 
-    # Add default sites to appropriate priority
-    for s in DEFAULT_SITE_ROTATION:
-        s_clean = s.replace("https://", "").replace("http://", "").rstrip("/")
-        if s not in _cheap_sites and s not in _normal_sites:
+    # ONLY add default sites if user has NO sites
+    # If user added sites via /addsite, use ONLY those — no defaults mixed in
+    if not _cheap_sites and not _normal_sites:
+        for s in DEFAULT_SITE_ROTATION:
+            s_clean = s.replace("https://", "").replace("http://", "").rstrip("/")
             if s_clean in CHEAP_SITES and CHEAP_SITES[s_clean] <= 5.0:
                 _cheap_sites.append(s)
             else:

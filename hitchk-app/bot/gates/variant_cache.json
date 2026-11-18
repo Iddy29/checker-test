@@ -17,7 +17,7 @@
   },
   "wearladydry.com": {
     "variant_id": "57252810686848",
-    "price": "21.00"
+    "price": "2.00"
   },
   "creativecitydesigns.com": {
     "variant_id": "42522953056317",
@@ -44,12 +44,12 @@
     "price": "1.55"
   },
   "www.cheapestees.com": {
-    "variant_id": "50551165386927",
-    "price": "10.48"
+    "variant_id": "47374620491951",
+    "price": "4.54"
   },
   "gwdirectstore.com": {
-    "variant_id": "45231724822728",
-    "price": "7.94"
+    "variant_id": "45245790257352",
+    "price": "1.00"
   },
   "www.nayabjewellery.com": {
     "variant_id": "192013664531",
@@ -97,6 +97,70 @@
   },
   "prettytransfers.com": {
     "variant_id": "45789268803722",
+    "price": "1.00"
+  },
+  "www.ammpoure.com": {
+    "variant_id": "57750543597943",
+    "price": "0.95"
+  },
+  "discountcatholicstore.com": {
+    "variant_id": "48217286050018",
+    "price": "1.00"
+  },
+  "thesaltycrab.com": {
+    "variant_id": "67847467499732",
+    "price": "1.99"
+  },
+  "prometheanprinting.com": {
+    "variant_id": "47306659332345",
+    "price": "0.20"
+  },
+  "print-mo.com": {
+    "variant_id": "48245042643192",
+    "price": "3.97"
+  },
+  "cottonapparel.net": {
+    "variant_id": "67947220336915",
+    "price": "2.25"
+  },
+  "vinyl-destination-decals-2.myshopify.com": {
+    "variant_id": "52080957522240",
+    "price": "2.45"
+  },
+  "hardware.shopify.com": {
+    "variant_id": "48093047160854",
+    "price": "1.00"
+  },
+  "becreativesouls.com": {
+    "variant_id": "28803803480144",
+    "price": "2.00"
+  },
+  "enjoypurchase.com": {
+    "variant_id": "53454003372329",
+    "price": "2.00"
+  },
+  "bloxypirates.com": {
+    "variant_id": "67880537227571",
+    "price": "0.69"
+  },
+  "www.onecompress.com": {
+    "variant_id": "46808434573569",
+    "price": "2.99"
+  },
+  "ryanchloee.com": {
+    "variant_id": "44373717188788",
+    "price": "1.95"
+  },
+  "www.chaoscreations.scot": {
+    "variant_id": "63107254059357",
+    "price": "3.85"
+  },
+  "www.universitycoop.com": {
+    "variant_id": "54442701226347",
+    "price": "0.81"
+  },
+  "shop.unfoldedlabel.com": {
+    "variant_id": "46925231259801",
     "price": "1.00"
   }
 }

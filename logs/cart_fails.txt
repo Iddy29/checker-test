@@ -4182,3 +4182,388 @@
 [2026-11-17 22:34:13] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
 [2026-11-17 22:34:22] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
 [2026-11-17 22:34:24] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:56:51] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:56:52] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:56:52] STATUS=0 SITE=https://prettyposhlife.com VARIANT=68267341316375 BODY=
+[2026-11-18 01:56:52] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:56:52] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:56:53] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 01:56:54] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:56:54] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45245790257352 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-18 01:56:56] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:56:56] STATUS=429 SITE=https://gwdirectstore.com VARIANT=45245790257352 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-18 01:56:56] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:56:58] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:56:58] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:56:59] STATUS=402 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY={"status":402,"message":"Unavailable Shop","description":""}
+[2026-11-18 01:56:59] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 01:57:00] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:00] STATUS=429 SITE=https://www.universitycoop.com VARIANT=54442701226347 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-18 01:57:01] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:02] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:03] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:04] STATUS=0 SITE=https://www.metagames.toys VARIANT=47796400783412 BODY=
+[2026-11-18 01:57:04] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:05] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:05] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:05] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:06] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:06] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 01:57:06] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:06] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:07] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:08] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:08] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:08] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:08] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:09] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:10] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:10] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:10] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:10] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:10] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:10] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:11] STATUS=403 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="referrer" content="never" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Access denied</title>
+  <style type="text/css">
+      *{box-sizing:border-box;margin:0;padding:0}html{font-f
+[2026-11-18 01:57:11] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:11] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:12] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:13] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:14] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:15] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:16] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:16] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:16] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:16] STATUS=0 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=
+[2026-11-18 01:57:16] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:16] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:17] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:18] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:18] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:18] STATUS=0 SITE=https://www.runpxl.com VARIANT=53378720399657 BODY=
+[2026-11-18 01:57:18] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:18] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:18] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:19] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:20] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:20] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:20] STATUS=0 SITE=https://creativecitydesigns.com VARIANT=42522953056317 BODY=
+[2026-11-18 01:57:20] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:20] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:20] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:21] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:21] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:21] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:21] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:22] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:22] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:22] STATUS=0 SITE=https://pinkbikinitanning.com VARIANT=55770220364103 BODY=
+[2026-11-18 01:57:22] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:23] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:24] STATUS=0 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=
+[2026-11-18 01:57:24] STATUS=0 SITE=https://bagandcanvas.com VARIANT=47762044387466 BODY=
+[2026-11-18 01:57:25] STATUS=0 SITE=https://shop.unfoldedlabel.com VARIANT=46925231259801 BODY=
+[2026-11-18 01:57:27] STATUS=0 SITE=https://shop.barnesandnoble.com VARIANT=46543563161841 BODY=
+[2026-11-18 01:57:33] STATUS=402 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY={"status":402,"message":"Unavailable Shop","description":""}
+[2026-11-18 01:57:36] STATUS=429 SITE=https://buttonworks.com VARIANT=67974720422180 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-18 01:57:37] STATUS=0 SITE=https://busybug-boutique.myshopify.com VARIANT=54457786106174 BODY=
+[2026-11-18 02:08:49] STATUS=429 SITE=https://www.xtool.com VARIANT=51519009423599 BODY=<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verifying your connection...</title>
+
+    <style type="text/css">
+        *{box-sizing:border-box;margin:0;padding:0}html{font-family:"Helvetic
+[2026-11-18 02:09:04] STATUS=402 SITE=https://busybug-boutique.myshopify.com VARIANT=54457840075070 BODY={"status":402,"message":"Unavailable Shop","description":""}
+[2026-11-18 02:17:54] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:17:54] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:17:54] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:17:55] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:17:56] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:17:56] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-18 02:17:56] STATUS=0 SITE=https://biggerfive.myshopify.com VARIANT=43133680877633 BODY=
+[2026-11-18 02:17:56] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:17:57] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:17:58] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:17:58] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:17:58] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:17:59] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:17:59] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:18:00] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:00] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:01] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:01] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:03] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:03] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:18:03] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:03] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:18:04] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:04] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:06] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:06] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:07] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:18:07] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:08] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:08] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:08] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:09] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:09] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:09] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:10] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:10] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:12] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:13] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:16] STATUS=422 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:18:17] STATUS=429 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY={"status":422,"message":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1.","description":"Boat Carpet Trim: Quantity error — You need at least 10 items but have 1."}
+[2026-11-18 02:18:18] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:20] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:20] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:21] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:22] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:22] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:22] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:22] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:23] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:23] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:23] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:24] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:25] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:25] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:25] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:25] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:25] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:26] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:27] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:28] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:29] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:29] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:29] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:29] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:29] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://16acfa-2.myshopify.com VARIANT=67974958416145 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:30] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:31] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:31] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:31] STATUS=0 SITE=https://boatcarpetbuys.myshopify.com VARIANT=33385187972 BODY=
+[2026-11-18 02:18:31] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:31] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:32] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:33] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.glowrecipe.com VARIANT=66730414080115 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:34] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:35] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://www.gruntstyle.com VARIANT=44977551081523 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:36] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:37] STATUS=0 SITE=https://www.chaoscreations.scot VARIANT=63107254059357 BODY=
+[2026-11-18 02:18:38] STATUS=0 SITE=https://www.burpee.com VARIANT=45869497253922 BODY=
+[2026-11-18 02:18:38] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:38] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:39] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:39] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:39] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:39] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:39] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:40] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=
+[2026-11-18 02:18:40] STATUS=0 SITE=https://www.gurneys.com VARIANT=51622108299636 BODY=
+[2026-11-18 02:18:41] STATUS=0 SITE=https://shop.bullymax.com VARIANT=42647952425027 BODY=

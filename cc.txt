@@ -442,3 +442,7 @@
 4833120209617167|11|30|436 | APPROVED | APPROVED | Code: 81724, Status code 81724: Duplicate card exists in the vault | Braintree OneTropic | -
 4833120209617167|11|30|436 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: USA | Bank: JPMORGAN CHASE BANK N.A. - DEBIT [3.24s] | VBV Lookup | -
 4833120209617167|11|30|436 | APPROVED | Approved - PM Created (VISA) | VISA DEBIT | US | 7167 [3.87s] | Stripe Charge $25 | -
+4100390748117658|03|27|380 | APPROVED | APPROVED | Braintree OneTropic | -
+4100390748117658|03|27|380 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: USA | Bank: CITIBANK  N.A.- COSTCO [3.32s] | VBV Lookup | -
+4644081817671823|07|29|415 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [3.03s] | VBV Lookup | -
+4644070382753983|04|28|820 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.78s] | VBV Lookup | -

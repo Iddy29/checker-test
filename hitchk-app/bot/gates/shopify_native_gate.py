@@ -3230,7 +3230,8 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extr
     import time as _time_mod
     _sh_start = _time_mod.time()
 
-    # Build site list: user-specified site first, then user's /addsite sites, then default rotation
+    # Build site list: user-specified site first, then user's /addsite sites
+    # If user has sites via /addsite, use ONLY those — no defaults mixed in
     _extra = []
     if extra_sites:
         for s in extra_sites:
@@ -3238,10 +3239,14 @@ async def check_card_native(cc, mm, yy, cvv, site_url=None, proxy_str=None, extr
             if s_clean and "." in s_clean:
                 _extra.append("https://" + s_clean)
     if site_url:
+        # User specified a site directly — use it + user sites + defaults as fallback
         sites_to_try = [site_url] + _extra + [s for s in DEFAULT_SITE_ROTATION if s != site_url and s not in _extra]
+    elif _extra:
+        # User has /addsite sites — use ONLY those, no defaults
+        sites_to_try = _extra
     else:
-        # User sites first (up to 2), then ALWAYS include default working sites
-        sites_to_try = _extra[:2] + list(DEFAULT_SITE_ROTATION) + _extra[2:]
+        # No user sites — use defaults
+        sites_to_try = list(DEFAULT_SITE_ROTATION)
 
     success, message, gateway, price, currency = False, "No site available", "Shopify", "N/A", "USD"
 
