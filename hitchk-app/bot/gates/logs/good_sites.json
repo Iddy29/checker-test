@@ -9,9 +9,9 @@
   "https://16acfa-2.myshopify.com": {
     "variant_id": "67974958416145",
     "price": "1.00",
-    "hits": 7,
+    "hits": 9,
     "first_seen": "2026-11-17 18:41:58",
-    "last_seen": "2026-11-17 21:34:06"
+    "last_seen": "2026-11-17 22:33:39"
   },
   "https://puppycommunity.shop": {
     "variant_id": "68081813422324",
@@ -43,24 +43,24 @@
   },
   "https://pinkbikinitanning.com": {
     "variant_id": "55770220364103",
-    "price": "14.00",
-    "hits": 6,
+    "price": "1.00",
+    "hits": 7,
     "first_seen": "2026-11-17 19:55:21",
-    "last_seen": "2026-11-17 21:34:04"
+    "last_seen": "2026-11-17 22:33:40"
   },
   "https://creativecitydesigns.com": {
     "variant_id": "42522953056317",
     "price": "1.20",
-    "hits": 6,
+    "hits": 7,
     "first_seen": "2026-11-17 19:55:22",
-    "last_seen": "2026-11-17 21:34:02"
+    "last_seen": "2026-11-17 22:33:41"
   },
   "https://www.glowrecipe.com": {
     "variant_id": "66730414080115",
     "price": "4.00",
-    "hits": 4,
+    "hits": 5,
     "first_seen": "2026-11-17 19:55:22",
-    "last_seen": "2026-11-17 21:34:07"
+    "last_seen": "2026-11-17 22:33:40"
   },
   "https://thebudgetingprincess.com": {
     "variant_id": "53272648810783",
@@ -86,16 +86,16 @@
   "https://fccrystal.com": {
     "variant_id": "50384778920173",
     "price": "1.00",
-    "hits": 2,
+    "hits": 3,
     "first_seen": "2026-11-17 19:55:23",
-    "last_seen": "2026-11-17 20:00:50"
+    "last_seen": "2026-11-17 22:33:35"
   },
   "https://www.gruntstyle.com": {
     "variant_id": "44977551081523",
     "price": "4.99",
-    "hits": 3,
+    "hits": 5,
     "first_seen": "2026-11-17 19:55:23",
-    "last_seen": "2026-11-17 21:34:01"
+    "last_seen": "2026-11-17 22:33:40"
   },
   "https://www.burpee.com": {
     "variant_id": "45869497253922",
@@ -128,16 +128,16 @@
   "https://busybug-boutique.myshopify.com": {
     "variant_id": "54457786106174",
     "price": "1.00",
-    "hits": 6,
+    "hits": 13,
     "first_seen": "2026-11-17 19:55:28",
-    "last_seen": "2026-11-17 21:34:02"
+    "last_seen": "2026-11-17 22:34:05"
   },
   "https://bagandcanvas.com": {
     "variant_id": "47762044387466",
     "price": "1.15",
-    "hits": 4,
+    "hits": 5,
     "first_seen": "2026-11-17 20:00:50",
-    "last_seen": "2026-11-17 21:34:01"
+    "last_seen": "2026-11-17 22:33:37"
   },
   "https://championdogproducts.com": {
     "variant_id": "46980076601593",
@@ -149,15 +149,71 @@
   "https://www.runpxl.com": {
     "variant_id": "53378720399657",
     "price": "3.00",
-    "hits": 1,
+    "hits": 2,
     "first_seen": "2026-11-17 20:00:52",
-    "last_seen": "2026-11-17 20:00:52"
+    "last_seen": "2026-11-17 22:33:37"
   },
   "https://www.xtool.com": {
-    "variant_id": "49584765894895",
-    "price": "14.00",
-    "hits": 4,
+    "variant_id": "51519009423599",
+    "price": "1.99",
+    "hits": 9,
     "first_seen": "2026-11-17 20:00:57",
-    "last_seen": "2026-11-17 21:34:03"
+    "last_seen": "2026-11-17 22:34:06"
+  },
+  "https://crabbycomforts.com": {
+    "variant_id": "68152830197873",
+    "price": "3.00",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:35",
+    "last_seen": "2026-11-17 22:33:35"
+  },
+  "https://steals-deals-of-morgantown.myshopify.com": {
+    "variant_id": "42373454921790",
+    "price": "3.00",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:35",
+    "last_seen": "2026-11-17 22:33:35"
+  },
+  "https://txtprint.com": {
+    "variant_id": "51008414482687",
+    "price": "4.11",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:36",
+    "last_seen": "2026-11-17 22:33:36"
+  },
+  "https://www.metagames.toys": {
+    "variant_id": "47796400783412",
+    "price": "0.50",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:38",
+    "last_seen": "2026-11-17 22:33:38"
+  },
+  "https://prettyposhlife.com": {
+    "variant_id": "68267341316375",
+    "price": "1.00",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:38",
+    "last_seen": "2026-11-17 22:33:38"
+  },
+  "https://funscreations.com": {
+    "variant_id": "49505327251738",
+    "price": "1.00",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:41",
+    "last_seen": "2026-11-17 22:33:41"
+  },
+  "https://www.washerestore.com": {
+    "variant_id": "40238641414341",
+    "price": "1.95",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:44",
+    "last_seen": "2026-11-17 22:33:44"
+  },
+  "https://prettytransfers.com": {
+    "variant_id": "45789268803722",
+    "price": "1.00",
+    "hits": 1,
+    "first_seen": "2026-11-17 22:33:45",
+    "last_seen": "2026-11-17 22:33:45"
   }
 }

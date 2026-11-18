@@ -2811,14 +2811,11 @@ async def process_card(cc, mes, ano, cvv, site_url, variant_id=None, proxy_str=N
 
             if is_captcha_required(text):
                 return False, "CAPTCHA_REQUIRED on submit", gateway, total_price, currency
-            if "Your order total has changed." in text:
-                # Shopify recomputed totals server-side between proposal and
-                # submit. STEP 3.5 should prevent most of these, but edge cases
-                # (queues, dynamic rates) can still shift cents. Retry once
-                # on the same site with a fresh session so address/currency
-                # get re-picked and tax is recomputed from scratch.
+            if "Your order total has changed." in text or "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED" in text or "delivery_line_detail_changed" in text.lower():
+                # Shopify recomputed totals or delivery changed between proposal and submit.
+                # Retry with fresh session — re-pick address/currency/tax/delivery
                 if _cart_attempt == 0:
-                    print(f"{tag} STEP 5: order total changed — retrying once with fresh session")
+                    print(f"{tag} STEP 5: delivery/total changed — retrying with fresh session")
                     return await process_card(cc, mes, ano, cvv, site_url,
                                               variant_id=None, proxy_str=proxy_str,
                                               _cart_attempt=_cart_attempt + 1,

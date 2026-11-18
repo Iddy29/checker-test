@@ -1,5 +1,1 @@
- === User proxy ===grep -r \proxy\ /root/hitchecker/*.json 2>&1 | head -5
-cat /root/hitchecker/user_proxy.json 2>/dev/null || echo \no user_proxy.jsoncat /root/hitchecker/global_proxy.txt 2>/dev/null || echo \no global_proxy.txt
-echo
-echo \=== Remove dead proxy ===echo -n \ > /root/hitchecker/global_proxy.txt 2>/dev/null
-echo  -encodedCommand  
+{}

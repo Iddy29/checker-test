@@ -13,7 +13,7 @@
   },
   "pinkbikinitanning.com": {
     "variant_id": "55770220364103",
-    "price": "14.00"
+    "price": "1.00"
   },
   "wearladydry.com": {
     "variant_id": "57252810686848",
@@ -68,7 +68,35 @@
     "price": "2.99"
   },
   "www.xtool.com": {
-    "variant_id": "49584765894895",
-    "price": "14.00"
+    "variant_id": "51519009423599",
+    "price": "1.99"
+  },
+  "crabbycomforts.com": {
+    "variant_id": "68152830197873",
+    "price": "3.00"
+  },
+  "txtprint.com": {
+    "variant_id": "51008414482687",
+    "price": "4.11"
+  },
+  "www.metagames.toys": {
+    "variant_id": "47796400783412",
+    "price": "0.50"
+  },
+  "prettyposhlife.com": {
+    "variant_id": "68267341316375",
+    "price": "1.00"
+  },
+  "funscreations.com": {
+    "variant_id": "49505327251738",
+    "price": "1.00"
+  },
+  "www.washerestore.com": {
+    "variant_id": "40238641414341",
+    "price": "1.95"
+  },
+  "prettytransfers.com": {
+    "variant_id": "45789268803722",
+    "price": "1.00"
   }
 }

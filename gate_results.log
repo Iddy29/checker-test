@@ -7545,3 +7545,28 @@
 2026-11-17 22:01:05 | SHOP  | 4147098088719174|02|29|440 | ERROR    | UNTESTED | 9.7s | uid=1214399247  single
 2026-11-17 22:01:29 | SHOP  | 4940197110545174|10|28|520 | ERROR    | UNTESTED | 9.8s | uid=1214399247  single
 2026-11-17 22:03:03 | SHOP  | 4427568030387685|12|29|583 | ERROR    | UNTESTED | 9.8s | uid=1214399247  single
+2026-11-17 22:31:43 | SHOP  | 5178059827900870|04|29|117 | ERROR    | UNTESTED | 16.3s | uid=1214399247  single
+2026-11-17 22:34:32 | SHOP  |  | MASS     | checked=70 approved=0 declined=23 errors=47 | 60s | uid=1214399247  mass-file
+2026-11-17 23:26:49 | SKL   | 4833120209617167|11|30|436 | UNKNOWN  | NO_SKOOL_ACCOUNT | 0.02s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:27:32 | STC   | 4833120209617167|11|30|436 | ERROR    | Error - Stripe key rejected (You did not provide an API key. You need to provid) [0.42s] | 0.66s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:27:59 | B3C   | 4833120209617167|11|30|436 | DECLINED | Declined - the shop refused the payment (no word from the issuer) | VISA DEBIT | USA | JPMORGAN CHAS | 2.5s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:28:24 | B3    | 4833120209617167|11|30|436 | APPROVED | APPROVED | 8.7s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:31:51 | VBV   | 4036902490164859|11|31|859 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: USA | Bank: JPMORGAN CHASE BANK N.A. [3.22s] | 3.35s | uid=8146575910 James single
+2026-11-17 23:35:06 | B3    | 4036902490149942|06|31|701 | DECLINED | DECLINED | Code: 2038, Status code 2038: Processor Declined (82) | 7.39s | uid=8146575910 James single
+2026-11-17 23:36:45 | VBV   | 4472270103210688|01|30|416 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: USA | Bank: STRIDE BANK  NATIONAL ASSOCIATION [3.46s] | 3.46s | uid=8146575910 James single
+2026-11-17 23:37:38 | B3    | 4472270103210688|01|30|416 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 4.39s | uid=8146575910 James single
+2026-11-17 23:38:56 | VBV   | 4519922164809361|12|30|043 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: CAN | Bank: ROYAL BANK OF CANADA [3.28s] | 3.28s | uid=8146575910 James single
+2026-11-17 23:39:36 | B3    | 4519922164809361|12|30|043 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 4.32s | uid=8146575910 James single
+2026-11-17 23:42:54 | B3C   | 4833120209617167|11|30|436 | DECLINED | Declined - the shop refused the payment (no word from the issuer) | VISA DEBIT | USA | JPMORGAN CHAS | 1.77s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:49:49 | PP    | 4833120209617167|11|30|436 | DECLINED | Declined - Validation Error | 483312 [120.46s] | VISA DEBIT | 483312 | CHASE | US | 7167 | 120.62s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:50:58 | CHARGE | 4833120209617167|11|30|436 | ERROR    | Error - unknown: You did not provide an API key. You need to provide your API [0.51s] | 0.63s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:51:46 | SKB   | 4833120209617167|11|30|436 | DECLINED | Declined - : You did not provide an API key. You need to provide your API [0.12s] | 0.43s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-17 23:53:11 | AUTO  | 4833120209617167|11|30|436 | UNKNOWN  | NO_SKOOL_ACCOUNT | 0.07s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-18 00:18:54 | B3    | 5146162511153480|02|26|566 | DECLINED | DECLINED | Status code 2106: Cannot Authorize at this time (Policy) (82) | 6.93s | uid=8146575910 James single
+2026-11-18 00:22:07 | B3    | 4427422135357534|03|30|742 | DECLINED | DECLINED | Status code 2107: Card Not Activated (78) | 5.36s | uid=8146575910 James single
+2026-11-18 00:24:17 | B3    | 4427425522877774|04|27|027 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 5.06s | uid=8146575910 James single
+2026-11-18 00:24:57 | B3    | 4427422135357534|03|30|742 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.66s | uid=8146575910 James single
+2026-11-18 00:27:57 | B3    | 4427425065216026|09|27|596 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 3.82s | uid=8146575910 James single
+2026-11-18 01:17:50 | B3    | 4295442058834466|02|31|892 | ERROR    | ERROR: client token AJAX non-JSON (200): <!DOCTYPE html> 	<html lang="en-US"> 	<head> 	<meta http-eq | 5.3s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-18 01:18:36 | B3    | 4295442058834466|02|31|892 | DECLINED | DECLINED | Code: 2010, Status code 2010: Card Issuer Declined CVV (N7) | 5.48s | uid=6255366859 𝐘𝐀𝐒𝐈𝐑 single
+2026-11-18 01:37:53 | SHOP  | 5226864456213285|06|28|213 | DECLINED | CARD_DECLINED | 20.0s | uid=1214399247  single

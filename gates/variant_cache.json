@@ -66,5 +66,49 @@
   "bagandcanvas.com": {
     "variant_id": "47762044387466",
     "price": "1.15"
+  },
+  "kitaleigh.com": {
+    "variant_id": "42435875143743",
+    "price": "1.00"
+  },
+  "urbansoundprints.com": {
+    "variant_id": "55859580830025",
+    "price": "2.20"
+  },
+  "authormariejames.myshopify.com": {
+    "variant_id": "42875886567487",
+    "price": "2.00"
+  },
+  "canihaveyourcroutons.com": {
+    "variant_id": "43075612311703",
+    "price": "1.99"
+  },
+  "lovingwvwholesale.com": {
+    "variant_id": "48182806479025",
+    "price": "1.75"
+  },
+  "inthebagcornhole.com": {
+    "variant_id": "50476681298229",
+    "price": "1.00"
+  },
+  "www.chaoscreations.scot": {
+    "variant_id": "66147787276637",
+    "price": "3.41"
+  },
+  "texastransfersanddesigns.com": {
+    "variant_id": "47493158437099",
+    "price": "1.50"
+  },
+  "rainbowandco.uk": {
+    "variant_id": "57377509278074",
+    "price": "2.00"
+  },
+  "797performance.com": {
+    "variant_id": "50726518063296",
+    "price": "4.63"
+  },
+  "shop.barnesandnoble.com": {
+    "variant_id": "46399812698353",
+    "price": "3.99"
   }
 }
