@@ -7606,3 +7606,27 @@
 2026-11-18 02:20:46 | VBV   | 4546466479044014|09|26|579 | DECLINED | Declined - Expired Card | 454646 [0.0s] | 0.0s | uid=1441224988 ＧＯＫＵ O P single
 2026-11-18 02:21:18 | VBV   | 4644070382753983|04|28|820 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.78s] | 2.78s | uid=1441224988 ＧＯＫＵ O P single
 2026-11-18 02:22:06 | VBV   | 4124892105002557|08|29|448 | DECLINED | 3DS Rejected | Type: Credit | Country: PRT | Bank: CAIXA GERAL DE DEPOSITOS S.A. [5.53s] | 5.54s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 02:27:01 | VBV   | 4001530912311914|03|28|154 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.72s] | 2.73s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 02:27:26 | VBV   | 4151953934206680|06|28|071 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.73s] | 2.74s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 02:27:50 | VBV   | 4910570414375439|08|41|304 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.67s] | 2.67s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 02:28:05 | VBV   | 4012293583077168|01|32|243 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.85s] | 2.85s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 02:28:13 | SHOP  |  | MASS     | checked=65 approved=0 declined=10 errors=55 | 60s | uid=1214399247  mass-file
+2026-11-18 03:27:28 | B3    | 5466160083801728|07|30|008 | APPROVED | APPROVED | 8.31s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 03:28:17 | SHOP  | 5466160083801728|07|30|008 | DECLINED | CARD_DECLINED | 8.0s | uid=1441224988  single
+2026-11-18 03:28:32 | SHOP  | 5540450504056188|02|29|756 | DECLINED | CARD_DECLINED | 7.4s | uid=1441224988  single
+2026-11-18 03:29:08 | SHOP  | 4705380803830344|07|31|831 | DECLINED | CARD_DECLINED | 7.2s | uid=1441224988  single
+2026-11-18 03:29:29 | SHOP  | 5171487728144966|08|28|072 | DECLINED | CARD_DECLINED | 7.0s | uid=1441224988  single
+2026-11-18 03:30:22 | B3C   | 4705380803830344|07|31|831 | DECLINED | Declined - the shop refused the payment (no word from the issuer) | VISA DEBIT | TWN | CHUNGHWA POST | 2.84s | uid=1441224988 ＧＯＫＵ O P single
+2026-11-18 12:54:07 | B3    | 5356740156514630|11|26|121 | DECLINED | DECLINED | Status code 2105: Cannot Authorize at this time (Life cycle) (79) | 7.86s | uid=8804730508 Арина single
+2026-11-18 12:55:38 | B3    | 4266841697461224|11|26|478 | DECLINED | DECLINED | Code: 2014, Status code 2014: Processor Declined - Fraud Suspected (59) | 5.1s | uid=8804730508 Арина single
+2026-11-18 13:01:58 | B3    | 4343402943896122|11|26|409 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 4.56s | uid=8804730508 Арина single
+2026-11-18 14:06:31 | B3    | 6011002040030363|11|26|518 | DECLINED | DECLINED | Code: 2038, Status code 2038: Processor Declined (05 : NOT AUTHORISED) | 7.44s | uid=8804730508 Арина single
+2026-11-18 14:09:04 | B3    | 6011298613131600|11|26|415 | DECLINED | DECLINED | Code: 2038, Status code 2038: Processor Declined (05 : NOT AUTHORISED) | 4.99s | uid=8804730508 Арина single
+2026-11-18 14:10:04 | B3    | 6011300240001949|11|26|539 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 4.39s | uid=8804730508 Арина single
+2026-11-18 19:55:28 | B3    | 4147202500535800|07|26|630 | APPROVED | APPROVED | 8.95s | uid=8804730508 Арина single
+2026-11-18 19:56:11 | B3    | 4867960083720523|02|31|258 | DECLINED | DECLINED | Status code 2047: Call Issuer. Pick Up Card. (41) | 4.57s | uid=8804730508 Арина single
+2026-11-18 20:21:08 | B3    | 4465420537677270|11|26|713 | DECLINED | DECLINED | Status code risk_threshold: Gateway Rejected: risk_threshold | 5.3s | uid=8804730508 Арина single
+2026-11-18 21:03:47 | SHOP  | 5226864456213285|06|28|213 | ERROR    | UNTESTED | 2.0s | uid=1214399247  single
+2026-11-18 21:04:10 | SHOP  | 5226864456213285|06|28|213 | DECLINED | CARD_DECLINED | 9.9s | uid=1214399247  single
+2026-11-18 21:06:35 | SHOP  | 4008950105115307|03|30|388 | ERROR    | UNTESTED | 2.0s | uid=1214399247  single
+2026-11-18 21:07:00 | SHOP  | 4008950105115307|03|30|388 | ERROR    | UNTESTED | 2.1s | uid=1214399247  single

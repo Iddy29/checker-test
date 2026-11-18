@@ -446,3 +446,13 @@
 4100390748117658|03|27|380 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: USA | Bank: CITIBANK  N.A.- COSTCO [3.32s] | VBV Lookup | -
 4644081817671823|07|29|415 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [3.03s] | VBV Lookup | -
 4644070382753983|04|28|820 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.78s] | VBV Lookup | -
+4001530912311914|03|28|154 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None | VBV Lookup | -
+4151953934206680|06|28|071 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None | VBV Lookup | -
+4012293583077168|01|32|243 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None | VBV Lookup | -
+4910570414375439|08|41|304 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None | VBV Lookup | -
+4001530912311914|03|28|154 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.72s] | VBV Lookup | -
+4151953934206680|06|28|071 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.73s] | VBV Lookup | -
+4910570414375439|08|41|304 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.67s] | VBV Lookup | -
+4012293583077168|01|32|243 | APPROVED | 3d Passed (No VBV) | Type: Credit | Country: None | Bank: None [2.85s] | VBV Lookup | -
+5466160083801728|07|30|008 | APPROVED | APPROVED | Braintree OneTropic | -
+4147202500535800|07|26|630 | APPROVED | APPROVED | Braintree OneTropic | -

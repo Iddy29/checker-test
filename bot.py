@@ -7177,13 +7177,23 @@ async def process_msh_cards(event, cards):
                 _site = _all_sites[_site_idx[0] % len(_all_sites)]
                 _site_idx[0] += 1
 
+            # Get proxy but fall back to direct if it's dead
+            _proxy = get_user_proxy(user_id) or None
             try:
                 result = await asyncio.wait_for(
                     check_card_native(cc, mm, yy, cvv,
                                       site_url=_site,
-                                      proxy_str=get_user_proxy(user_id) or None,
+                                      proxy_str=_proxy,
                                       extra_sites=user_extra_sites),
                     timeout=60)
+                # If proxy caused error, retry without proxy
+                if _proxy and result.get("Response") in ("UNTESTED", "ERROR", "TIMEOUT"):
+                    result = await asyncio.wait_for(
+                        check_card_native(cc, mm, yy, cvv,
+                                          site_url=_site,
+                                          proxy_str=None,
+                                          extra_sites=user_extra_sites),
+                        timeout=60)
             except asyncio.TimeoutError:
                 result = {"Response": "TIMEOUT", "Charged": "False", "Price": "N/A"}
             except Exception as e:
@@ -7347,13 +7357,21 @@ async def sh_native(event):
     except Exception:
         pass
 
+    _proxy = get_user_proxy(user_id) or None
     try:
         from gates.shopify_native_gate import check_card_native
         out = await asyncio.wait_for(
             check_card_native(cc, mm, yy, cvv, site_url=site,
-                              proxy_str=get_user_proxy(user_id) or None,
+                              proxy_str=_proxy,
                               extra_sites=user_extra_sites),
             timeout=120)
+        # If proxy caused error, retry without proxy
+        if _proxy and out.get("Response") in ("UNTESTED", "ERROR", "TIMEOUT"):
+            out = await asyncio.wait_for(
+                check_card_native(cc, mm, yy, cvv, site_url=site,
+                                  proxy_str=None,
+                                  extra_sites=user_extra_sites),
+                timeout=120)
     except asyncio.TimeoutError:
         try:
             await log_gate_result("MSH", "%s|%s|%s|%s" % (cc, mm, yy, cvv),
